@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Bugku CTF】Misc-签到题 Writeup - Heqianhong1114</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; }
+        h1 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 24px; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; }
+        .date { color: #586069; font-size: 0.9em; }
+        .tag { background: #0366d6; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin-right: 5px; }
+        a { color: #0366d6; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        ul { padding-left: 20px; }
+        .footer { margin-top: 40px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; }
+    </style>
+</head>
+<body>
+
+    <p><a href=" ">← 返回首页</a ></p >
+
+    <h1>【Bugku CTF】Misc-签到题 Writeup</h1>
+    <p class="date">发布于：2026-09-11 | 分类：CTF | 标签：<span class="tag">Bugku</span><span class="tag">Misc</span></p >
+
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Bugku CTF (https://ctf.bugku.com/)</li>
+        <li><strong>分类：</strong>Misc（杂项）</li>
+        <li><strong>题目名称：</strong>签到题</li>
+        <li><strong>难度：</strong>入门 / 送金币题</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>本题是Bugku平台的新手引导题。题目描述为“单纯的送金币题”，提示关注微信公众号即可获取flag。</p >
+
+    <h2>3. 操作步骤</h2>
+    <ol>
+        <li>登录Bugku平台，在题目区找到该签到题。</li>
+        <li>看到题目给出的二维码，使用微信扫码。</li>
+        <li>关注“Bugku”微信公众号。</li>
+        <li>公众号自动回复flag内容：<code>flag{BugKu-Sec-pwn!}</code></li>
+        <li>将flag填入题目提交框并提交。</li>
+    </ol>
+
+    <h2>4. 踩坑记录（新手避坑指南）</h2>
+    <p>在第一次提交时，我犯了新手常犯的错误：<strong>将连字符 <code>-</code> 错误地输入成了下划线 <code>_</code></strong>。</p >
+    <ul>
+        <li>导致提交失败：<code>flag{BugKu-Sec_pwn!}</code> ❌</li>
+        <li>正确格式为：<code>flag{BugKu-Sec-pwn!}</code> ✅</li>
+    </ul>
+    <p><strong>总结：</strong>CTF中的 flag 对大小写、标点符号极其敏感，提交前务必核对，最好使用复制粘贴。</p >
+
+    <h2>5. 总结与反思</h2>
+    <p>这是CTF之旅的第一步。虽然题目本身没有技术含量，但它帮我熟悉了Bugku平台的注册、题库分类、提交Flag以及新手引导流程，为后续打更难的题奠定了基础。</p >
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+
+</body>
+</html>
