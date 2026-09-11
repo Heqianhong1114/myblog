@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Bugku CTF】Misc-这是一张单纯的图片 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; }
+        h1, h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; }
+        a { color: #0366d6; text-decoration: none; }
+        .footer { margin-top: 40px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【Bugku CTF】Misc-这是一张单纯的图片 Writeup</h1>
+    <p>发布于：2026-09-11 | 分类：CTF | 标签：Bugku, Misc</p >
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li>平台：Bugku CTF</li>
+        <li>分类：Misc（杂项）</li>
+        <li>题目名称：这是一张单纯的图片</li>
+        <li>描述：key{}</li>
+    </ul>
+    <h2>2. 解题思路</h2>
+    <p>下载附件得到一张图片，查询AI，图片尾部或十六进制数据中隐藏了信息。</p >
+    <h2>3. 操作步骤</h2>
+    <ol>
+        <li>下载图片，使用 VS Code 中的 <code>Hex Editor</code> 插件以十六进制方式打开。</li>
+        <li>在文件末尾发现一段 HTML 实体编码（<code>&amp;#107;&amp;#101;...</code>）。</li>
+        <li>将这段编码复制到在线 HTML 实体解码工具中，点击“解码”。</li>
+        <li>成功得到明文 <code>key{you are right}</code>，提交至平台。</li>
+    </ol>
+    <h2>4. 总结</h2>
+    <p>掌握了使用十六进制编辑器查看文件尾部信息的方法，熟悉了 HTML 实体编码的识别与解码。这是 Misc 图片隐写的基础套路。</p >
+    <div class="footer"><p>Hosted on GitHub Pages</p ></div>
+</body>
+</html>
