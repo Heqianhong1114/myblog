@@ -8,12 +8,8 @@
         body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
         h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
         h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
-        h3 { color: #24292e; margin-top: 20px; }
         code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
         pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
-        blockquote { border-left: 4px solid #dfe2e5; padding-left: 15px; color: #6a737d; margin: 20px 0; background-color: #f6f8fa; padding: 10px 15px; }
-        a { color: #0366d6; text-decoration: none; }
-        a:hover { text-decoration: underline; }
         .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
         .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
     </style>
@@ -29,38 +25,36 @@
     <h2>1. 题目信息</h2>
     <ul>
         <li><strong>平台：</strong>Bugku CTF</li>
-        <li><strong>分类：</strong>Misc（杂项）- 图片隐写</li>
+        <li><strong>分类：</strong>Misc（杂项）</li>
         <li><strong>题目名称：</strong>隐写</li>
         <li><strong>描述：</strong>BUGKU(xxx)</li>
     </ul>
-    <p><em>注意：本题提交格式为 <code>BUGKU{}</code>，不是常见的 <code>flag{}</code>。</em></p >
+    <p><em>注意：这道题的提交格式是 <code>BUGKU{}</code>，不是常见的 <code>flag{}</code>，提交的时候别习惯性写错了。</em></p >
 
     <h2>2. 解题思路</h2>
-    <p>下载附件后，得到一个名为 <code>2.png</code> 的图片。尝试直接双击打开，系统提示“加载图片出错”，说明图片文件结构被出题人故意篡改。需要通过查看十六进制数据和使用修复工具来寻找被隐藏的 flag。</p >
+    <p>下载附件后得到一张名为 <code>2.png</code> 的图片。双击打开时，系统直接报错“加载图片出错”。我猜测出题人可能篡改了图片的宽高数据，导致图片无法正常解析。一开始我以为是用 LSB（最低有效位）隐写，写了个 Python 脚本但什么都没提取出来。后来去看了题目评论区，有大佬提示这是“图片长宽修复”题，并给了一个在线修复工具的网址，试了一下果然跑通了。</p >
 
     <h2>3. 操作步骤</h2>
     <ol>
         <li>下载并解压附件，得到 <code>2.png</code>。</li>
-        <li>尝试用 VS Code 的 <code>Hex Editor</code> 打开，发现文件头 <code>89 50 4E 47</code> 正常，但宽高数据为 <code>00 00 01 F4</code>（宽500）和 <code>00 00 00 A4</code>（高420），且在搜索框中搜索 <code>BUGKU</code> 无结果。</li>
-        <li>尝试编写 Python 脚本（使用 Pillow 库）提取 LSB 隐写数据，遇到路径报错（Windows 隐藏扩展名导致找不到文件）并最终提取失败。这说明 flag 没有被藏在像素的最低位，而是藏在图片的可视区域之外。</li>
-        <li>查阅题目评论区，发现有师傅提示这是“图片长宽修复”题，并推荐了在线工具 <code>https://tools.qsnctf.com/#//misc/png_dim_fix</code>。</li>
-        <li>使用该在线工具上传图片，工具检测出 <code>IHDR CRC</code> 校验错误，并成功进行了“修复宽高”操作。</li>
-        <li>修复后的图片直接露出了下半部分隐藏内容，明文显示 <code>BUGKU{a1e5aSA}</code>。</li>
-        <li>返回平台提交，提示 Flag 正确。</li>
+        <li>用 VS Code 的 <code>Hex Editor</code> 插件打开，发现文件头 <code>89 50 4E 47</code> 是正常的 PNG 头，宽高数据是 <code>00 00 01 F4</code>（宽500）和 <code>00 00 00 A4</code>（高420）。按 <code>Ctrl + F</code> 搜索 <code>BUGKU</code> 找不到任何明文。</li>
+        <li>我尝试写 Python 脚本提取 LSB 数据，但脚本报错找不到文件（被 Windows 隐藏扩展名坑了），而且图片本身结构也有问题，这条路走不通。</li>
+        <li>去评论区找线索，看到有人推荐了在线工具：<code>https://tools.qsnctf.com/#//misc/png_dim_fix</code>。</li>
+        <li>打开这个网址，把 <code>2.png</code> 上传上去。工具检测出 <code>IHDR CRC</code> 校验错误，点击“修复宽高”按钮。</li>
+        <li>下载修复后的图片，直接双击打开，图片下半部分露出了明文：<code>BUGKU{a1e5aSA}</code>。</li>
+        <li>复制这串字符去平台提交，验证通过。</li>
     </ol>
 
-    <h2>4. 踩坑记录</h2>
+    <h2>4. 踩坑记录与复盘</h2>
     <ul>
-        <li><strong>Windows 隐藏扩展名陷阱：</strong>代码中写 <code>2.png</code> 报错找不到文件，因为 Windows 实际上把文件隐藏为 <code>2</code> 或者带有其他默认扩展名。以后写路径时最好直接拖拽文件到编辑器，或者手动开启“显示文件扩展名”。</li>
-        <li><strong>PIL 库缺失：</strong>运行 Python 脚本时提示 <code>No module named 'PIL'</code>。解决办法是在终端使用 <code>pip install pillow -i https://pypi.tuna.tsinghua.edu.cn/simple</code> 安装。</li>
-        <li><strong>不要迷信纯代码：</strong>有时候解密工具和搜索比写代码更高效。CTF 比赛中时间宝贵，善用在线工具（如 qsnctf）能快速破局。</li>
+        <li><strong>Windows 隐藏扩展名又搞事：</strong>写 Python 代码时，路径写的是 <code>2.png</code>，但系统提示 <code>No such file or directory</code>。这是因为 Windows 默认把文件的后缀名藏起来了。以后写路径，最稳妥的方法是直接把文件拖进编辑器的引号里，或者去文件夹的“查看”菜单里把“文件扩展名”勾选上。</li>
+        <li><strong>PIL 库缺失：</strong>写脚本时终端报错 <code>ModuleNotFoundError: No module named 'PIL'</code>。解决办法是直接在终端输入：<code>pip install pillow -i https://pypi.tuna.tsinghua.edu.cn/simple</code> 来安装这个图像处理库。</li>
+        <li><strong>别死磕代码，善用工具：</strong>CTF 比赛时时间有限，虽然用 Python 写脚本很酷，但遇到像“PNG 高度修复”这种有现成在线工具的场景，直接上传图片秒出答案，效率更高。这个在线工具网站（qsnctf）可以记到小本本上。</li>
+        <li><strong>PNG 结构小知识：</strong>PNG 图片的宽高信息以及 CRC 校验码是连在一起的。如果出题人故意把高度改小，超出的那一部分在正常查看时就会被裁掉，只有把高度改大，才能看到隐藏区域（也就是 flag 的位置）。</li>
     </ul>
-
-    <h2>5. 总结与反思</h2>
-    <p>这是一道非常经典的 PNG 图片高度修改隐写题。出题人将图片真实的 IHDR 信息篡改，导致图片无法正常解析，且隐藏的 flag 区域在画布之外。通过修改图片高度，使得隐藏区域露出，是此类题型最核心的解法。这次实战也让我初步了解了 PNG 文件结构（IHDR、CRC）以及 Python 脚本自动化提取的思路。</p >
 
     <div class="footer">
         <p>Hosted on GitHub Pages</p >
     </div>
 </body>
-</html>[=]
+</html>
