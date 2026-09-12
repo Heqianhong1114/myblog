@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Windows 软件卸载故障排障记录：Python Error 5</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        h3 { color: #24292e; margin-top: 20px; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        blockquote { border-left: 4px solid #dfe2e5; padding-left: 15px; color: #6a737d; margin: 20px 0; background-color: #f6f8fa; padding: 10px 15px; }
+        a { color: #0366d6; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>Windows 软件卸载故障排障记录：Python Error 5</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.12 | <strong>分类：</strong>系统运维 | <strong>标签：</strong>Windows, 排障, Python, Error5</p >
+    </div>
+    
+    <h2>前情提要</h2>
+    <p>为了环境兼容性，我决定把电脑上的 Python 3.14 卸载，重装一个更稳定的 Python 3.12.6 版本。结果遭遇了一个非常经典的 Windows 故障——卸载报错 Error 5。</p >
+    <p>系统弹窗提示：<code>Could not set file security for file 'D:\Config.Msi\...'. Error: 5. Verify that you have sufficient privileges to modify the security permissions for this file.</code></p >
+    <p>控制面板无法卸载，陷入了死循环。一场关于系统权限与软件卸载的排障过程就此开始。</p >
+
+    <h2>第一回合：常规卸载失败</h2>
+    <p><strong>操作：</strong>在控制面板双击 Python 3.12.6，点击“卸载”。</p >
+    <p><strong>结果：</strong>进度条卡死，反复弹出 Error 5，提示“拒绝访问”。</p >
+    <p><strong>原因分析：</strong><code>D:\Config.Msi</code> 是 Windows Installer 的临时缓存文件夹。系统后台的 <code>msiexec.exe</code> 服务锁定了相关文件，导致当前用户没有权限去修改或删除。</p >
+
+    <h2>第二回合：夺取所有权尝试</h2>
+    <p>既然权限不够，那就用命令强行夺权。以管理员身份打开 CMD，执行以下命令：</p >
+    <pre><code>takeown /f "D:\Config.Msi" /r /d y
+icacls "D:\Config.Msi" /grant administrators:F /t</code></pre>
+    <p><strong>结果：</strong>命令执行成功，但再次尝试卸载，依然报错 Error 5。</p >
+    <p><strong>原因分析：</strong>哪怕拿到了文件所有权，正在运行的 Windows Installer 服务依然在锁定文件，正面硬刚无法解决。</p >
+
+    <h2>第三回合：安全模式下的新报错</h2>
+    <p>为了避开后台服务的干扰，我按住 Shift 键重启电脑，进入了“安全模式”。</p >
+    <p>在安全模式下点击卸载按钮。</p >
+    <p><strong>结果：</strong>弹出了新的报错——<code>0x80070641 - 无法访问 Windows Installer 服务</code>。</p >
+    <p><strong>知识点：</strong>安全模式默认不启动 Windows Installer 服务。没有此服务，基于 MSI 的程序无法安装或卸载。这条路被物理封锁了。</p >
+
+    <h2>最终解决：微软官方疑难解答工具</h2>
+    <p>常规手段失效后，我使用了微软官方的卸载修复工具：<strong>Microsoft Program Install and Uninstall Troubleshooter（程序安装和卸载疑难解答）</strong>。</p >
+    <p>下载 <code>.meta.diagcab</code> 文件后，右键运行（Win11 需点击“显示更多选项”才能找到“以管理员身份运行”）。</p >
+    <p>选择“卸载” -> 找到 Python 3.12.6 -> 点击下一步。</p >
+    <p>工具绕过了常规的权限检查，强行清理了损坏的注册表和锁定文件，最终显示 <code>Uninstall was successful</code>。</p >
+
+    <h2>信安新手的避坑总结</h2>
+    <ol>
+        <li><strong>安装路径规范：</strong>安装开发环境（Python, Java 等），绝对不要装在带有中文或空格的路径下（例如 <code>D:\Open Browser下载\python</code>），否则后期极易出现环境报错。推荐使用 C 盘默认路径，或者纯英文无空格的 D 盘路径。</li>
+        <li><strong>系统排障思路：</strong>
+            <ul>
+                <li>常规卸载 -> 报错就结束任务进程。</li>
+                <li>权限问题 -> 尝试使用 <code>takeown</code> 和 <code>icacls</code> 命令。</li>
+                <li>终极方案 -> 不要盲目死磕注册表，下载微软官方的疑难解答工具。</li>
+            </ul>
+        </li>
+        <li><strong>心态建设：</strong>遇到系统报错，不要急着重装系统。每一个报错代码都是搜索引擎上的线索，去查它、理解它、解决它，这才是信安工程师的成长方式。</li>
+    </ol>
+
+    <p>排障完成后，准备去安装一个路径干净的 Python 3.12 继续学习。</p >
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
