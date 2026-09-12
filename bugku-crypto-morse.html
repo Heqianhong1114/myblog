@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Bugku CTF】Crypto-/- Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【Bugku CTF】Crypto-/- Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.12 | <strong>分类：</strong>CTF | <strong>标签：</strong>Bugku, Crypto, Python, 摩斯密码</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Bugku CTF</li>
+        <li><strong>分类：</strong>Crypto（密码学）</li>
+        <li><strong>题目名称：</strong>/-</li>
+        <li><strong>描述：</strong>一长串由 <code>.</code> 和 <code>-</code> 组成的字符串，使用 <code>/</code> 分隔。</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>观察到字符串仅由点（<code>.</code>）和横线（<code>-</code>）组成，且使用斜杠（<code>/</code>）分隔，这是摩斯密码（Morse Code）的典型特征。题目名 <code>/-</code> 也在暗示这一点。计划使用 Python 编写脚本进行自动化解码，提高效率。</p >
+
+    <h2>3. 操作步骤</h2>
+    <ol>
+        <li>复制题目中的摩斯密码串。</li>
+        <li>在 VS Code 中编写 <code>mima.py</code> 脚本，建立摩斯密码与英文字母、数字及特殊符号的映射字典。</li>
+        <li>将密文按 <code>/</code> 切分，遍历字典拼接出明文。</li>
+        <li>运行脚本，得到 <code>FLAG{D3FCBF17F9399504}</code>。</li>
+        <li>根据评论区前辈提示，CTF 平台通常要求小写格式，将结果转为全小写：<code>flag{d3fcbf17f9399504}</code>，提交后验证正确。</li>
+    </ol>
+
+    <h2>4. 踩坑记录</h2>
+    <ul>
+        <li><strong>大小写陷阱：</strong>摩斯密码解码出来的原始明文是大写，且包含特殊符号（如 <code>----.--</code> 映射为 <code>{</code>）。但提交时必须遵循平台默认规范，全转小写才通过。</li>
+        <li><strong>分隔符识别：</strong>摩斯密码中字母间通常用空格，单词间用 <code>/</code>。但本题直接使用 <code>/</code> 分隔字母，需适应这种变体。</li>
+    </ul>
+
+    <h2>5. 总结与反思</h2>
+    <p>这是第一次接触 Crypto 领域的题目。通过编写 Python 脚本进行自动化解码，避免了手工查阅对照表的繁琐。掌握了摩斯密码的识别与代码解法，理解了 CTF 中对于输出格式的严格要求，完成了从 Web/Misc/PWN 到 Crypto 的领域跨越。</p >
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
