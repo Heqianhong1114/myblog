@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>【Bugku CTF】Web-计算器 Writeup - Heqianhong1114</title>
+    <title>【Bugku CTF】Web-计算器 Writeup</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; }
         h1 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; }
@@ -13,7 +13,7 @@
         .tag { background: #0366d6; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin-right: 5px; }
         a { color: #0366d6; text-decoration: none; }
         a:hover { text-decoration: underline; }
-        ul { padding-left: 20px; }
+        ul, ol { padding-left: 20px; }
         .footer { margin-top: 40px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; }
     </style>
 </head>
@@ -33,20 +33,26 @@
     </ul>
 
     <h2>2. 解题思路</h2>
-    <p>启动场景后，页面显示一个简单的加法题（如 <code>35+27=?</code>），要求输入答案。但在输入框中尝试输入“62”时，发现只能输入一位数字，无法提交正确答案。</p >
+    <p>启动场景后，页面出现一道简单的加法题 <code>35+27=?</code>。我算出来答案是 62，准备往输入框里输入。但神奇的事情发生了，输入框里怎么都输不进去两位数，只能输入一个数字，导致无法提交正确答案。我猜测是网页前端做了什么限制，决定按 F12 查看源码。</p >
 
     <h2>3. 操作步骤</h2>
     <ol>
-        <li>按 <code>F12</code> 打开开发者工具，使用元素选择器点击输入框，定位到 <code>&lt;input&gt;</code> 标签。</li>
-        <li>发现其包含属性 <code>maxlength="1"</code>，正是这个前端属性限制了输入长度。</li>
-        <li>双击 <code>maxlength="1"</code> 中的 <code>1</code>，修改为 <code>10</code>（解除长度限制）。</li>
-        <li>关闭开发者工具，成功在输入框中输入答案 <code>62</code>。</li>
-        <li>点击“验证”按钮，弹窗提示“恭喜您，Flag正确”。</li>
-        <li>提取 Flag 并提交到 Bugku 平台。</li>
+        <li>按 <code>F12</code> 打开浏览器的开发者工具。</li>
+        <li>点击左上角的“选择元素”小箭头图标，然后点击网页上的那个输入框。</li>
+        <li>在右侧代码面板里，自动定位到了输入框的 HTML 代码：<code>&lt;input type="text" class="input" maxlength="1"&gt;</code>。</li>
+        <li>发现里面有个属性 <code>maxlength="1"</code>，这就是限制只能输入一位数的罪魁祸首。</li>
+        <li>双击代码里的那个数字 <code>1</code>，把它修改为 <code>10</code>（或者直接选中整个 <code>maxlength="1"</code> 属性按 Delete 键删掉）。</li>
+        <li>关掉开发者工具，回到网页，输入框中现在能顺利输入两位数 <code>62</code> 了。</li>
+        <li>点击“验证”按钮，页面弹窗提示“恭喜您，Flag正确”。</li>
+        <li>提取 Flag 并提交到 Bugku 平台，验证通过。</li>
     </ol>
 
-    <h2>4. 总结与反思</h2>
-    <p>这是一道经典的“前端校验绕过”题。核心结论是：<strong>前端代码（HTML、JS）是不可信的</strong>，攻击者可以通过开发者工具随意修改。真正的安全校验（如：判断结果是否正确、限制提交频率等）必须在后端服务器进行。</p >
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>不要被前端限制唬住：</strong>网页里用 HTML 代码写的限制（比如 <code>maxlength</code>）是非常脆弱的，本质上它只是浏览器在“劝”你不要输入太多字。我们完全可以用 F12 把这个属性修改掉，骗过浏览器。</li>
+        <li><strong>关于定位元素：</strong>如果不用选择器，我们直接右键输入框选择“检查”，也能直接跳转到对应的代码位置，更快一点。</li>
+        <li><strong>安全小思考：</strong>真正的安全验证（比如验证答案到底对不对）都是在服务器端完成的，前端做的任何限制（输入长度、格式等）都只是为了提升用户体验或减少请求次数，任何人稍微改一下代码就能绕过。</li>
+    </ul>
 
     <div class="footer">
         <p>Hosted on GitHub Pages</p >
