@@ -3,52 +3,65 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>【Bugku CTF】Web-alert Writeup - Heqianhong1114</title>
+    <title>【Bugku CTF】Web-alert Writeup</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; }
-        h1 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; }
-        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 24px; }
-        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; }
-        .date { color: #586069; font-size: 0.9em; }
-        .tag { background: #0366d6; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin-right: 5px; }
-        a { color: #0366d6; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        ul { padding-left: 20px; }
-        .footer { margin-top: 40px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; }
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
     </style>
 </head>
 <body>
-
     <p><a href=" ">← 返回首页</a ></p >
-
     <h1>【Bugku CTF】Web-alert Writeup</h1>
-    <p class="date">发布于：2026-09-11 | 分类：CTF | 标签：<span class="tag">Bugku</span><span class="tag">Web</span></p >
-
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.11 | <strong>分类：</strong>CTF | <strong>标签：</strong>Bugku, Web, JavaScript</p >
+    </div>
+    
     <h2>1. 题目信息</h2>
     <ul>
         <li><strong>平台：</strong>Bugku CTF</li>
         <li><strong>分类：</strong>Web</li>
         <li><strong>题目名称：</strong>alert</li>
+        <li><strong>描述：</strong>flag{}</li>
     </ul>
 
     <h2>2. 解题思路</h2>
-    <p>启动场景后，页面遭遇无限 <code>alert()</code> 死循环弹窗，导致右键失灵，常规 F12 开发者工具也被阻塞无法正常查看。我们需要绕过前端 JavaScript 执行来查看源码。</p >
+    <p>点击“启动场景”后，网页开始无限循环弹窗，根本关不掉。尝试右键查看源码，发现右键被禁用了。按 F12 打开开发者工具，控制台被弹窗卡死，页面源码也刷不出来。我决定放弃常规操作，直接绕过 JS 执行来看原始源码。</p >
 
     <h2>3. 操作步骤</h2>
     <ol>
-        <li>在浏览器地址栏中，手动在网址前加上 <code>view-source:</code>，强制以纯文本方式查看原始代码，绕过 JS 阻塞。</li>
-        <li>在源码最底部发现被注释掉的 HTML 十进制实体编码，格式为 <code>&amp;#102;&amp;#108;...</code>。</li>
-        <li>打开开发者工具（F12）的控制台 (Console)，编写 JavaScript 正则替换代码进行解码：<br>
-            <code>var result = str.replace(/(&amp;#(\d+);)/g, function(match, dec) { return String.fromCharCode(dec); });</code></li>
-        <li>使用 <code>console.log(result)</code> 打印解码结果，成功获取明文 flag。</li>
+        <li>在浏览器地址栏的网址最前面，手动加上 <code>view-source:</code>，比如 <code>view-source:http://160.202.254.160:15894/</code>，按回车。这样浏览器就会直接显示纯文本源码，不再执行任何 JavaScript 弹窗。</li>
+        <li>在源码页面按 <code>Ctrl + F</code> 搜索 <code>flag</code>。</li>
+        <li>在页面最底部发现了一长串被注释掉的字符：<code>&lt;!--&#102;&#108;&#97;&#103;&#123;...&#125;--&gt;</code>。</li>
+        <li>把这段编码（从 <code>&#102;</code> 开始到 <code>&#125;</code> 结束）全部复制下来。</li>
+        <li>新建一个网页标签页，打开开发者工具（F12），切换到“控制台 (Console)”。</li>
+        <li>在控制台输入下面这三行代码，把编码变成明文：</li>
     </ol>
 
-    <h2>4. 总结与反思</h2>
-    <p>遇到无限弹窗不要狂点确定，应当想办法阻断前端 JS 执行（如使用 <code>view-source:</code> 或浏览器禁用 JS）。遇到 <code>&amp;#数字;</code> 要迅速联想到 HTML 实体编码，学会利用控制台写脚本或在线工具快速解码。</p >
+<pre><code>var str = "把刚才复制的&#102;...编码粘贴到这里";
+var result = str.replace(/&#(\d+);/g, function(match, dec) { return String.fromCharCode(dec); });
+console.log(result);</code></pre>
+
+    <ol start="7">
+        <li>按回车，控制台打印出 <code>flag{16bf28d2f5d8c747c23b6f26d7d4dac7}</code>。</li>
+        <li>把这个 flag 复制去 Bugku 平台提交，验证通过。</li>
+    </ol>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>别跟弹窗硬刚：</strong>一开始我以为猛点“确定”就能关掉弹窗，结果点了几十下还在弹。遇到这种无限弹窗的死循环，第一反应应该是想办法阻断前端 JS 执行。这次用的 <code>view-source:</code> 就是个非常直接的方法。</li>
+        <li><strong>浏览器的控制台被卡死：</strong>因为弹窗太多，F12 的控制台有时候会卡住不响应。所以我是先关掉了弹窗页，新开了一个空白页，再打开 F12 的控制台，最后才把代码复制进去运行的。这个顺序很重要，在靶场页面直接跑代码很容易被弹窗打乱。</li>
+        <li><strong>手动补括号：</strong>复制那串编码的时候，因为太长，很容易漏掉最后一个分号或花括号。我当时就漏了一个，导致解码出来的 flag 少了一个右大括号 <code>}</code>，最后是自己手动补上才提交成功的。</li>
+        <li><strong>什么是 HTML 实体编码：</strong>遇到 <code>&amp;#数字;</code> 这种格式，不需要背字典，它就是 HTML 实体编码，对应的是 ASCII 码。用 JS 的 <code>String.fromCharCode()</code> 转换，或者直接去搜“HTML实体编码 在线解码”就能解决。</li>
+    </ul>
 
     <div class="footer">
         <p>Hosted on GitHub Pages</p >
     </div>
-
 </body>
 </html>
