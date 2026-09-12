@@ -5,38 +5,75 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>【Bugku CTF】Web-你必须让他停下 Writeup</title>
     <style>
-        body { font-family: sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; }
-        h1, h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; }
-        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; }
-        a { color: #0366d6; text-decoration: none; }
-        .footer { margin-top: 40px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; }
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
     </style>
 </head>
 <body>
     <p><a href=" ">← 返回首页</a ></p >
     <h1>【Bugku CTF】Web-你必须让他停下 Writeup</h1>
-    <p>发布于：2026-09-12 | 分类：CTF | 标签：Bugku, Web</p >
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.12 | <strong>分类：</strong>CTF | <strong>标签：</strong>Bugku, Web, Python</p >
+    </div>
+    
     <h2>1. 题目信息</h2>
     <ul>
-        <li>平台：Bugku CTF</li>
-        <li>分类：Web</li>
-        <li>题目名称：你必须让他停下</li>
-        <li>描述：你必须让他停下</li>
+        <li><strong>平台：</strong>Bugku CTF</li>
+        <li><strong>分类：</strong>Web</li>
+        <li><strong>题目名称：</strong>你必须让他停下</li>
+        <li><strong>描述：</strong>你必须让他停下</li>
     </ul>
+
     <h2>2. 解题思路</h2>
-    <p>启动场景后，页面使用 setTimeout 每 500 毫秒疯狂刷新一次，导致无法正常右键查看源码或手动提取 flag。需要通过代码自动化或前端调试工具绕过刷新限制。</p >
+    <p>启动场景后，网页像疯了一样，每隔0.5秒就自动刷新一次。按 F12 看源码，页面一直刷，根本看不到完整的代码；想用右键大法看源代码，发现刷新太快，右键都点不出来。我觉得既然它一直刷新，那肯定得写个脚本，不断去请求这个网页，总有一次能抓到它没刷新时的数据。</p >
+
     <h2>3. 操作步骤</h2>
     <ol>
-        <li>使用 <code>view-source:</code> 查看原始源码，发现页面通过 JS 的 <code>setTimeout</code> 不断触发 <code>window.location.reload()</code> 导致刷新。</li>
-        <li>尝试在 F12 开发者工具中禁用 JavaScript 或使用“元素”面板，但禁用 JS 会导致动态生成的 flag 无法加载。</li>
-        <li>编写 Python 脚本进行自动化请求：使用 <code>urllib</code> 库循环访问靶场地址，利用正则表达式 <code>re.search(r'flag\{.*?\}', html)</code> 自动匹配返回数据中的 flag。</li>
-        <li>成功抓取到动态注入的 flag：<code>flag{3e99de07b414deff14d048117d5644b}</code>，提交成功。</li>
+        <li>先用 <code>view-source:</code> 强制查看源码，发现里面写了一行 JS 代码：<code>setTimeout('myrefresh()', 500);</code>，每隔500毫秒触发了 <code>window.location.reload()</code>。刷新太快了，页面跑不起来。</li>
+        <li>一开始我想在 F12 里禁用 JavaScript，页面确实不刷新了，但是页面里的 flag 是动态生成的，禁用了 JS 之后，flag 根本加载不出来，这条路走不通。</li>
+        <li>我决定写个 Python 脚本，用 <code>urllib</code> 库循环请求靶场地址，然后在返回的 HTML 里用正则匹配 <code>flag{...}</code> 格式的字符串。</li>
+        <li>把脚本写好运行，成功抓到了服务器返回的 flag。</li>
     </ol>
-    <h2>4. 踩坑记录（新手避坑）</h2>
-    <p>在调试 Python 脚本时遇到了 <code>ModuleNotFoundError: No module named 'requests'</code> 的报错。原因是当前 Python 版本较新（3.14.7），未预装第三方 requests 库。后续改用 Python 内置的 <code>urllib.request</code> 库成功绕过。</p >
-    <p><strong>特别提醒：</strong>修改代码后必须按 <code>Ctrl + S</code> 保存，再运行脚本，否则运行的永远是旧代码！</p >
-    <h2>5. 总结与反思</h2>
-    <p>掌握了前端定时器（setTimeout/setInterval）的干扰原理，熟悉了 Python 自动化请求与正则表达式的配合使用。题外话：python太酷了！</p >
-    <div class="footer"><p>Hosted on GitHub Pages</p ></div>
+
+    <p>核心抓取代码（省去了环境配置步骤，直接上正餐）：</p >
+<pre><code>import urllib.request
+import re
+
+url = "http://160.202.254.160:11796/"
+
+print("开始抓取，请稍等...")
+# 连续请求 20 次，总有一次能截获 JS 生成的 flag
+for i in range(20):
+    try:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=2) as response:
+            html = response.read().decode('utf-8')
+            match = re.search(r'flag\{.*?\}', html)
+            if match:
+                print("抓到了！Flag 是:", match.group(0))
+                break
+    except Exception as e:
+        pass</code></pre>
+
+    <ol start="5">
+        <li>提取打印出的 Flag：<code>flag{3e99de07b414deff14d048117d5644b}</code>，提交平台，验证通过。</li>
+    </ol>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>缺少 requests 库：</strong>刚开始写脚本用的是 <code>requests</code> 库，结果报错 <code>ModuleNotFoundError: No module named 'requests'</code>。原因是我当时装的 Python 版本（3.14.7）太新了，还没有预装这个第三方库。后来我改用 Python 内置的 <code>urllib.request</code> 库，直接绕过了这个报错。</li>
+        <li><strong>千万别忘了保存代码：</strong>写脚本的时候，我把代码改好，以为自己保存了，直接点运行，结果终端一直没反应。检查了半天才发现，改完代码必须按 <code>Ctrl + S</code> 保存，然后运行的才是新代码。这是一个愚蠢但致命的坑。</li>
+        <li><strong>禁用 JS 也不一定是万能的：</strong>遇到疯狂刷新的页面，可能会习惯性去 F12 里禁用 JavaScript。但有些题目的 Flag 是靠 JS 动态写进页面里的，禁用了 JS，页面是不闪了，但 Flag 也不出来了。这时候还是得用代码去抓。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
 </body>
 </html>
