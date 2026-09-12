@@ -10,35 +10,47 @@
         code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; }
         a { color: #0366d6; text-decoration: none; }
         .footer { margin-top: 40px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
     </style>
 </head>
 <body>
     <p><a href=" ">← 返回首页</a ></p >
+    
     <h1>【Bugku CTF】Web-头等舱 Writeup</h1>
-    <p>发布于：2026-09-12 | 分类：CTF | 标签：Bugku, Web</p >
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.12 | <strong>分类：</strong>CTF | <strong>标签：</strong>Bugku, Web, HTTP</p >
+    </div>
     
     <h2>1. 题目信息</h2>
     <ul>
-        <li>平台：Bugku CTF</li>
-        <li>分类：Web</li>
-        <li>题目名称：头等舱</li>
-        <li>描述：头等舱</li>
+        <li><strong>平台：</strong>Bugku CTF</li>
+        <li><strong>分类：</strong>Web</li>
+        <li><strong>题目名称：</strong>头等舱</li>
+        <li><strong>描述：</strong>头等舱</li>
     </ul>
     
     <h2>2. 解题思路</h2>
-    <p>启动场景后页面显示“什么也没有”。题目名称“头等舱”暗示与 HTTP 请求头（Header）相关，推测 Flag 隐藏在 HTTP 响应头中。</p >
+    <p>启动场景后，页面显示“什么也没有。”。观察题目名“头等舱”，我猜想它可能与“Header（请求头/响应头）”有关，因为“舱”和“Header”读音相似。既然页面上没有东西，那 Flag 很可能藏在 HTTP 响应头里。这时候不能用常规看源码的方式了，得用 F12 抓包。</p >
     
     <h2>3. 操作步骤</h2>
     <ol>
-        <li>启动场景，按 <code>F12</code> 打开开发者工具。</li>
-        <li>切换到 <code>网络 (Network)</code> 标签页，按 <code>F5</code> 刷新页面。</li>
-        <li>点击第一个请求，在右侧面板找到“标头” -> “响应标头 (Response Headers)”。</li>
-        <li>发现自定义响应头 <code>Flag: flag{eec5bda8be2c27123b770945251b62b4}</code>。</li>
-        <li>提取 Flag 并提交。</li>
+        <li>点击“启动场景”，进入页面，看到上面确实什么也没有。</li>
+        <li>按键盘上的 <code>F12</code> 打开开发者工具。</li>
+        <li>点击顶部菜单栏的 <code>网络 (Network)</code> 标签页。</li>
+        <li>按 <code>F5</code> 刷新页面，让面板捕获请求。</li>
+        <li>点击左侧列表里出现的第一个请求文件（通常是靶场的 IP 地址或端口号）。</li>
+        <li>在右侧面板里找到 <code>标头 (Headers)</code> 栏，往下滚动，找到 <code>响应标头 (Response Headers)</code> 区域。</li>
+        <li>在响应标头里发现了一行 <code>Flag: flag{eec5bda8be2c27123b770945251b62b4}</code>。</li>
+        <li>把这段 flag 复制出来，回到平台提交框粘贴，提交通过。</li>
     </ol>
     
-    <h2>4. 总结与反思</h2>
-    <p>本题核心在于理解 HTTP 协议中请求头与响应头的机制。Web 安全不仅要看页面显示的内容，还要善于利用浏览器的“网络”面板查看底层的交互数据。自定义 Header 是常见的信息隐藏方式。</p >
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>刚开始以为又是个看源码的题：</strong>看到页面什么都没有，我的第一反应是右键查看网页源代码，结果里面除了一个“什么也没有”的 HTML 文本，干干净净，什么都没有。后面看到题目名称，才想到应该去 Network 里面看看服务器的底层响应。</li>
+        <li><strong>刷新网络面板：</strong>刚点开“网络”面板时是空的，因为它只能记录打开面板之后发生的请求。所以一定要记得按 <code>F5</code> 刷新一下网页，请求才会被记录下来。</li>
+        <li><strong>HTTP 响应头也是藏东西的好地方：</strong>以后遇到页面没有文字、没有图片、什么提示都没有的 Web 题，可以先去“网络”面板里看看响应头（Response Headers）或者请求头（Request Headers）里有没有奇怪的自定义字段。</li>
+    </ul>
     
     <div class="footer"><p>Hosted on GitHub Pages</p ></div>
 </body>
