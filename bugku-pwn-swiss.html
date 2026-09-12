@@ -8,7 +8,6 @@
         body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
         h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
         h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
-        h3 { color: #24292e; margin-top: 20px; }
         code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
         pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
         .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
@@ -32,22 +31,61 @@
     </ul>
 
     <h2>2. 解题思路</h2>
-    <p>启动场景后，平台给出了 <code>nc 160.202.254.160 18613</code> 的命令提示。题目名为“瑞士军刀”，通过查询AI得知实际是考察 <code>nc</code> (Netcat) 工具或 Python Socket 编程的使用。目标是连接远程端口，通过执行系统命令（如 <code>ls</code>、<code>cat</code>）获取服务器上的 flag。</p >
+    <p>启动场景后，界面给出了 <code>nc 160.202.254.160 18613</code> 的命令提示。题目名为“瑞士军刀”，指的是网络安全中常用的 <code>nc</code> (Netcat) 工具，用来远程连接服务器并执行命令。因为 Windows 系统默认没有 <code>nc</code> 工具，我决定直接用 Python 自带的 <code>socket</code> 库写个脚本，模拟这次连接。</p >
 
     <h2>3. 操作步骤</h2>
     <ol>
-        <li>为了避开 Windows 原生环境缺少 <code>nc</code> 工具的问题，直接编写 Python 脚本模拟 Socket 连接。</li>
-        <li>新建 <code>pwn_swiss.py</code>，使用内置的 <code>socket</code> 库，填写平台提供的 IP 和端口。</li>
-        <li>连接成功后，分别发送 <code>ls\n</code> 和 <code>cat flag\n</code> 命令。</li>
-        <li>接收服务器回显的数据，成功获取 <code>flag{9e861196d5a73bcd}</code>。</li>
-        <li>提交至平台验证正确。</li>
+        <li>在 VS Code 中新建 <code>pwn_swiss.py</code>，把下面的代码粘贴进去：</li>
     </ol>
 
-    <h2>4. 踩坑记录</h2>
-    <p>评论区前辈提醒：“进去后不会显示任何东西，不要按 Ctrl+C，习惯性输入多了个冒号”。这是因为命令行是“盲打”交互，连接后如果没有回显，敲入命令后必须按回车并耐心等待服务器返回数据。使用 Python 脚本自动控制时序，完美避开了这些坑。</p >
+<pre><code>import socket
+import time
 
-    <h2>5. 总结与反思</h2>
-    <p>PWN 题并不一定都是复杂的二进制漏洞利用。本题作为 PWN 入门，初步掌握了与远程服务器建立 Socket 连接、发送系统命令并读取回显的核心技巧。这不仅是 PWN 的基础，也是未来各类自动化攻击脚本的基石。</p >
+# 平台的 IP 和端口（注意你自己的端口可能和我不同，记得换掉）
+host = "160.202.254.160"
+port = 18613
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+try:
+    s.connect((host, port))
+    print("[*] 连接成功！")
+    time.sleep(1)  # 等一秒，让服务器准备好
+
+    # 1. 发送 ls 命令，列出目录
+    print("[*] 发送命令: ls")
+    s.sendall(b"ls\n")
+    time.sleep(1)  # 等服务器回传数据
+    
+    # 接收第一次回显
+    data = s.recv(4096).decode(errors='ignore')
+    print(data)
+
+    # 2. 看到目录里有flag后，发送 cat flag 命令
+    print("[*] 发送命令: cat flag")
+    s.sendall(b"cat flag\n")
+    time.sleep(1)
+    
+    # 接收第二次回显
+    data = s.recv(4096).decode(errors='ignore')
+    print(data)
+
+except Exception as e:
+    print(f"[!] 出现错误: {e}")
+finally:
+    s.close()</code></pre>
+
+    <ol start="2">
+        <li>按 <code>Ctrl + S</code> 保存文件，点击右上角 <code>▶</code> 运行。</li>
+        <li>终端先打印出目录内容，确认里面有 <code>flag</code> 文件，紧接着就打印出了 <code>flag{9e861196d5a73bcd}</code>。</li>
+        <li>复制结果去 Bugku 平台提交，验证通过。</li>
+    </ol>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>别用键盘盲打：</strong>评论区前辈说“进去后不会显示任何东西，不要按Ctrl+C，习惯性输入多了个冒号”。这是因为服务器在连接后不会立刻返回数据。如果用 <code>nc</code> 手动连接，你输入命令后需要按回车，然后耐心等服务器回显。用 Python 脚本写好 <code>time.sleep()</code> 来等待，就完美避开了盲打带来的各种误触。</li>
+        <li><strong>Windows 没有 nc 怎么办：</strong>在 Windows 环境下如果不愿意折腾去装 <code>nc</code>，用 Python 的 <code>socket</code> 库代替是最直接的方案。</li>
+        <li><strong>关于代码复用：</strong>前面几道题写过的脚本框架，稍微改一下 IP、端口和要发送的命令，就能直接拿来解这道题，不用从头开始写，非常省时间。</li>
+    </ul>
 
     <div class="footer">
         <p>Hosted on GitHub Pages</p >
