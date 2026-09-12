@@ -13,7 +13,7 @@
         .tag { background: #0366d6; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin-right: 5px; }
         a { color: #0366d6; text-decoration: none; }
         a:hover { text-decoration: underline; }
-        ul { padding-left: 20px; }
+        ul, ol { padding-left: 20px; }
         .footer { margin-top: 40px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; }
     </style>
 </head>
@@ -33,19 +33,24 @@
     </ul>
 
     <h2>2. 解题思路</h2>
-    <p>启动场景后，页面显示满屏的滑稽表情包。Web 基础题的第一步通常是检查前端源代码，看是否有隐藏提示。</p >
+    <p>启动场景后，页面显示满屏的滑稽表情包，没有任何文字提示。对于这类 Web 基础题，我决定先去检查网页的源代码，看有没有隐藏的注释或提示。</p >
 
     <h2>3. 操作步骤</h2>
     <ol>
-        <li>点击“启动场景”，获取靶场地址。</li>
-        <li>在页面空白处右键，选择“查看页面源代码”，或按 <code>F12</code> 打开开发者工具，切换到“元素”标签页。</li>
-        <li>在 HTML 代码中按 <code>Ctrl + F</code> 搜索关键词 <code>flag</code>。</li>
-        <li>在 <code>&lt;body&gt;</code> 标签下发现被注释掉的代码：<code>&lt;!--flag{16bf28d2f5d8c747c23b6f26d7d4dac7}--&gt;</code>。</li>
-        <li>提取出 flag 并提交。</li>
+        <li>点击靶场页面的 <code>启动场景</code> 按钮，获取并复制弹出的访问地址。</li>
+        <li>在浏览器中打开这个地址，看到满屏幕的“滑稽”表情包。</li>
+        <li>在页面空白处点击 <code>右键</code>，选择 <code>查看页面源代码</code>。或者直接按键盘上的 <code>F12</code> 打开开发者工具，点击顶部的 <code>元素 (Elements)</code> 标签页。</li>
+        <li>按 <code>Ctrl + F</code> 调出搜索框，输入关键词 <code>flag</code> 并回车。</li>
+        <li>代码会自动跳转并高亮显示，发现 <code>&lt;body&gt;</code> 标签下有一行被注释掉的代码：<code>&lt;!--flag{16bf28d2f5d8c747c23b6f26d7d4dac7}--&gt;</code>。</li>
+        <li>把 <code>flag{16bf28d2f5d8c747c23b6f26d7d4dac7}</code> 复制出来，回到 Bugku 平台的提交框粘贴，点击“提交”。</li>
     </ol>
 
-    <h2>4. 总结与反思</h2>
-    <p>Web 题的核心习惯之一就是“查看源代码”。出题人经常会把 flag 藏在 HTML 注释、隐藏标签、JS 文件或 CSS 样式中。熟悉开发者工具（F12）是学习 Web 安全的必经之路。</p >
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>别急着上手做：</strong> 看到满屏滑稽表情不要慌，不要直接去猜。这类题目一般不会把 flag 藏在图片里，而是直接写在网页的 html 代码里。</li>
+        <li><strong>F12 的用法：</strong> 这次使用了 F12 的“元素”面板搜索。以后遇到类似网页，可以直接右键“查看页面源代码”，然后在按 <code>Ctrl + F</code> 搜 <code>flag</code>，会更快。</li>
+        <li><strong>代码注释：</strong> html 里用 <code>&lt;!-- --&gt;</code> 包起来的内容是注释，浏览器不会显示在页面上，但 F12 里能看得一清二楚，这是出题人最喜欢藏东西的地方。</li>
+    </ul>
 
     <div class="footer">
         <p>Hosted on GitHub Pages</p >
