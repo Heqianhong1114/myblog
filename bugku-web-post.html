@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Bugku CTF】Web-POST Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        h3 { color: #24292e; margin-top: 20px; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【Bugku CTF】Web-POST Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.12 | <strong>分类：</strong>CTF | <strong>标签：</strong>Bugku, Web, Python, POST</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Bugku CTF</li>
+        <li><strong>分类：</strong>Web</li>
+        <li><strong>题目名称：</strong>POST</li>
+        <li><strong>描述：</strong>post</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>启动场景后，页面给出了 PHP 源代码。代码逻辑接收名为 <code>what</code> 的 POST 参数，并判断其值是否等于字符串 <code>flag</code>。若是，则输出真正的 flag。需要构造 POST 请求发送参数。</p >
+
+    <h2>3. 操作步骤</h2>
+    <ol>
+        <li>点击“启动场景”，查看页面 PHP 源码：<br>
+            <code>$what=$_POST['what'];</code><br>
+            <code>echo $what;</code><br>
+            <code>if($what=='flag') echo 'flag{****}';</code></li>
+        <li>编写 Python 脚本（使用 <code>requests</code> 库）发送 POST 请求：<br>
+            <pre><code>import requests
+
+url = "http://160.202.254.160:18327/"
+data = {'what': 'flag'}
+
+r = requests.post(url, data=data)
+print(r.text)</code></pre></li>
+        <li>运行脚本，终端输出 <code>flagflag{f528b9d7d0cb8fd63d81d03b9a5922c7}</code>。其中第一个 <code>flag</code> 是 PHP 代码中 <code>echo $what;</code> 打印的输入值，后续拼接的才是真正的 Flag。</li>
+        <li>提取 <code>flag{f528b9d7d0cb8fd63d81d03b9a5922c7}</code> 提交，提示正确。</li>
+    </ol>
+
+    <h2>4. 踩坑记录</h2>
+    <ul>
+        <li><strong>路径陷阱：</strong>编写 Python 脚本时，可能会遇到因为 Windows 隐藏扩展名导致找不到文件的情况。本次解题是通过直接编写代码提交请求，没有读取本地文件，规避了此问题。</li>
+        <li><strong>字符串拼接：</strong>回显 <code>flagflag{...}</code> 是因为代码执行顺序先打印了输入参数（flag），又打印了系统返回的 flag（flag{...}），后续拼接在了一起。提取时需要去掉前面多余的那个单词。</li>
+    </ul>
+
+    <h2>5. 总结与反思</h2>
+    <p>这是一道基础的 Web 传参题。与 GET 题不同的是，POST 参数不在 URL 中传递，需要通过请求体发送。掌握了 Python <code>requests.post()</code> 的用法，这正是自动化脚本解题的实战演练。从最初遇到环境报错的崩溃，到最终用代码成功获取 Flag，这个过程非常宝贵。</p >
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
