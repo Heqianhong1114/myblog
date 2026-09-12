@@ -8,7 +8,6 @@
         body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
         h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
         h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
-        h3 { color: #24292e; margin-top: 20px; }
         code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
         pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
         .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
@@ -32,34 +31,43 @@
     </ul>
 
     <h2>2. 解题思路</h2>
-    <p>启动场景后，页面给出了 PHP 源代码。代码逻辑接收名为 <code>what</code> 的 POST 参数，并判断其值是否等于字符串 <code>flag</code>。若是，则输出真正的 flag。需要构造 POST 请求发送参数。</p >
+    <p>启动场景后，页面直接给出了 PHP 源代码。代码逻辑是接收一个名为 <code>what</code> 的 POST 参数，如果它的值等于字符串 <code>flag</code>，就会输出真正的 flag。GET 题可以直接在网址后面拼参数，但 POST 请求的参数是藏在请求体里的，不能在地址栏直接拼。所以，我决定用 Python 的 <code>requests</code> 库写个脚本发送 POST 请求。</p >
 
     <h2>3. 操作步骤</h2>
     <ol>
-        <li>点击“启动场景”，查看页面 PHP 源码：<br>
+        <li>点击“启动场景”，查看页面给出的 PHP 源码：<br>
             <code>$what=$_POST['what'];</code><br>
             <code>echo $what;</code><br>
             <code>if($what=='flag') echo 'flag{****}';</code></li>
-        <li>编写 Python 脚本（使用 <code>requests</code> 库）发送 POST 请求：<br>
-            <pre><code>import requests
-
-url = "http://160.202.254.160:18327/"
-data = {'what': 'flag'}
-
-r = requests.post(url, data=data)
-print(r.text)</code></pre></li>
-        <li>运行脚本，终端输出 <code>flagflag{f528b9d7d0cb8fd63d81d03b9a5922c7}</code>。其中第一个 <code>flag</code> 是 PHP 代码中 <code>echo $what;</code> 打印的输入值，后续拼接的才是真正的 Flag。</li>
-        <li>提取 <code>flag{f528b9d7d0cb8fd63d81d03b9a5922c7}</code> 提交，提示正确。</li>
+        <li>在 VS Code 中新建文件 <code>post_flag.py</code>，粘贴下面的代码：</li>
     </ol>
 
-    <h2>4. 踩坑记录</h2>
-    <ul>
-        <li><strong>路径陷阱：</strong>编写 Python 脚本时，可能会遇到因为 Windows 隐藏扩展名导致找不到文件的情况。本次解题是通过直接编写代码提交请求，没有读取本地文件，规避了此问题。</li>
-        <li><strong>字符串拼接：</strong>回显 <code>flagflag{...}</code> 是因为代码执行顺序先打印了输入参数（flag），又打印了系统返回的 flag（flag{...}），后续拼接在了一起。提取时需要去掉前面多余的那个单词。</li>
-    </ul>
+<pre><code>import requests
 
-    <h2>5. 总结与反思</h2>
-    <p>这是一道基础的 Web 传参题。与 GET 题不同的是，POST 参数不在 URL 中传递，需要通过请求体发送。掌握了 Python <code>requests.post()</code> 的用法，这正是自动化脚本解题的实战演练。从最初遇到环境报错的崩溃，到最终用代码成功获取 Flag，这个过程非常宝贵。</p >
+# 靶场地址（注意你自己的端口可能和我不同，要复制自己的）
+url = "http://160.202.254.160:18327/"
+
+# 构造 POST 数据
+data = {'what': 'flag'}
+
+# 发送 POST 请求
+r = requests.post(url, data=data)
+
+# 打印回显内容
+print(r.text)</code></pre>
+
+    <ol start="3">
+        <li>按 <code>Ctrl + S</code> 保存文件，点击右上角 <code>▶</code> 运行。</li>
+        <li>终端输出了 <code>flagflag{f528b9d7d0cb8fd63d81d03b9a5922c7}</code>。前面的第一个 <code>flag</code> 是代码里的 <code>echo $what;</code> 打印的，后面的才是真 Flag。</li>
+        <li>提取 <code>flag{f528b9d7d0cb8fd63d81d03b9a5922c7}</code>，去 Bugku 提交，验证通过。</li>
+    </ol>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>缺少 requests 库：</strong>运行脚本时，如果报错 <code>ModuleNotFoundError: No module named 'requests'</code>，说明还没装这个库。在终端输入 <code>pip install requests -i https://pypi.tuna.tsinghua.edu.cn/simple</code> 安装即可。</li>
+        <li><strong>字符串拼接：</strong>回显 <code>flagflag{...}</code> 不是出错了，而是代码执行顺序的问题：先打印了我传进去的 flag，紧接着又打印了系统的真 flag。以后遇到这种情况，提取后面带花括号的那部分就行。</li>
+        <li><strong>路径陷阱：</strong>用 Python 写文件时经常会遇到找不到文件的报错，这是 Windows 隐藏扩展名搞的鬼。这次因为直接在代码里写 URL，没有读本地文件，所以没被坑到。</li>
+    </ul>
 
     <div class="footer">
         <p>Hosted on GitHub Pages</p >
