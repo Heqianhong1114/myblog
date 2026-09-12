@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Bugku CTF】Crypto-聪明的小羊 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【Bugku CTF】Crypto-聪明的小羊 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.12 | <strong>分类：</strong>CTF | <strong>标签：</strong>Bugku, Crypto, Python, 栅栏密码</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Bugku CTF</li>
+        <li><strong>分类：</strong>Crypto（密码学）</li>
+        <li><strong>题目名称：</strong>聪明的小羊</li>
+        <li><strong>描述：</strong>一只小羊翻过了2个栅栏 fa{fe13f590lg6d46d0d0}</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>题目描述“翻过了2个栅栏”是明显的提示，指向“栅栏密码（Rail Fence Cipher）”并且设定栏数为 2。密文长度为 22，需要将密文切分为前后两半，然后交替取出字符进行拼接，即可还原出明文。</p >
+
+    <h2>3. 操作步骤</h2>
+    <ol>
+        <li>观察密文 <code>fa{fe13f590lg6d46d0d0}</code>，确认其长度为 22 个字符。</li>
+        <li>将密文分为前 11 个字符（第一行）和后 11 个字符（第二行）。</li>
+        <li>编写 Python 脚本 <code>rail_fence.py</code>，使用循环依次从两行中交替抽取字符进行拼接。</li>
+        <li>运行脚本，输出明文：<code>flag{6fde4136dcf05d90e}</code>。</li>
+        <li>将结果提交至 Bugku 平台，验证通过。</li>
+    </ol>
+
+    <h2>4. 踩坑记录</h2>
+    <p>注意密文中的花括号 <code>{</code> 和 <code>}</code> 也在加密逻辑内部。在代码中将密文按长度二分之一分割时，务必确保长度是偶数，否则会导致字符错位。这里长度恰好为 22，分割与交替拼接非常顺利。</p >
+
+    <h2>5. 总结与反思</h2>
+    <p>这是继摩斯密码后第二道密码学题目。掌握了栅栏密码的基本原理及其代码实现方式。用 Python 代替手工推演，不仅速度快，而且极大地避免了人为出错的概率，再次体验到了编写自动化脚本解题的高效。爽爽爽。</p >
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
