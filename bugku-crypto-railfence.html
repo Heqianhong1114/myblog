@@ -31,22 +31,40 @@
     </ul>
 
     <h2>2. 解题思路</h2>
-    <p>题目描述“翻过了2个栅栏”是明显的提示，指向“栅栏密码（Rail Fence Cipher）”并且设定栏数为 2。密文长度为 22，需要将密文切分为前后两半，然后交替取出字符进行拼接，即可还原出明文。</p >
+    <p>看到题目名字“聪明的小羊”和描述里的“翻过了2个栅栏”，我判断这是“栅栏密码（Rail Fence Cipher）”，且栏数固定为 2。密文长度是 22，我们可以直接把密文从中间切开，分成前后两半，然后交替抽取字符，就能拼出原来的明文。这种枯燥的拼合逻辑最适合用代码跑，我决定直接写 Python 脚本。</p >
 
     <h2>3. 操作步骤</h2>
     <ol>
         <li>观察密文 <code>fa{fe13f590lg6d46d0d0}</code>，确认其长度为 22 个字符。</li>
-        <li>将密文分为前 11 个字符（第一行）和后 11 个字符（第二行）。</li>
-        <li>编写 Python 脚本 <code>rail_fence.py</code>，使用循环依次从两行中交替抽取字符进行拼接。</li>
-        <li>运行脚本，输出明文：<code>flag{6fde4136dcf05d90e}</code>。</li>
-        <li>将结果提交至 Bugku 平台，验证通过。</li>
+        <li>在 VS Code 新建 <code>rail_fence.py</code>，编写解密脚本：</li>
     </ol>
 
-    <h2>4. 踩坑记录</h2>
-    <p>注意密文中的花括号 <code>{</code> 和 <code>}</code> 也在加密逻辑内部。在代码中将密文按长度二分之一分割时，务必确保长度是偶数，否则会导致字符错位。这里长度恰好为 22，分割与交替拼接非常顺利。</p >
+<pre><code>cipher = "fa{fe13f590lg6d46d0d0}"
+length = len(cipher)
+half = length // 2
 
-    <h2>5. 总结与反思</h2>
-    <p>这是继摩斯密码后第二道密码学题目。掌握了栅栏密码的基本原理及其代码实现方式。用 Python 代替手工推演，不仅速度快，而且极大地避免了人为出错的概率，再次体验到了编写自动化脚本解题的高效。爽爽爽。</p >
+# 将密文分成两半（对应两个栅栏）
+part1 = cipher[:half]
+part2 = cipher[half:]
+
+# 交替拼接还原明文
+plain = ""
+for i in range(half):
+    plain += part1[i] + part2[i]
+
+print("解密结果:", plain)</code></pre>
+
+    <ol start="3">
+        <li>按 <code>Ctrl + S</code> 保存文件，点击右上角的 <code>▶</code> 运行。</li>
+        <li>终端打印出明文：<code>flag{6fde4136dcf05d90e}</code>。</li>
+        <li>把结果提交到 Bugku 平台，验证通过。</li>
+    </ol>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>长度要整除：</strong>这种简单的栅栏密码分栏，要求密文长度必须能被栏数整除。这题长度是 22，除以 2 是 11，刚好可以均分，如果长度是奇数还得考虑补齐或其他变体，那就更复杂了。</li>
+        <li><strong>别忽略花括号：</strong>题目里的 <code>{</code> 和 <code>}</code> 也是一起参与打乱加密的，解密的时候必须把它当成普通字符一起切分和重组，不能把它当成 flag 格式直接扔掉，不然解密位置全错。</li>
+    </ul>
 
     <div class="footer">
         <p>Hosted on GitHub Pages</p >
