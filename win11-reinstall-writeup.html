@@ -5,195 +5,110 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Windows 11 全盘重装实战 Writeup - 解决校园网连接故障</title>
     <style>
-        :root {
-            --bg-color: #f8f9fa;
-            --text-color: #333;
-            --code-bg: #282c34;
-            --code-color: #abb2bf;
-            --link-color: #0366d6;
-            --border-color: #e1e4e8;
-            --highlight-bg: #fff3cd;
-            --highlight-border: #ffeeba;
-        }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-            line-height: 1.6;
-            color: var(--text-color);
-            background-color: var(--bg-color);
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 2rem;
-        }
-        h1, h2, h3 {
-            border-bottom: 1px solid var(--border-color);
-            padding-bottom: 0.3em;
-            margin-top: 1.5em;
-        }
-        h1 { font-size: 2em; color: #24292e; }
-        h2 { font-size: 1.5em; color: #24292e; }
-        h3 { font-size: 1.25em; color: #24292e; border-bottom: none; }
-        code {
-            background-color: rgba(27,31,35,0.05);
-            padding: 0.2em 0.4em;
-            border-radius: 3px;
-            font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
-            font-size: 85%;
-        }
-        pre {
-            background-color: var(--code-bg);
-            color: var(--code-color);
-            padding: 1rem;
-            overflow: auto;
-            border-radius: 6px;
-            font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
-            font-size: 85%;
-            line-height: 1.45;
-        }
-        pre code {
-            background-color: transparent;
-            padding: 0;
-            color: inherit;
-        }
-        blockquote {
-            margin: 0;
-            padding: 0 1em;
-            color: #6a737d;
-            border-left: 0.25em solid #dfe2e5;
-        }
-        .alert {
-            padding: 15px;
-            margin-bottom: 20px;
-            border: 1px solid transparent;
-            border-radius: 4px;
-        }
-        .alert-warning {
-            color: #856404;
-            background-color: var(--highlight-bg);
-            border-color: var(--highlight-border);
-        }
-        .alert-info {
-            color: #0c5460;
-            background-color: #d1ecf1;
-            border-color: #bee5eb;
-        }
-        ul, ol { padding-left: 2em; }
-        .meta { color: #6a737d; font-size: 0.9em; margin-bottom: 2em; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        h3 { color: #24292e; margin-top: 20px; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
     </style>
 </head>
 <body>
-
+    <p><a href=" ">← 返回首页</a ></p >
     <h1>Windows 11 全盘重装实战 Writeup：从无法连接校园网到系统环境重构</h1>
+    
     <div class="meta">
-        <strong>设备型号：</strong>华硕天选5 Pro (FX607JIR) <br>
-        <strong>操作系统：</strong>Windows 11 家庭中文版（原系统已激活）<br>
-        <strong>作者：</strong>实验信安2601B何芊宏<br>
-        <strong>操作日期：</strong>2026年9月11日
+        <p><strong>设备型号：</strong>华硕天选5 Pro (FX607JIR)<br>
+        <strong>操作系统：</strong>Windows 11 家庭中文版<br>
+        <strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.11 | <strong>分类：</strong>系统运维 | <strong>标签：</strong>Windows, 重装, 驱动, BitLocker</p >
     </div>
 
-    <h2>一、 背景与需求分析</h2>
-    
-    <h3>1.1 问题现象</h3>
-    <p>
-        电脑在校园网环境下无法连接网络。具体表现为：连接校园网 Wi-Fi 后，浏览器无法自动弹出实名认证界面（尽管无需登录认证的网络可以正常使用），即使手动输入认证网址也经常出现页面加载失败或认证超时，导致日常学习和实验室工作严重受影响。
-    </p>
-
-    <h3>1.2 前置排错与失败尝试（重装起因）</h3>
-    <p>
-        在决定重装系统之前，我曾尝试了多种常规排错方案，试图避免重装系统带来的繁琐，但均以失败告终：
-    </p>
+    <h2>前情提要：为什么我要重装系统</h2>
+    <p>简单来说，就是我的电脑连不上校园网了。连接校园网 Wi-Fi 后，浏览器死活弹不出实名认证的界面，手动输入认证网址也经常加载失败或超时，特别影响我干活。</p >
+    <p>在重装之前，我尝试了各种常规的排错方法，但全都失败了：</p >
     <ul>
-        <li><strong>网络基础设置排查：</strong>尝试“忘记网络”后重新连接校园网 Wi-Fi，检查 IP 地址和 DNS 是否均为自动获取。</li>
-        <li><strong>关键配置调整：</strong>进入 WLAN 属性，确认并关闭“随机硬件地址”，排除 MAC 地址随机化导致的认证失败。</li>
-        <li><strong>系统网络栈重置：</strong>以管理员身份运行 CMD，执行 <code>netsh winsock reset</code> 和 <code>ipconfig /flushdns</code> 命令重置网络协议栈。</li>
-        <li><strong>硬件与客户端排查：</strong>使用手机开启热点，电脑能正常连接并上网，证明网卡硬件本身没有损坏；同时尝试卸载并重装学校的校园网认证客户端，问题依旧。</li>
+        <li><strong>网络设置排查：</strong>“忘记网络”重新连，检查 IP 和 DNS 是否为自动获取。</li>
+        <li><strong>关闭随机硬件地址：</strong>进 WLAN 属性把“随机硬件地址”关掉，排除 MAC 地址随机化导致的认证失败。</li>
+        <li><strong>重置网络栈：</strong>用管理员身份打开 CMD，执行 <code>netsh winsock reset</code> 和 <code>ipconfig /flushdns</code>。</li>
+        <li><strong>硬件与客户端排查：</strong>用手机开热点，电脑能正常连接并上网，说明网卡没坏。卸载并重装校园网认证客户端，问题依旧。</li>
     </ul>
-    <p>
-        在尝试诸多办法仍无法连接校园网后，经与导师沟通，判断可能是旧系统底层网络组件损坏或网络组件与校园网认证存在深度冲突，建议彻底重装 Windows 11 系统。
-    </p>
+    <p>折腾了半天都没用，导师建议我彻底重装一遍 Windows 11 系统试试。因为电脑里没有重要数据，所以我决定直接用微软官方镜像做全盘的“纯净重装”。</p >
 
-    <h3>1.3 需求分析</h3>
-    <p>
-        由于电脑内无重要数据，决定采用微软官方镜像进行全盘“纯净重装”。
-        核心诉求：彻底清空旧系统，安装原版 Windows 11 家庭版，解决校园网连接问题，并确保硬件驱动正常运转。
-    </p>
-
-    <h2>二、 前期准备工作</h2>
+    <h2>前期准备工作</h2>
     <ol>
-        <li><strong>硬件准备：</strong>准备一个 32GB 及以上的 U 盘（制作为启动盘后将清空所有数据）。</li>
-        <li><strong>网络准备：</strong>由于校园网不可用，全程使用手机开启热点（为了保证网速，全程我的手机都没有进行任何需要加载或刷新的操作，只是为了提供网络环境而存在），为电脑提供网络连接。</li>
-        <li><strong>工具下载（至关重要）：</strong>在旧系统下，提前下载并保存到 D 盘：
-            <ul>
-                <li>微软官方 <code>MediaCreationTool.exe</code> (Win11 安装媒体创建工具)</li>
-                <li>华硕官网驱动：Intel Wi-Fi 6 AX201 无线网卡、Realtek 有线网卡、NVIDIA 显卡、Intel 蓝牙、触控板驱动</li>
-            </ul>
-        </li>
-        <li><strong>制作启动盘：</strong>插入 U 盘，运行微软工具，选择“为另一台电脑创建安装介质”，制作 Win11 启动盘。将提前下载好的驱动拷贝到 U 盘根目录备用。</li>
+        <li><strong>硬件准备：</strong>准备一个 32GB 及以上的 U 盘（做启动盘后数据会被清空）。</li>
+        <li><strong>网络准备：</strong>校园网连不上，我全程用手机开热点给电脑提供网络（为了保证网速，手机全程都没进行任何大流量操作，就纯粹当个路由器用）。</li>
+        <li><strong>工具下载（极其关键）：</strong>在旧系统下，提前下载好：</li>
+        <ul>
+            <li>微软官方 <code>MediaCreationTool.exe</code>（Win11 安装媒体创建工具）</li>
+            <li>华硕官网驱动：Intel Wi-Fi 6 AX201 无线网卡、Realtek 有线网卡、NVIDIA 显卡、Intel 蓝牙、触控板驱动。</li>
+        </ul>
+        <li><strong>制作启动盘：</strong>插入 U 盘，运行微软工具，选择“为另一台电脑创建安装介质”，制作启动盘。然后把下载好的驱动全拷到 U 盘根目录备用。</li>
     </ol>
 
-    <h2>三、 安装过程与核心排错记录</h2>
+    <h2>安装过程与核心排错记录</h2>
 
     <h3>3.1 遭遇“无法识别硬盘”及 VMD 避坑</h3>
-    <p>进入 BIOS（华硕按 <code>Esc</code> 或 <code>F2</code>），从 U 盘启动，进入安装界面。在选择安装位置时，<strong>系统仅显示 U 盘，看不到 1TB 的固态硬盘（WD PC SN560）</strong>。</p>
-    <div class="alert alert-warning">
-        <strong>【排错分析】</strong> 华硕新一代主板默认开启了 Intel VMD（Volume Management Device）技术，原版 Windows 11 安装镜像缺少 VMD 驱动，导致无法识别 NVMe 固态硬盘。
-    </div>
-    <p><strong>解决方案：</strong></p>
+    <p>进入 BIOS（华硕按 <code>Esc</code> 或 <code>F2</code>），从 U 盘启动，进入安装界面。在选择安装位置时，系统只显示 U 盘，根本看不到 1TB 的固态硬盘（WD PC SN560）。</p >
+    <p><strong>原因分析：</strong>华硕新一代主板默认开启了 Intel VMD 技术，原版 Windows 11 镜像缺少这个驱动，所以读不出 NVMe 固态硬盘。</p >
+    <p><strong>解决方案：</strong></p >
     <ol>
-        <li>重启电脑，连续敲击 <code>F2</code> 进入 BIOS，按 <code>F7</code> 进入高级模式。</li>
+        <li>重启电脑，狂按 <code>F2</code> 进入 BIOS，按 <code>F7</code> 进高级模式。</li>
         <li>找到 <code>Advanced</code> -> <code>VMD Setup Menu</code>。</li>
-        <li>将 <code>Enable VMD controller</code> 设置为 <code>Disabled</code>（关闭）。</li>
-        <li>按 <code>F10</code> 保存并退出。再次从 U 盘启动，硬盘成功识别。</li>
+        <li>把 <code>Enable VMD controller</code> 设置为 <code>Disabled</code>（关闭）。</li>
+        <li>按 <code>F10</code> 保存退出。再次从 U 盘启动，硬盘就出来了。</li>
     </ol>
 
     <h3>3.2 系统分区与安装</h3>
-    <p>在“选择安装 Windows 11 的位置”界面，为了彻底纯净，删除了磁盘 0 下所有旧分区（260MB EFI、16MB MSR、923GB 主分区等），直到只剩下一个“未分配空间”。选中该空间，点击“下一步”，系统自动创建引导分区并开始复制文件。</p>
+    <p>在“选择安装位置”界面，为了彻底纯净，我删掉了磁盘 0 下的所有旧分区（260MB EFI、16MB MSR、923GB 主分区等），直到变成一个全新的“未分配空间”。选中它，点“下一步”，系统就会自动创建引导分区并开始安装。</p >
 
     <h3>3.3 绕过 OOBE 强制联网（Shift + F10 技巧）</h3>
-    <p>重启后进入开箱体验（OOBE）。由于此时无线网卡驱动尚未安装，电脑无法连接 Wi-Fi，而 Windows 11 强制要求联网，导致“下一步”按钮呈现灰色无法点击。</p>
-    <div class="alert alert-warning">
-        <strong>【排错分析】</strong> 必须绕过微软账号强制登录，创建本地账户先进入系统，再安装驱动。
-    </div>
-    <p><strong>解决方案：</strong></p>
+    <p>重启后进入开箱体验（OOBE）。因为无线网卡驱动还没装，电脑连不上 Wi-Fi，而 Win11 强制要求联网，导致“下一步”按钮是灰色的，点不动。</p >
+    <p><strong>解决方案：</strong></p >
     <ol>
-        <li>在联网界面按下 <code>Shift + F10</code>（部分键盘需按 <code>Shift + Fn + F10</code>）调出 CMD 命令行。</li>
-        <li>输入命令 <code>oobe\bypassnro</code> 并回车。</li>
-        <li>电脑自动重启，再次走到该界面时，选择“我没有 Internet 连接” -> “继续执行受限设置”，成功建立本地账户。</li>
+        <li>在联网界面按下 <code>Shift + F10</code>（部分笔记本要按 <code>Shift + Fn + F10</code>）调出 CMD 命令行。</li>
+        <li>输入 <code>oobe\bypassnro</code> 并回车。</li>
+        <li>电脑会自动重启，再次走到联网界面时，就会多出一个“我没有 Internet 连接”的选项。点击它 -> 继续执行受限设置，就可以创建本地账户进入桌面了。</li>
     </ol>
 
-    <h2>四、 驱动安装与环境恢复</h2>
-    <p>进入桌面后，第一件事是插入 U 盘，安装提前准备好的驱动：</p>
+    <h2>驱动安装与环境恢复</h2>
+    <p>进入桌面后，第一件事就是插上 U 盘，把提前准备好的驱动全装上：</p >
     <ul>
-        <li><strong>有线网卡与无线网卡：</strong>先装网卡驱动，装好后顺利连上手机热点。</li>
-        <li><strong>NVIDIA 显卡：</strong>双击安装时，屏幕出现短暂黑屏闪烁，属于正常现象。</li>
-        <li><strong>蓝牙与触控板：</strong>逐一安装，重启电脑。</li>
-        <li><strong>系统更新：</strong>前往“设置” -> “Windows 更新”，检查并安装所有补丁，系统自动补齐了缺失的英特尔管理引擎等驱动。</li>
+        <li>先装有线网卡和无线网卡驱动，装好就能连上手机热点了。</li>
+        <li>接着装 NVIDIA 显卡驱动（安装时屏幕会短暂黑屏闪烁，属于正常现象）。</li>
+        <li>最后装蓝牙和触控板驱动，装完重启电脑。</li>
+        <li>去“设置” -> “Windows 更新”里把所有补丁都打上，系统会自动补齐一些缺失的驱动。</li>
     </ul>
 
-    <h2>五、 校园网连接与最终验证</h2>
-    <p>驱动全部安装完毕并重启后，进入最终的验证环节，此处出现了重装系统带来的最直观变化：</p>
+    <h2>校园网连接与最终验证</h2>
+    <p>驱动全部装好重启后，来到了最关键的验证环节：</p >
     <ol>
-        <li><strong>重装前：</strong>连接校园网 Wi-Fi 死气沉沉，浏览器死活无法弹出认证页面，需要手动输入网址且经常报错。</li>
-        <li><strong>重装后（解决）：</strong>点击校园网 Wi-Fi 图标，连上信号的瞬间，<strong>浏览器立刻自动弹出了北京联合大学的实名网络认证界面</strong>。系统底层网络组件、认证协议和 DHCP 获取 IP 的流程恢复正常，认证页面终于能够正常触发。</li>
-        <li><strong>登录与上网：</strong>输入学号和密码，成功连接校园网，网页访问顺畅。</li>
-        <li><strong>关键配置检查：</strong>为防止后期 MAC 地址随机化导致再次断连，进入“设置” -> “网络和 Internet” -> “WLAN”，点击校园网名称，确认<strong>“随机硬件地址”处于关闭状态</strong>。</li>
+        <li><strong>重装前：</strong>连校园网死气沉沉，认证页面死活弹不出来，手动输网址也经常报错。</li>
+        <li><strong>重装后：</strong>点击校园网 Wi-Fi，连上信号的瞬间，浏览器立刻自动弹出了北京联合大学的实名网络认证界面！系统底层网络组件和认证协议终于恢复正常了。</li>
+        <li><strong>登录与检查：</strong>输入学号密码，顺利上网。为了防止以后再断连，进“设置” -> “网络和 Internet” -> “WLAN”，点击校园网名称，确认“随机硬件地址”处于关闭状态。</li>
     </ol>
 
-    <h2>六、 后续排障：BitLocker 锁盘处理</h2>
-    <p>重装系统后，发现 D 盘出现黄色锁图标，提示输入 BitLocker 恢复密钥。由于数据已不需要，且旧系统的密钥已失效。</p>
-    <p><strong>解决方案：</strong></p>
+    <h2>后续排障：BitLocker 锁盘处理</h2>
+    <p>重装系统后，发现 D 盘出现黄色锁图标，提示输入 BitLocker 恢复密钥。因为数据已经不重要了，旧的密钥也失效了，我的处理方式如下：</p >
     <ol>
-        <li>在“此电脑”中右键 D 盘，选择“格式化”，文件系统选择 NTFS，勾选“快速格式化”，点击“开始”，成功清空并解锁 D 盘。</li>
-        <li><strong>预防措施：</strong>进入“设置” -> “隐私和安全性” -> “设备加密”，关闭该选项，防止后续再次被自动加密。</li>
+        <li>在“此电脑”里右键 D 盘，选择“格式化”，文件系统选 NTFS，勾选“快速格式化”，点开始，成功清空并解锁。</li>
+        <li>为了防止以后再被自动上锁，去“设置” -> “隐私和安全性” -> “设备加密”，把该选项关掉。</li>
     </ol>
 
-    <h2>七、 总结与反思</h2>
-    <p>
-        本次重装系统的过程较为曲折，但极具学习价值。作为信息安全专业的学生，通过这次实操，深入理解了 UEFI 启动、GPT 分区、VMD 控制器、OOBE 机制以及 BitLocker 加密的底层逻辑。
-    </p>
-    <p>
-        重装系统不仅是“下一键”那么简单，更重要的是<strong>提前备份驱动、根据硬件特性（如 VMD）调整 BIOS 设置，以及灵活运用命令行绕过限制</strong>。
-        最终，不仅解决了校园网无法连接的问题，系统底层网络栈恢复正常（认证页面即时弹出），还获得了一个干净、高性能的系统环境。最后，感谢导师花了一个下午的时间帮助我排查漏洞并给我重装系统的建议，在重装系统的过程中我也获得了上手实践操作的乐趣，这超级酷。
-    </p>
+    <h2>踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>不关 VMD，安装程序就是瞎子：</strong>如果BIOS里不关掉 Intel VMD，Windows 安装程序根本认不出你的固态硬盘。这是我遇到的第一个大坑。</li>
+        <li><strong>Win11 强制联网得用命令行破：</strong>装机的时候没网卡驱动，Win11 还死活不让你下一步。以后记住 <code>Shift + F10</code> 调出命令行，输入 <code>oobe\bypassnro</code> 这一招，专治各种强制联网。</li>
+        <li><strong>提前备份驱动是关键：</strong>重装完系统是没网的，一定要在重装前就把无线网卡、有线网卡驱动下载好放在U盘里，否则装完系统就真的“孤立无援”了。</li>
+        <li><strong>重装后系统会自动上锁：</strong>重装 Windows 11 后，有时候 BitLocker 会自动把其他盘锁上。如果不心疼数据直接格式化，并且赶紧去设置里把设备加密关掉，不然下次开机可能又要找密钥。</li>
+        <li><strong>复盘：</strong>重装系统不只是点“下一步”那么简单，提前备份驱动、根据硬件特性调 BIOS、灵活运用命令行绕过限制，每一步都很关键。虽然折腾了一下午，但能看着校园网认证页面瞬间弹出来的那一刻，还是挺有成就感的。最后顺便感谢一下帮我排查的导师。</li>
+    </ul>
 
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
 </body>
 </html>
