@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Bugku CTF】Web-你必须让他停下 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; }
+        h1, h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; }
+        a { color: #0366d6; text-decoration: none; }
+        .footer { margin-top: 40px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【Bugku CTF】Web-你必须让他停下 Writeup</h1>
+    <p>发布于：2026-09-12 | 分类：CTF | 标签：Bugku, Web</p >
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li>平台：Bugku CTF</li>
+        <li>分类：Web</li>
+        <li>题目名称：你必须让他停下</li>
+        <li>描述：你必须让他停下</li>
+    </ul>
+    <h2>2. 解题思路</h2>
+    <p>启动场景后，页面使用 setTimeout 每 500 毫秒疯狂刷新一次，导致无法正常右键查看源码或手动提取 flag。需要通过代码自动化或前端调试工具绕过刷新限制。</p >
+    <h2>3. 操作步骤</h2>
+    <ol>
+        <li>使用 <code>view-source:</code> 查看原始源码，发现页面通过 JS 的 <code>setTimeout</code> 不断触发 <code>window.location.reload()</code> 导致刷新。</li>
+        <li>尝试在 F12 开发者工具中禁用 JavaScript 或使用“元素”面板，但禁用 JS 会导致动态生成的 flag 无法加载。</li>
+        <li>编写 Python 脚本进行自动化请求：使用 <code>urllib</code> 库循环访问靶场地址，利用正则表达式 <code>re.search(r'flag\{.*?\}', html)</code> 自动匹配返回数据中的 flag。</li>
+        <li>成功抓取到动态注入的 flag：<code>flag{3e99de07b414deff14d048117d5644b}</code>，提交成功。</li>
+    </ol>
+    <h2>4. 踩坑记录（新手避坑）</h2>
+    <p>在调试 Python 脚本时遇到了 <code>ModuleNotFoundError: No module named 'requests'</code> 的报错。原因是当前 Python 版本较新（3.14.7），未预装第三方 requests 库。后续改用 Python 内置的 <code>urllib.request</code> 库成功绕过。</p >
+    <p><strong>特别提醒：</strong>修改代码后必须按 <code>Ctrl + S</code> 保存，再运行脚本，否则运行的永远是旧代码！</p >
+    <h2>5. 总结与反思</h2>
+    <p>掌握了前端定时器（setTimeout/setInterval）的干扰原理，熟悉了 Python 自动化请求与正则表达式的配合使用。题外话：python太酷了！</p >
+    <div class="footer"><p>Hosted on GitHub Pages</p ></div>
+</body>
+</html>
