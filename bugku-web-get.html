@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Bugku CTF】Web-GET Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; }
+        h1, h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; }
+        a { color: #0366d6; text-decoration: none; }
+        .footer { margin-top: 40px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【Bugku CTF】Web-GET Writeup</h1>
+    <p>发布于：2026-09-12 | 分类：CTF | 标签：Bugku, Web</p >
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li>平台：Bugku CTF</li>
+        <li>分类：Web</li>
+        <li>题目名称：GET</li>
+        <li>描述：flag{}</li>
+    </ul>
+    
+    <h2>2. 解题思路</h2>
+    <p>启动场景后，页面给出了 PHP 源代码。代码逻辑接收名为 <code>what</code> 的 GET 参数，并判断其值是否等于字符串 <code>flag</code>。若是，则输出真正的 flag。</p >
+    
+    <h2>3. 操作步骤</h2>
+    <ol>
+        <li>点击“启动场景”，查看页面 PHP 源码：<br>
+            <code>$what=$_GET['what'];</code><br>
+            <code>echo $what;</code><br>
+            <code>if($what=='flag') echo 'flag{****}';</code></li>
+        <li>在浏览器地址栏中，为当前 URL 拼接参数：<code>http://靶场地址/?what=flag</code></li>
+        <li>按回车发送请求。</li>
+        <li>页面回显了 <code>flagflag{ed580feca89fa03a6a5c6528326c217a}</code>。其中第一个 <code>flag</code> 是代码 <code>echo $what;</code> 打印出的输入值，后面拼接的才是真正的 Flag。</li>
+        <li>提取 <code>flag{ed580feca89fa03a6a5c6528326c217a}</code> 提交。</li>
+    </ol>
+    
+    <h2>4. 踩坑记录</h2>
+    <p>起初看到回显是 <code>flagflag{...}</code> 感到疑惑。通过分析代码执行顺序发现，代码先原样打印了输入的值（<code>echo $what;</code>），接着又打印了真正的 flag（<code>echo 'flag{...}';</code>），两个字符串连在了一起。</p >
+    
+    <h2>5. 总结</h2>
+    <p>这是一道基础的 Web 传参题，考察了 HTTP GET 请求格式（<code>?key=value</code>）以及简单的 PHP 代码审计能力。学会了从源码逻辑中寻找漏洞触发条件。</p >
+    
+    <div class="footer"><p>Hosted on GitHub Pages</p ></div>
+</body>
+</html>
