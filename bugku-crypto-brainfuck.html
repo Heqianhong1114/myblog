@@ -27,26 +27,69 @@
         <li><strong>平台：</strong>Bugku CTF</li>
         <li><strong>分类：</strong>Crypto（密码学）</li>
         <li><strong>题目名称：</strong>[+-<>]</li>
-        <li><strong>描述：</strong>一大串由 <code>+ - < > [ ] . ,</code> 组成的长代码。</li>
+        <li><strong>描述：</strong>一串由 <code>+ - < > [ ] . ,</code> 这八个符号组成的长代码。</li>
     </ul>
 
     <h2>2. 解题思路</h2>
-    <p>根据题目名字及特征字符串，准确识别出这是 Brainfuck 编程语言。在线运行工具因为域名安全策略被浏览器拦截，决定直接复用之前解码 Ook! 时写好的 Python 内置 Brainfuck 解释器脚本。</p >
+    <p>看到题目名字和描述里的这八个符号，我立刻想到这是 Brainfuck 语言。这和我上一题做的 Ook! 类似，也是一种深奥的编程语言。我先尝试了在线的运行工具，但网址打不开，报错“连接不是私密连接”。所以我没有硬刚，直接决定复用之前写的 Python 脚本，在本地跑这个代码。</p >
 
     <h2>3. 操作步骤</h2>
     <ol>
-        <li>复制题目中的 Brainfuck 代码。</li>
-        <li>在 VS Code 中打开 <code>decode_brainfuck.py</code>，将代码存入变量 <code>brainfuck_code</code>。</li>
-        <li>运行脚本，内置解释器逐字符执行代码并记录输出。</li>
-        <li>终端成功打印出 <code>flag{0d86208ac54fbf12}</code>。</li>
-        <li>提交至 Bugku 平台，验证通过。</li>
+        <li>在 Bugku 平台把题目描述里的那长串 <code>++++[>+...</code> 代码全部复制下来。</li>
+        <li>打开 VS Code，新建文件 <code>decode_brainfuck.py</code>。</li>
+        <li>粘贴下面的代码，将题目里的代码放进去（为了方便，我直接贴了我的代码）：</li>
+    </ol>
+    
+    <pre><code># 1. 把题目描述里那一长串 [+-<>] 代码复制到这里
+brainfuck_code = """++++[>+>+++>+++++++>++++++++++>......这里放你复制过来的代码......."""
+
+# 2. 清理掉多余的空格，只保留有效指令
+brainfuck_code = ''.join(c for c in brainfuck_code if c in '><+-.,[]')
+
+# 3. 内置 Brainfuck 解释器
+def run_brainfuck(code):
+    bracket_map = {}
+    stack = []
+    for i, c in enumerate(code):
+        if c == '[': stack.append(i)
+        elif c == ']':
+            start = stack.pop()
+            bracket_map[start] = i
+            bracket_map[i] = start
+    
+    tape = [0] * 30000
+    ptr = 0
+    pc = 0
+    output = []
+    while pc < len(code):
+        cmd = code[pc]
+        if cmd == '>': ptr += 1
+        elif cmd == '<': ptr -= 1
+        elif cmd == '+': tape[ptr] = (tape[ptr] + 1) % 256
+        elif cmd == '-': tape[ptr] = (tape[ptr] - 1) % 256
+        elif cmd == '.': output.append(chr(tape[ptr]))
+        elif cmd == '[':
+            if tape[ptr] == 0: pc = bracket_map[pc]
+        elif cmd == ']':
+            if tape[ptr] != 0: pc = bracket_map[pc]
+        pc += 1
+    return ''.join(output)
+
+print("正在执行 Brainfuck...")
+print(run_brainfuck(brainfuck_code))</code></pre>
+
+    <ol start="4">
+        <li>按 <code>Ctrl + S</code> 保存文件。</li>
+        <li>点击右上角的 <code>▶</code> 运行脚本，终端里直接打印出 <code>flag{0d86208ac54fbf12}</code>。</li>
+        <li>复制这串 flag 去平台提交，验证通过。</li>
     </ol>
 
-    <h2>4. 踩坑记录</h2>
-    <p>起初尝试使用在线 Brainfuck 运行工具，但浏览器提示“连接不是私密连接，存在安全隐患”，无法访问。果断放弃在线工具，改用本地 Python 脚本，完美规避了网络问题，并且发现之前编写的代码可以直接复用，大大提高了效率。</p >
-
-    <h2>5. 总结与反思</h2>
-    <p>初步了解了 Brainfuck 语言的识别与本地解释执行。通过复用 Ook! 题目的解释器代码，深刻体会到“代码模块化”和“积累工具库”在 CTF 实战中的巨大优势。</p >
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>在线工具不好用：</strong>在线的 Brainfuck 运行工具因为域名安全策略被浏览器拦截，无法访问。以后遇到这类编码转换，直接写本地脚本更稳定。</li>
+        <li><strong>代码直接复用：</strong>上一题 Ook! 语言本质上也是转成 Brainfuck 运行的，所以这次我直接把上一题写的 Python 解释器代码拿来改了一下变量名就用了，不用重新从头写。</li>
+        <li><strong>再次提醒保存：</strong>改完代码一定要先按 <code>Ctrl + S</code> 保存，再点运行按钮，不然跑的还是旧代码。</li>
+    </ul>
 
     <div class="footer">
         <p>Hosted on GitHub Pages</p >
