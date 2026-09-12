@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Bugku CTF】Web-头等舱 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; }
+        h1, h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; }
+        a { color: #0366d6; text-decoration: none; }
+        .footer { margin-top: 40px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【Bugku CTF】Web-头等舱 Writeup</h1>
+    <p>发布于：2026-09-12 | 分类：CTF | 标签：Bugku, Web</p >
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li>平台：Bugku CTF</li>
+        <li>分类：Web</li>
+        <li>题目名称：头等舱</li>
+        <li>描述：头等舱</li>
+    </ul>
+    
+    <h2>2. 解题思路</h2>
+    <p>启动场景后页面显示“什么也没有”。题目名称“头等舱”暗示与 HTTP 请求头（Header）相关，推测 Flag 隐藏在 HTTP 响应头中。</p >
+    
+    <h2>3. 操作步骤</h2>
+    <ol>
+        <li>启动场景，按 <code>F12</code> 打开开发者工具。</li>
+        <li>切换到 <code>网络 (Network)</code> 标签页，按 <code>F5</code> 刷新页面。</li>
+        <li>点击第一个请求，在右侧面板找到“标头” -> “响应标头 (Response Headers)”。</li>
+        <li>发现自定义响应头 <code>Flag: flag{eec5bda8be2c27123b770945251b62b4}</code>。</li>
+        <li>提取 Flag 并提交。</li>
+    </ol>
+    
+    <h2>4. 总结与反思</h2>
+    <p>本题核心在于理解 HTTP 协议中请求头与响应头的机制。Web 安全不仅要看页面显示的内容，还要善于利用浏览器的“网络”面板查看底层的交互数据。自定义 Header 是常见的信息隐藏方式。</p >
+    
+    <div class="footer"><p>Hosted on GitHub Pages</p ></div>
+</body>
+</html>
