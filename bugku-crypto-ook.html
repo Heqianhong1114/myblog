@@ -28,26 +28,92 @@
         <li><strong>分类：</strong>Crypto（密码学）</li>
         <li><strong>题目名称：</strong>ok</li>
         <li><strong>描述：</strong>Ook.</li>
-        <li><strong>附件：</strong>file.txt（内容全为 Ook. Ook? Ook! 的排列组合）</li>
+        <li><strong>附件：</strong>file.txt（下载后打开，里面全是用 Ook. Ook? Ook! 排列组成的文本）</li>
     </ul>
 
     <h2>2. 解题思路</h2>
-    <p>观察到附件内容完全由 <code>Ook.</code>、<code>Ook?</code>、<code>Ook!</code> 三种词构成。根据描述判断这是一种名为 Ook! 的深奥编程语言，本质上是 Brainfuck 的变体。计划编写 Python 脚本，将 Ook! 代码自动翻译成 Brainfuck 并在本地解释执行，避免手动粘贴出错。</p >
+    <p>看到附件里全都是 <code>Ook.</code>、<code>Ook?</code>、<code>Ook!</code> 这三个词，我就知道这是 Ook! 语言。它本质上是一种变体的 Brainfuck 语言，只是把符号换成了单词。如果手动去把它们一个一个翻译成 Brainfuck 的 <code>+-&lt;&gt;[].,</code>，不仅容易抄错，还特别费时间。所以我决定直接写个 Python 脚本，让它自动读取文件并转码运行。</p >
 
     <h2>3. 操作步骤</h2>
     <ol>
-        <li>下载并打开附件 <code>file.txt</code>，确认为 Ook! 语言。</li>
-        <li>编写 Python 脚本 <code>decode_ook.py</code>，建立 Ook 指令到 Brainfuck 指令的映射（如 <code>Ook. Ook?</code> 映射为 <code>></code>）。</li>
-        <li>自动读取 <code>file.txt</code> 内容，利用正则表达式提取所有 Ook 词，两两组合转换为 Brainfuck 代码。</li>
-        <li>在 Python 脚本中内置一个简单的 Brainfuck 解释器，直接执行转换后的代码。</li>
-        <li>运行脚本，终端直接输出 <code>flag{0a394df55312c51a}</code>。</li>
+        <li>点击题目页面的 <code>上下载</code> 按钮，把附件下载到桌面。</li>
+        <li>用文本编辑器打开，确认里面确实是 Ook 代码。</li>
+        <li>在 VS Code 新建 <code>decode_ook.py</code>，把下面的代码粘贴进去：</li>
     </ol>
 
-    <h2>4. 踩坑记录</h2>
-    <p>最初尝试直接复制文件内容并粘贴到代码变量中，导致内容缺失，输出的 Brainfuck 代码只有两个加号，无法运行。后来改为让 Python 脚本直接通过文件路径读取，完美解决了复制不全的问题，这也是自动化脚本的优势所在。</p >
+<pre><code>import re
 
-    <h2>5. 总结与反思</h2>
-    <p>这是 Crypto 领域的第三题。通过这次实战，认识了 Ook! 与 Brainfuck 这种深奥编程语言，并成功使用 Python 编写了一个包含正则提取、指令映射和内置解释器的完整自动化脚本。大幅提升了编写脚本处理复杂编码逻辑的能力。</p >
+# 1. 自动读取桌面的 file.txt
+# 注意：路径要替换成你自己电脑上的实际路径
+try:
+    with open("C:/Users/heqianhong/Desktop/file.txt", "r", encoding="utf-8") as f:
+        ook_code = f.read()
+except FileNotFoundError:
+    print("找不到 file.txt，请确认它是否在桌面上！")
+    exit()
+
+# 2. Ook 映射到 Brainfuck
+mapping = {
+    ('Ook.', 'Ook?'): '>', ('Ook?', 'Ook.'): '<',
+    ('Ook.', 'Ook.'): '+', ('Ook!', 'Ook!'): '-',
+    ('Ook!', 'Ook.'): '.', ('Ook.', 'Ook!'): ',',
+    ('Ook!', 'Ook?'): '[', ('Ook?', 'Ook!'): ']'
+}
+
+# 3. 提取内容并转换
+tokens = re.findall(r'Ook[.!?]', ook_code)
+brainfuck_code = ""
+for i in range(0, len(tokens) - 1, 2):
+    pair = (tokens[i], tokens[i+1])
+    if pair in mapping:
+        brainfuck_code += mapping[pair]
+
+# 4. 内置一个简单的 Brainfuck 解释器，直接出结果！
+def run_brainfuck(code):
+    code = ''.join(c for c in code if c in '><+-.,[]')
+    bracket_map = {}
+    stack = []
+    for i, c in enumerate(code):
+        if c == '[': stack.append(i)
+        elif c == ']':
+            start = stack.pop()
+            bracket_map[start] = i
+            bracket_map[i] = start
+    
+    tape = [0] * 30000
+    ptr = 0
+    pc = 0
+    output = []
+    while pc < len(code):
+        cmd = code[pc]
+        if cmd == '>': ptr += 1
+        elif cmd == '<': ptr -= 1
+        elif cmd == '+': tape[ptr] = (tape[ptr] + 1) % 256
+        elif cmd == '-': tape[ptr] = (tape[ptr] - 1) % 256
+        elif cmd == '.': output.append(chr(tape[ptr]))
+        elif cmd == '[':
+            if tape[ptr] == 0: pc = bracket_map[pc]
+        elif cmd == ']':
+            if tape[ptr] != 0: pc = bracket_map[pc]
+        pc += 1
+    return ''.join(output)
+
+print("正在解码 Ook! 语言...")
+print("-" * 30)
+print(run_brainfuck(brainfuck_code))
+print("-" * 30)</code></pre>
+
+    <ol start="4">
+        <li>修改代码里的文件路径，确保能读取到桌面的 <code>file.txt</code>。</li>
+        <li>按 <code>Ctrl + S</code> 保存，点击右上角的 <code>▶</code> 运行。</li>
+        <li>终端打印出 <code>flag{0a394df55312c51a}</code>，复制去平台提交，验证通过。</li>
+    </ol>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>手动复制容易错：</strong>我一开始图省事，想直接复制文本粘贴到 Python 变量里，结果因为文件太长，复制不全，只解出了两个加号。最后还是改成让 Python 直接通过文件路径读取，问题就解决了。</li>
+        <li><strong>写脚本的好处：</strong>用代码处理这种批量转换的题，不仅比手算快，而且不会出错，以后遇到类似的文本编码题，都可以直接写脚本处理。</li>
+    </ul>
 
     <div class="footer">
         <p>Hosted on GitHub Pages</p >
