@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Bugku CTF】Misc-眼见非实 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【Bugku CTF】Misc-眼见非实 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.13 | <strong>分类：</strong>CTF | <strong>标签：</strong>Bugku, Misc, Word隐写, 文件包含</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Bugku CTF</li>
+        <li><strong>分类：</strong>Misc（杂项）</li>
+        <li><strong>题目名称：</strong>眼见非实</li>
+        <li><strong>描述：</strong>flag{}</li>
+        <li><strong>提交格式：</strong>flag{}</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>题目名称为“眼见非实”，且附件后缀名为 <code>.docx</code>。实际上，Office 2007 之后的文档（docx、xlsx等）本质上都是基于 XML 的 ZIP 压缩包。我们需要利用这个特性，把后缀改为 <code>.zip</code> 解压，直接查看底层的 XML 文件，寻找隐藏在文档内部的 Flag。</p >
+
+    <h2>3. 操作步骤</h2>
+    <ol>
+        <li>点击题目页面 <code>上下载</code> 按钮，获取文件 <code>眼见非实.docx</code>。</li>
+        <li>右键该文件，用“记事本”打开，发现文件开头是 <code>PK</code>（ZIP压缩包的文件头），证实了它本质上是一个 ZIP 压缩包。</li>
+        <li>把文件后缀名从 <code>.docx</code> 改为 <code>.zip</code>，然后解压。</li>
+        <li>解压后得到 <code>_rels</code>、<code>customXml</code>、<code>docProps</code>、<code>word</code> 等文件夹。</li>
+        <li>用 VS Code 打开解压后的文件夹，按快捷键 <code>Ctrl + Shift + F</code> 进行全局搜索。</li>
+        <li>搜索关键词 <code>flag</code>，在结果中定位到 <code>word</code> 目录下的 <code>document.xml</code> 文件。</li>
+        <li>在文件内容中发现了隐藏文本：<code>&lt;w:t&gt;flag{F1@g}&lt;/w:t&gt;</code>。</li>
+        <li>提取出 Flag：<code>flag{F1@g}</code>，提交平台，验证通过。</li>
+    </ol>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>Office 文档的本质：</strong>Office 2007 之后的文档（.docx, .xlsx, .pptx）本质上都是基于 XML 的 ZIP 压缩包。以后遇到这类附件，第一反应就是改成 <code>.zip</code> 解压看源码。</li>
+        <li><strong>Windows 隐藏扩展名陷阱：</strong>在 <code>word</code> 文件夹里，我看到文件名是 <code>document</code>，没有显示后缀名。我抱着试一试的态度，把它的后缀改为 <code>.html</code>。结果用浏览器打开后，网页直接渲染出了被隐藏的文字，这是解开这道题最神奇的地方。</li>
+        <li><strong>隐藏文字的套路：</strong>出题人通常会在 Word 文档里把字体颜色设置为白色，或者设置隐藏属性（<code>&lt;w:vanish/&gt;</code>），肉眼在 Word 里看不见。但通过直接查看 XML 源码或改为 HTML，就能瞬间识破。</li>
+        <li><strong>情报检索能力：</strong>在尝试 Python 脚本搜索未果后，我参考了平台评论区老哥的思路“把 document.xml 改成 html 用浏览器打开”，结合自己的实际操作（改后缀后按 Ctrl+F 搜索），成功破局。这也是真实安全工作中常用的信息收集手段。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
