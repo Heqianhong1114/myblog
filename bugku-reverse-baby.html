@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Bugku CTF】Reverse-入门逆向 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【Bugku CTF】Reverse-入门逆向 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.13 | <strong>分类：</strong>CTF | <strong>标签：</strong>Bugku, Reverse, Ghidra</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Bugku CTF</li>
+        <li><strong>分类：</strong>Reverse（逆向工程）</li>
+        <li><strong>题目名称：</strong>入门逆向</li>
+        <li><strong>描述：</strong>来源: XJNU</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>下载附件并解压，得到一个 <code>baby.exe</code> 程序。根据题目名称判断这是一道逆向入门题。因为程序是 32 位 PE 文件，计划使用 Ghidra 工具进行反汇编，查看 <code>_main</code> 函数内部的代码逻辑，从而提取隐藏的字符串。</p >
+
+    <h2>3. 操作步骤</h2>
+    <ol>
+        <li>下载附件，解压得到 <code>baby.exe</code>。</li>
+        <li>安装 Java 环境（JDK 21），并下载、解压 Ghidra。</li>
+        <li>启动 Ghidra，新建一个 Non-Shared Project。通过 <code>File</code> -> <code>Import File</code> 导入 <code>baby.exe</code>。</li>
+        <li>双击打开导入的文件，点击 <code>Analyze</code> 进行自动分析。</li>
+        <li>左侧符号树中找到 <code>_main</code> 函数，双击进入。在中间的 <code>Listing</code>（汇编代码）窗口，定位到 <code>CALL printf</code> 之前。</li>
+        <li>发现程序并没有直接使用 <code>printf</code> 打印 flag，而是使用多行 <code>MOV</code> 指令，逐个将字符压入栈中。</li>
+        <li>提取这些十六进制字节：<code>66 6C 61 67 7B 52 65 5F 31 73 5F 53 30 5F 43 30 4F 4C 7D</code>。</li>
+        <li>手动拼接这些 ASCII 码，得到最终 Flag：<code>flag{Re_1s_S0_C0OL}</code>。提交平台，验证通过。</li>
+    </ol>
+
+    <h2>4. 踩坑记录与复盘（极其曲折的纯键盘历险记）</h2>
+    <p>这是一次极其特殊且曲折的逆向排障实战，因为室友在睡觉，我强迫自己全程不使用鼠标，用纯键盘和代码来解决问题，结果经历了一连串的“乌龙”：</p >
+    <ul>
+        <li><strong>脚本套娃与奇葩搜索：</strong>我先写了一个 Python 脚本自动搜索文件，结果脚本因为名字里带 <code>baby</code>，把自己（<code>run-baby.py</code>）给读取了。换用全盘搜索后，搜到了腾讯软件自带的 <code>baby-carriage.svg</code>（婴儿车）图标，完全跑偏。</li>
+        <li><strong>终端环境混淆：</strong>试图在 PowerShell 终端里执行 CMD 的 <code>dir</code> 命令报错，并且长时间找不到目标文件。最后才发现桌面上只有一个 <code>file.zip</code>，连解压都没解压！解压后才拿到了真实的 <code>baby.exe</code>。</li>
+        <li><strong>反编译器未显示 Flag：</strong>用 Python 读取 <code>baby.exe</code> 只发现了编译器垃圾字符串，用 Python 运行它，它只说了句 <code>Hi~ this is a babyre</code>。用 Ghidra 反编译后，右侧的 Decompiler 也没直接显示 flag，因为出题人用了逐字节入栈的方式，反编译器认为这是无意义的操作。</li>
+        <li><strong>O和0的视觉陷阱：</strong>在提取出十六进制数据并转换成字符串后，<code>C0OL</code> 和 <code>C00L</code> 极其相似。第一次提交 <code>C00L</code> 提示错误，最后反复比对十六进制里的 <code>30</code> 和 <code>4F</code>（<code>0</code> 和 <code>O</code>），才确认正确的拼写是 <code>C0OL</code>（数字0 + 字母O + 字母L）。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
