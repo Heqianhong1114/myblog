@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Bugku CTF】Web-源代码 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【Bugku CTF】Web-源代码 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.13 | <strong>分类：</strong>CTF | <strong>标签：</strong>Bugku, Web, JS混淆, DOM篡改</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Bugku CTF</li>
+        <li><strong>分类：</strong>Web</li>
+        <li><strong>题目名称：</strong>源代码</li>
+        <li><strong>描述：</strong>看看源代码？</li>
+        <li><strong>提交格式：</strong>flag{}</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>页面只提供了一个没有 name 属性的输入框，说明常规的 POST 提交是行不通的。按 F12 查看源码，发现页面包含了一段被混淆的 JavaScript 代码，验证逻辑应该在前端。我们需要解码 JS，提取出验证条件，并通过修改 DOM 结构来欺骗前端 JS，从而拿到 Flag。</p >
+
+    <h2>3. 操作步骤</h2>
+    <ol>
+        <li>启动场景，按 <code>F12</code> 查看源码，发现混淆的 JS 代码：<br>
+            <code>eval(unescape(p1) + unescape('%35%34%61%61%32%61%61%36%34%38%63%66%36%65%38%37%61%37%31%31%34%66%31' + p2));</code></li>
+        <li>将 <code>%35%34%61%61%32%61%61%36%34%38%63%66%36%65%38%37%61%37%31%31%34%66%31</code> 部分进行 URL 解码，得到字符串 <code>54aa2aa648cf6e87a7114f1</code>。</li>
+        <li>结合评论区提示，使用解码工具对整段 JS 进行 <code>unescape</code> 解码，得到真实的验证逻辑：<br>
+            <code>var p1 = function checkSubmit(){</code><br>
+            <code>&nbsp;&nbsp;var a=document.getElementById("password");</code><br>
+            <code>&nbsp;&nbsp;if("undefined"!=typeof a){</code><br>
+            <code>&nbsp;&nbsp;&nbsp;&nbsp;if("67d709b2b54aa2aa648cf6e87a7114f1"==a.value) return 10;</code><br>
+            <code>&nbsp;&nbsp;&nbsp;&nbsp;alert("Error"); a.focus(); return 11;</code><br>
+            <code>&nbsp;&nbsp;}</code><br>
+            <code>}</code><br>
+            <code>document.getElementById("levelQuest").onsubmit=checkSubmit;</code></li>
+        <li>从解码后的 JS 逻辑可以看出两个关键信息：<br>
+            <strong>1. 真正的密码（值）是完整的：</strong> <code>67d709b2b54aa2aa648cf6e87a7114f1</code>（之前我们以为 <code>54aa2aa...</code> 是完整的，其实是拼接后的后半截）。<br>
+            <strong>2. 验证元素：</strong> JS 是通过 <code>id="password"</code> 来获取用户输入的，但页面 HTML 里写的是 <code>id="flag"</code>。</li>
+        <li>在浏览器 F12 的“元素”面板中，双击 HTML 代码，将 <code>&lt;input type="input" name="flag" id="flag" /&gt;</code> 中的 <code>id="flag"</code> 修改为 <code>id="password"</code>。</li>
+        <li>在网页输入框中，输入完整的哈希值 <code>67d709b2b54aa2aa648cf6e87a7114f1</code>，点击 <code>Submit</code> 按钮。</li>
+        <li>页面成功弹出真实的 Flag：<code>flag{be61014f405c2e768e015b3a13c95f4}</code>。</li>
+    </ol>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>Python 脚本无法触发前端 JS 逻辑：</strong>这道题我花了大量时间写 Python 脚本去盲打（尝试了 GET、POST 和无数个参数名），全部失败。因为验证逻辑（<code>checkSubmit</code> 函数）完全是运行在浏览器前端的 JS 中的。遇到这种题，浏览器 F12 才是真正的武器，Python 后端请求无法执行前端 JS。</li>
+        <li><strong>HTML 属性（name vs id）的陷阱：</strong>提交表单时，服务器接收的是 <code>name</code> 属性的值（这里是 <code>flag</code>）；但在前端 JS 取值时，用的却是 <code>document.getElementById("password")</code>。这种“name”和“id”不一致的迷惑写法，导致直接用 Python 提交参数 <code>password</code> 无效，必须手动在浏览器里修改 <code>id</code> 属性骗过 JS。</li>
+        <li><strong>URL 解码不完整导致卡壳：</strong>一开始我提取的哈希值只有 <code>54aa2aa648cf6e87a7114f1</code>，后来通过完整的解码拼接逻辑才发现，完整的值其实是 <code>67d709b2b54aa2aa648cf6e87a7114f1</code>，前面的部分隐藏在 p1 的 js 代码里。</li>
+        <li><strong>关于这道题的解题过程：</strong>看了评论区的提示“改一下html的id为password”后，才恍然大悟这是典型的“欺骗前端”漏洞。这也提醒我，在 Web 安全中，永远不要相信前端的一切数据，因为攻击者可以随意篡改 DOM。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
