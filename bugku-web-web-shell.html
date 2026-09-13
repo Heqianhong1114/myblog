@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Bugku CTF】Web-网站被黑 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【Bugku CTF】Web-网站被黑 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.13 | <strong>分类：</strong>CTF | <strong>标签：</strong>Bugku, Web, WebShell</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Bugku CTF</li>
+        <li><strong>分类：</strong>Web</li>
+        <li><strong>题目名称：</strong>网站被黑</li>
+        <li><strong>描述：</strong>网站被黑了 黑客会不会留下后门</li>
+        <li><strong>提交格式：</strong>flag{}</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>启动场景后，页面显示网站被“中国灰客联盟”黑掉的篡改页（Defacement），并且提示“你的网站存在漏洞”。题目描述明确问“黑客会不会留下后门”，这暗示我们需要去找到黑客上传的 WebShell（一句话木马）。</p >
+    <p>我先查看了页面源代码（F12），搜索了 flag、shell、backdoor 等关键词，没有找到直接的文件名线索。于是我决定采用最直接的方式：访问常见的后门文件名。</p >
+
+    <h2>3. 操作步骤</h2>
+    <ol>
+        <li>启动场景，获取靶场地址（例如：<code>http://160.202.254.160:10065</code>）。</li>
+        <li>按 <code>F12</code> 查看网页源码，页面底部有一个署名 <code>byharry</code>，这是一个很关键的提示。</li>
+        <li>在浏览器地址栏，尝试拼接常见后门文件路径，最终成功访问到 <code>shell.php</code>。</li>
+        <li>页面显示了一个蓝色的“WebShell”登录框，要求输入 PASS 密码。</li>
+        <li>尝试输入常见的弱口令 <code>hack</code>，点击登录。</li>
+        <li>页面直接弹出了 <code>flag{cc0475a393fcae549efdac46e81a7cbb}</code>。</li>
+        <li>复制 Flag 去平台提交，验证通过。</li>
+    </ol>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>后门文件名的猜测：</strong>在没有源码泄露的情况下，找后门文件最有效的办法就是“猜”和“扫”。常见的 WebShell 名字包括 <code>shell.php</code>、<code>cmd.php</code>、<code>1.php</code>、<code>hack.php</code>、<code>webshell.php</code> 等。这道题用 <code>shell.php</code> 一击即中。</li>
+        <li><strong>弱口令的危害：</strong>这道理非常生动地演示了黑客的心理。他们在留下后门时，往往为了方便记忆，会设置极其简单的密码（如 <code>hack</code>、<code>admin</code>）。在真实的安全加固中，一定要禁止这种弱口令后门的存在。</li>
+        <li><strong>为什么 Flag 直接吐出来了：</strong>这道题可能在设计时就是为了演示基本的渗透流程。进入 WebShell 界面后，不需要复杂的命令执行操作（比如 <code>system('cat flag')</code>），环境直接在页面底层暴露了 flag，属于这道题特有的“送分”环节。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
