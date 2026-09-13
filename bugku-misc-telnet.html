@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Bugku CTF】Misc-telnet Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【Bugku CTF】Misc-telnet Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.13 | <strong>分类：</strong>CTF | <strong>标签：</strong>Bugku, Misc, 流量分析, Wireshark</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Bugku CTF</li>
+        <li><strong>分类：</strong>Misc（杂项）- 流量分析</li>
+        <li><strong>题目名称：</strong>telnet</li>
+        <li><strong>描述：</strong>key格式flag{xxxxxxxxxxxxxxx}</li>
+        <li><strong>提交格式：</strong>flag{}</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>题目名称和描述明确指向了 Telnet 协议。Telnet 是早期的网络协议，最大的特点是<strong>明文传输</strong>，没有加密。所以我下载了附件流量包 <code>networking.pcap</code>，准备用 Wireshark 打开，过滤出 telnet 的数据包，并追踪 TCP 流，直接在明文通讯记录里寻找 flag。</p >
+
+    <h2>3. 操作步骤</h2>
+    <ol>
+        <li>点击题目页面的 <code>上下载</code> 按钮，下载得到 <code>networking.pcap</code> 文件。</li>
+        <li>在官网下载并安装 Wireshark（<strong>⚠️ 注意：一定要下载 Windows x64 版本，不要下成 ARM64 版本</strong>）。</li>
+        <li>打开 Wireshark，点击 <code>File (文件)</code> -> <code>Open (打开)</code>，选中下载好的 <code>networking.pcap</code>。</li>
+        <li>在顶部的“过滤器”栏输入：<code>telnet</code>，按回车，过滤出所有的 Telnet 数据包。</li>
+        <li>在中间的包列表里，随便用鼠标<strong>右键</strong>点击一个数据包。</li>
+        <li>在弹出的菜单里，选择 <code>追踪 (Follow)</code> -> <code>TCP 流 (TCP Stream)</code>。</li>
+        <li>弹出新窗口后，里面显示了客户端和服务器之间的通讯记录。按 <code>Ctrl + F</code> 搜索 <code>flag</code>。</li>
+        <li>在窗口中间位置发现有一行：<code>Password: flag{d316759c281bf925d600be698a4973d5}</code>。</li>
+        <li>提取出 <code>flag{d316759c281bf925d600be698a4973d5}</code>，提交平台，验证通过。</li>
+    </ol>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>下载错安装包版本：</strong>去 Wireshark 官网下载时，因为没看清，第一次下载了 ARM64 版本的安装包，双击报错“You're trying to install the Arm64 version...”。后来重新下载了第二行的 <code>Windows x64 Installer</code> 才成功安装。</li>
+        <li><strong>鼠标左右键的区分：</strong>一开始用 Wireshark 过滤完 telnet 数据包后，习惯性用鼠标左键去点数据包，发现没有反应。后来才发现，是要用鼠标<strong>右键</strong>点击数据包，才能弹出“追踪流”的菜单。</li>
+        <li><strong>Python 脚本的局限性：</strong>为了省事，我一开始也尝试写过 Python 脚本 <code>telnet_decode.py</code> 去直接读二进制文件搜 flag，但因为文件路径遇到了权限或路径找不到的问题（<code>FileNotFoundError</code>）。不过最终用 Wireshark 手动追踪，反而更直观地看到了网络交互的全过程。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
