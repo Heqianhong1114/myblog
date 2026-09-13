@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Bugku CTF】Web-矛盾 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【Bugku CTF】Web-矛盾 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.13 | <strong>分类：</strong>CTF | <strong>标签：</strong>Bugku, Web, PHP, 弱类型比较</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Bugku CTF</li>
+        <li><strong>分类：</strong>Web</li>
+        <li><strong>题目名称：</strong>矛盾</li>
+        <li><strong>描述：</strong>矛盾</li>
+        <li><strong>提交格式：</strong>flag{}</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>看到题目名字叫“矛盾”，我的第一反应就是 PHP 的弱类型比较。启动场景后，直接看到了源码：</p >
+    <pre><code>$num=$_GET['num'];
+if(!is_numeric($num))
+{
+echo $num;
+if($num==1)
+echo 'flag{********}';
+}</code></pre>
+    <p>这里的“矛盾”在于：第一层判断要求参数 <code>num</code> 不能是纯数字（is_numeric 为假），但第二层判断又要求它必须“等于 1”。这在逻辑上看起来无解。但在 PHP 中，可以使用一个以数字开头的字符串来绕过。比如 <code>1abc</code>，它不是一个纯数字（通过了第一层判断），但在与数字 1 进行弱类型比较时，PHP 会把这个字符串强制转换为数字 1，从而满足第二层判断。</p >
+
+    <h2>3. 操作步骤</h2>
+    <ol>
+        <li>启动场景，获取靶场地址：<code>http://160.202.254.160:18773</code>。</li>
+        <li>在浏览器地址栏中，为 URL 拼接参数：<code>?num=1abc</code>。</li>
+        <li>完整的网址变成：<code>http://160.202.254.160:18773/?num=1abc</code>。</li>
+        <li>按回车发送请求。</li>
+        <li>页面成功回显了 <code>1abc</code>，紧接着弹出了真正的 Flag：<code>flag{fd3e5f7f775d4f0403cbfa1e51e12c28}</code>。</li>
+        <li>复制 Flag 去平台提交，验证通过。</li>
+    </ol>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>PHP 弱类型漏洞：</strong>这道题考的是 PHP 中经典的历史漏洞。在旧版 PHP（PHP 7 及之前）中，如果使用 <code>==</code> 比较一个字符串和一个数字，字符串会先被转换为数字，再进行比较。<code>"1abc"</code> 会被转换为 <code>1</code>，所以 <code>"1abc" == 1</code> 为真。但在新版 PHP 8 中，这个行为已经改变了，会直接返回 false，所以用这套代码在最新版 PHP 环境上是跑不通的（靶场用的是旧版环境）。</li>
+        <li><strong>参数传递方式：</strong>同之前的 GET 题一样，这题直接在浏览器地址栏拼 <code>?num=1abc</code> 即可，不需要写代码，省时省力。</li>
+        <li><strong>格式确认：</strong>这道题的提交格式是标准的 <code>flag{}</code>，跟前面几道特殊格式的题不一样，直接复制提交就行。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
