@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Bugku CTF】Misc-linux Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【Bugku CTF】Misc-linux Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.13 | <strong>分类：</strong>CTF | <strong>标签：</strong>Bugku, Misc, Python</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Bugku CTF</li>
+        <li><strong>分类：</strong>Misc（杂项）</li>
+        <li><strong>题目名称：</strong>linux</li>
+        <li><strong>描述：</strong>linux基础问题</li>
+        <li><strong>提示：</strong>key{}</li>
+    </ul>
+    <p><em>注意：这道题的提交格式是 <code>key{}</code>，不是 <code>flag{}</code>。</em></p >
+
+    <h2>2. 解题思路</h2>
+    <p>下载附件后得到一个 <code>1.tar</code> 文件（在 Windows 系统中显示为 <code>1.tar</code>，但实际可能是 <code>1.tar.gz</code>）。因为这道题考察的是 Linux 基础，而 Windows 系统对 Linux 的压缩格式支持极差，直接在 Windows 里解压会报错或产生巨大的空洞文件。所以我决定写一个 Python 脚本，使用内置的 <code>tarfile</code> 库直接读取压缩包内容，绕过 Windows 系统的限制。</p >
+
+    <h2>3. 操作步骤</h2>
+    <ol>
+        <li>在 VS Code 新建文件 <code>decode_tar.py</code>。</li>
+        <li>粘贴下面的代码，使用 Python 直接读取压缩包，并过滤掉空字节，提取出真正的 <code>key{...}</code>：</li>
+    </ol>
+
+<pre><code>import os
+import tarfile
+import re
+
+# 桌面的 linux 文件夹路径
+folder_path = r"C:\Users\heqianhong\Desktop\linux"
+found_file = None
+
+# 自动扫描，找出名字以 1.tar 开头的文件
+for filename in os.listdir(folder_path):
+    if filename.startswith("1.tar"):
+        found_file = os.path.join(folder_path, filename)
+        break
+
+if not found_file:
+    print("[-] 没找到 1.tar 文件")
+else:
+    print(f"[+] 正在读取: {found_file}")
+    with tarfile.open(found_file, "r:*") as tar:
+        for member in tar.getmembers():
+            f = tar.extractfile(member)
+            if f:
+                content = f.read()
+                # 核心逻辑：找到所有非空的字符段落（长度大于2的连续可读字符）
+                strings = re.findall(rb"[^\x00]{3,}", content)
+                print(f"\n[*] 文件 {member.name} 里的所有非空数据：")
+                for s in strings:
+                    try:
+                        decoded = s.decode('ascii')
+                        if "key" in decoded.lower() or "{" in decoded or "}" in decoded:
+                            print(f"  -> {decoded}")
+                    except:
+                        pass</code></pre>
+
+    <ol start="3">
+        <li>按 <code>Ctrl + S</code> 保存，点击右上角的 <code>▶</code> 运行。</li>
+        <li>终端成功输出真实的 Flag：<code>key{feb81d3834e2423c9903f4755464060b}</code>。</li>
+        <li>复制结果去平台提交，验证通过。</li>
+    </ol>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>Windows 解压 Linux 文件的连环坑：</strong>直接双击 <code>1.tar</code>，Windows 提示“位置不可用”（因为试图解压到 Temp 目录但被锁死）。改用系统自带的“全部解压缩”后，解压出来的却是一个 14MB 的 <code>flag</code> 文件，里面全都是 <code>00</code>。后来发现是因为 Linux 稀疏文件在 Windows 下被填充成了空洞，真正的数据被藏到了隐蔽的位置。</li>
+        <li><strong>后缀名隐藏坑：</strong>双击解压出来的 <code>flag</code> 文件，Windows 弹窗提示“选择应用以打开此 <code>.gz</code> 文件”，说明这个文件实际是 <code>.tar.gz</code>，只是 Windows 隐藏了后缀。点几次弹窗后会陷入死循环，千万不要硬刚，直接关掉。</li>
+        <li><strong>正则表达式的坑：</strong>第一次用 Python 搜 <code>rb"key\{.*?\}"</code>，因为文件里全都是 <code>00</code> 空字节，正则匹配到了 <code>key{}</code> 就结束了，什么都拿不到。后来改成 <code>re.findall(rb"[^\x00]{3,}", content)</code>，先把所有非空字符提取出来再筛选，才成功拿到正确的 <code>key</code>。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
