@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Bugku CTF】Web-eval Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【Bugku CTF】Web-eval Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.13 | <strong>分类：</strong>CTF | <strong>标签：</strong>Bugku, Web, PHP, 代码执行</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Bugku CTF</li>
+        <li><strong>分类：</strong>Web</li>
+        <li><strong>题目名称：</strong>eval</li>
+        <li><strong>描述：</strong>eval</li>
+        <li><strong>提交格式：</strong>flag{}</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>启动场景后，页面直接给出了 PHP 源码，核心逻辑是 <code>eval("var_dump($a);");</code>。这是一个典型的 PHP 代码执行漏洞。由于 <code>$a</code> 直接来源于 <code>$_REQUEST['hello']</code> 且没有任何过滤，我们可以通过传入特定的字符串来“闭合”原来的代码结构，然后注入我们自己的 PHP 函数来读取文件。</p >
+
+    <h2>3. 操作步骤</h2>
+    <ol>
+        <li>启动场景，获取靶场地址（例如：<code>http://160.202.254.160:18948</code>）。</li>
+        <li>构造 Payload，使用 <code>1);</code> 闭合 <code>var_dump</code> 的括号，用 <code>//</code> 注释掉多余的尾部代码，并在中间插入我们的执行命令。</li>
+        <li><strong>第一次尝试（系统命令）</strong>：输入 <code>?hello=1);system('ls');//</code>，页面无回显。判断服务器可能禁用了 <code>system</code> 等系统命令执行函数。</li>
+        <li><strong>第二次尝试（PHP 原生函数）</strong>：改用 PHP 自带的文件读取函数 <code>highlight_file</code> 直接读取源码：<br>
+            <code>?hello=1);highlight_file('flag.php');//</code></li>
+        <li>由于单引号在某些环境可能被拦截，使用 URL 编码 <code>%27</code> 代替单引号，最终 URL 为：<br>
+            <code>http://160.202.254.160:18948/?hello=1);highlight_file(%27flag.php%27);//</code></li>
+        <li>回车后，页面成功高亮显示了 <code>flag.php</code> 的源码，里面包含了真正的 Flag：<code>flag{4337ac6cc6bbca395fc6390648c11bc}</code>。</li>
+        <li>复制去平台提交，验证通过。</li>
+    </ol>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>系统命令被禁用：</strong>第一反应是用 <code>system('ls')</code> 或 <code>system('cat flag.php')</code> 去执行系统命令，但页面死活没回显。这通常是因为服务器的 <code>php.ini</code> 中配置了 <code>disable_functions</code>，把 <code>system</code>、<code>exec</code>、<code>shell_exec</code> 等危险函数都禁用了。以后遇到这种情况，要立刻想到换成 PHP 原生的文件操作函数，如 <code>highlight_file()</code>、<code>show_source()</code> 或 <code>file_get_contents()</code>。</li>
+        <li><strong>构造闭合 Payload 的技巧：</strong>拼接的 Payload 必须破坏原有的语法结构。本题原代码是 <code>eval("var_dump($a);")</code>，传入 <code>1); 命令; //</code> 后，拼接结果变成 <code>eval("var_dump(1); 命令; //);")</code>，刚好让我们的命令成功逃逸出来执行，这就叫“闭合绕过”。</li>
+        <li><strong>关于靶场架构的观察（题外话）：</strong>
+            <br>在完成了多道 Bugku Web 题后，我注意到所有这些题的访问地址都共用同一个公网 IP <code>160.202.254.160</code>，但端口号一直在变（如 18525、18324、12412、18948 等）。这说明 Bugku 平台采用了“单台服务器 + 不同端口映射（Docker 容器）”的架构。这个观察让我真实体会到了“一个公网 IP 背后可能藏着成百上千个内部服务”的系统运维常识。
+            <br>另外，在真实的渗透测试记录（Writeup）中，除非是公开的靶场，否则一定要对真实的 IP 和域名进行脱敏处理（如写成 <code>http://靶机IP:端口/</code>），这是从业者必须遵守的职业素养和安全底线。
+        </li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
