@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Bugku CTF】Crypto-散乱的密文 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【Bugku CTF】Crypto-散乱的密文 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.14 | <strong>分类：</strong>CTF | <strong>标签：</strong>Bugku, Crypto, Python, 置换密码</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Bugku CTF</li>
+        <li><strong>分类：</strong>Crypto（密码学）</li>
+        <li><strong>题目名称：</strong>散乱的密文</li>
+        <li><strong>描述：</strong>lf5{ag024c483549d7fd@@1} 一张纸条上凌乱的写着2 1 6 5 3 4</li>
+        <li><strong>提交格式：</strong>flag{}</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>观察题目，密文长度为 24 个字符，提示中给出了 6 个数字（1-6）。这暗示我们需要把密文排成一个 4 行 6 列的矩阵，然后根据提示的数字顺序对列进行重排，这属于经典的<strong>置换密码（Columnar Transposition Cipher）</strong>。</p >
+
+    <h2>3. 解题过程（含脚本试错与修正）</h2>
+    
+    <p><strong>第一步：手动推导确认逻辑</strong></p >
+    <p>将密文按行填入 4x6 的矩阵：</p >
+    <pre><code>2 1 6 5 3 4  (列号)
+l f 5 { a g
+0 2 4 c 4 8
+3 5 4 9 d 7
+f d @ @ 1 }</code></pre>
+    <p>根据提示“2 1 6 5 3 4”进行列位置还原（将原本打乱的列放回正确位置）。第一列取原本的列2，第二列取原本的列1，第三列取原本的列6... 还原后得到：</p >
+    <pre><code>f l a g { 5
+2 0 4 8 c 4
+5 3 d 7 9 4
+d f 1 } @ @</code></pre>
+    <p>按行读取，得到明文：<code>flag{52048c453d794df1}@@</code>。去掉尾部多余的干扰符 <code>@@</code>，Flag 为 <code>flag{52048c453d794df1}</code>。</p >
+
+    <p><strong>第二步：编写 Python 脚本验证</strong></p >
+    <p>手动推导虽然能解出来，但用代码实现更稳妥。第一版脚本如下：</p >
+<pre><code>cipher = "lf5{ag024c483549d7fd@@1}"
+key = [2, 1, 6, 5, 3, 4]
+cols = 6
+rows = len(cipher) // cols
+
+matrix = [list(cipher[i*cols : (i+1)*cols]) for i in range(rows)]
+
+new_matrix = [[None]*cols for _ in range(rows)]
+for i in range(cols):
+    new_matrix[i] = [row[key[i]-1] for row in matrix]
+
+flag = "".join(["".join(row) for row in new_matrix])
+print("解密结果:", flag)</code></pre>
+    <p><strong>踩坑记录（索引越界）：</strong>运行报错 <code>IndexError: list assignment index out of range</code>。原因是我搞混了行列的索引。`i` 循环是遍历列（0到5），但 `new_matrix` 只有 4 行（索引0到3）。用列索引去访问行，自然就崩了。</p >
+
+    <p><strong>第三步：修正后的代码</strong></p >
+    <p>修正逻辑：先遍历每一行，再在行内遍历每一列，正确进行列置换。</p >
+<pre><code>cipher = "lf5{ag024c483549d7fd@@1}"
+key = [2, 1, 6, 5, 3, 4]
+cols = 6
+rows = len(cipher) // cols
+
+matrix = [list(cipher[i*cols : (i+1)*cols]) for i in range(rows)]
+
+new_matrix = []
+for row in matrix:
+    new_row = [None] * cols
+    for i in range(cols):
+        # key[i]-1 指的是：明文第i列的数据，来自密文第key[i]-1列
+        new_row[key[i]-1] = row[i]
+    new_matrix.append(new_row)
+
+flag = "".join(["".join(row) for row in new_matrix])
+print("解密结果:", flag)</code></pre>
+    <p>再次运行，终端成功打印出明文：<code>flag{52048c453d794df1}@@</code>。</p >
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>置换密码的核心：</strong>置换密码（换位密码）不改变字符本身，只是打乱它们的顺序。解题的关键在于找到分组的“行宽”和“列宽”，题目提示的“2 1 6 5 3 4”就是恢复顺序的密钥。</li>
+        <li><strong>Python 脚本的索引陷阱：</strong>在处理二维矩阵时，很容易把行索引和列索引搞混。写循环时一定要时刻提醒自己当前操作的是“行”还是“列”。通过报错信息（<code>IndexError</code>）能快速定位到是数组越界。</li>
+        <li><strong>不要迷信代码：</strong>手动推导逻辑其实非常高效。有时候，当代码一直调试不通时，用纸笔或在文本编辑器里手动排一下矩阵，反而能更快理解题目原理，然后再用代码去实现。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
