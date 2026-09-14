@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Bugku CTF】Web-bp Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【Bugku CTF】Web-bp Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.14 | <strong>分类：</strong>CTF | <strong>标签：</strong>Bugku, Web, 逻辑漏洞, Burp Suite, 密码爆破</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Bugku CTF</li>
+        <li><strong>分类：</strong>Web</li>
+        <li><strong>题目名称：</strong>bp</li>
+        <li><strong>描述：</strong>请找出密码（提示：弱密码top1000? z?????）</li>
+        <li><strong>提交格式：</strong>flag{}</li>
+    </ul>
+
+    <h2>2. 解题过程（真实实战记录）</h2>
+    
+    <p><strong>第一步：分析页面与抓包</strong></p >
+    <p>启动场景，页面为一个登录框。在 F12 的“网络”面板里抓取提交请求，发现表单提交到 <code>check.php</code>，参数名为 <code>username</code> 和 <code>password</code>。根据题目提示，密码是 <code>z</code> 开头、共 6 位的弱密码。</p >
+
+    <p><strong>第二步：常规爆破尝试</strong></p >
+    <p>我先尝试用 Python 脚本结合常见弱密码字典进行爆破，但遇到了 WAF 限流（多线程报错 <code>ConnectionResetError</code>）和靶场响应极慢（约 3 秒/请求）的问题。跑了几百个密码后，没有立刻出结果。</p >
+
+    <p><strong>第三步：发现逻辑漏洞（真正的解题捷径）</strong></p >
+    <p>在翻看评论区寻找思路时，看到一位师傅提示“代码审计：<code>/success.php?code=hacker1000</code>”。我直接去浏览器地址栏拼接并访问了这个 URL：</p >
+    <pre><code>http://160.202.254.160:13173/success.php?code=hacker1000</code></pre>
+    <p><strong>结果：</strong>页面直接弹出了 Flag！<code>flag{b64b5859d40ea72d7cf73a3a1f6b80d5}</code>。这属于典型的“未授权访问”逻辑漏洞，出题人预留了一个后门，无需输入密码即可通关。</p >
+    <p>提交平台，验证通过。</p >
+
+    <h2>3. 延伸学习：体验大佬的“哈希值比对法”（非解题关键）</h2>
+    <p>在提交了 Flag 之后，我对评论区大佬提到的爆破脚本产生了好奇，决定在环境里复现一下他的方法，纯粹为了体验和学习。</p >
+    <p><strong>核心思想：</strong>错误密码返回的页面内容完全一致，我们可以计算“错误页面”的 SHA256 哈希值。爆破时，只要当前响应哈希值不等于这个错误值，就说明密码对了。</p >
+<pre><code>import hashlib
+
+def sha(content):
+    return hashlib.sha256(content).hexdigest()
+
+# 错误响应的固定哈希值
+wrong_hash = "247c884dd6e02d76ebdd175215b353e65ba7c93ab7514df07c802e0f7ec810f"
+
+# 循环比对
+if sha(response.content) != wrong_hash:
+    print("找到密码了！")</code></pre>
+    <p>我下载了 <code>top1000.txt</code> 字典，并写好了脚本运行。但跑了 49 分钟进度条才到 100%，最终并没有输出正确密码。事后复盘发现：<strong>因为我已经提交了 Flag，靶场环境已经被平台自动关闭了！</strong>此时所有的请求都打到了“环境已失效”的页面，全都是同一个结果，这导致了爆破脚本“空转”。</p >
+    <p><strong>教训：</strong>以后拿到 Flag 就立刻收手，不要在环境关闭后去搞“延伸测试”。</p >
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>信息收集与逻辑漏洞挖掘优先于暴力破解：</strong>这道题如果真去爆破 <code>z?????</code>，虽然理论上能跑出来，但非常耗时。通过观察源码和尝试常见路径（如 <code>success.php</code>），成功绕过了密码验证，这才是最高效的解法。</li>
+        <li><strong>WAF 与限速：</strong>在真实的 Web 渗透中，无脑多线程爆破极易触发防火墙拦截（<code>ConnectionResetError</code>），需要控制并发数或引入延迟。</li>
+        <li><strong>Python 哈希校验思想：</strong>虽然这次没跑出结果，但学会了一种更高级的脚本编写思路——通过比对响应内容的哈希值，而不是简单的“长度”或“状态码”来筛选异常响应。</li>
+        <li><strong>靶场环境的生命周期：</strong>Bugku 的靶场环境有生存时间，提交 Flag 后会自动关闭。环境关闭后，所有后续的请求都会失效。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
