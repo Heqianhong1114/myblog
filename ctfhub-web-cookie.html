@@ -34,7 +34,7 @@
     <h2>2. 解题思路</h2>
     <p>题目提示“Cookie欺骗、认证、伪造”，页面显示“hello guest. only admin can get flag.”。HTTP 协议是无状态的，服务器依靠浏览器携带的 Cookie 来判断用户身份。我们需要通过浏览器的开发者工具（F12），找到服务器给我们的“身份凭证”，将其值从普通用户篡改为管理员，从而实现越权获取 Flag。</p >
 
-    <h2>3. 操作步骤（包含真实试错）</h2>
+    <h2>3. 操作步骤</h2>
     
     <p><strong>第一步：查看页面提示</strong></p >
     <p>访问题目环境，页面直接显示 <code>hello guest. only admin can get flag.</code>。这说明服务器当前将我们识别为访客（guest），我们需要伪装成管理员（admin）。</p >
