@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-302跳转 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-302跳转 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.15 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, HTTP, Python</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - HTTP协议</li>
+        <li><strong>题目名称：</strong>302跳转</li>
+        <li><strong>提示：</strong>HTTP临时重定向</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>题目提示“HTTP临时重定向”，页面显示“No Flag here!”，点击链接后依然回到原页面。这说明重定向过程掩盖了真正的Flag。我们需要使用 Python 的 requests 库，禁止自动重定向（<code>allow_redirects=False</code>），查看服务器返回的原始302响应体（Body），Flag 很可能就藏在那里。</p >
+
+    <h2>3. 操作步骤（包含真实试错）</h2>
+    
+    <p><strong>第一步：初次尝试（踩坑）</strong></p >
+    <p>直接访问根目录 <code>/</code>，脚本返回 200 状态码，页面内容为“No Flag here!”。未发现 Flag。</p >
+
+    <p><strong>第二步：访问 index.php 并检查响应头（踩坑）</strong></p >
+    <p>修改 URL 为 <code>/index.php</code>，脚本返回 302 状态码，说明确实发生了重定向。我检查了响应头中的 <code>Location</code> 字段，发现被重定向到了 <code>/index.html</code>，但响应头中并没有 Flag。</p >
+    <p><em>注：第一次判断脚本错误地把页面中的 "No Flag here!" 字符串当成了成功标志，导致误报。</em></p >
+
+    <p><strong>第三步：终极解法（成功）</strong></p >
+    <p>禁止重定向并打印完整的响应头和响应体。发现真正的 Flag 藏在第一次请求的响应体（Response Body）中。</p >
+    <pre><code>import requests
+
+url = "http://challenge-e60b98367cfca618.sandbox.ctfhub.com:10800/index.php"
+
+print("[*] 正在查看第一次请求的完整响应...")
+# 禁止自动重定向
+r = requests.get(url, allow_redirects=False)
+
+print("=== 第一次请求的响应头 ===")
+for key, value in r.headers.items():
+    print(f"{key}: {value}")
+
+print("\n=== 第一次请求的响应体 ===")
+print(r.text)</code></pre>
+    <p>终端成功打印出真正的 Flag：<code>ctfhub{e8b7f6e485b9f2dec5b6b81f}</code>。</p >
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>浏览器与脚本的“自作聪明”：</strong>浏览器和 <code>requests</code> 库默认都很聪明，遇到 302 会自动帮你跳转到下一个页面。这就导致你看不到中转站里到底发生了什么。使用 <code>allow_redirects=False</code> 是拦截重定向、查看中间细节的核心技巧。</li>
+        <li><strong>Flag 不一定在响应头里：</strong>很多重定向题会把 Flag 放在 <code>Location</code> 或者 <code>Set-Cookie</code> 头部。但这道题出题人很狡猾，把 Flag 直接放在了第一次请求的 HTML 源码（Body）里。以后遇到 302 题，要把 Header 和 Body 都作为排查对象。</li>
+        <li><strong>脚本逻辑要精确：</strong>写爬虫脚本时，判断“成功”的条件不能仅仅用 <code>"flag" in text</code>，因为很多干扰页面也包含这个单词。更精确的做法是正则匹配 <code>flag{...}</code> 或 <code>ctfhub{...}</code> 的格式。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>302状态码：</strong>表示临时重定向（Moved Temporarily），服务器告诉客户端去新的地址获取资源。</li>
+        <li><strong>Location 响应头：</strong>302响应中必须包含的字段，指明了重定向的目标 URL。</li>
+        <li><strong>Python requests 中的 allow_redirects 参数：</strong>设置为 <code>False</code> 时，requests 不会自动跟随 302 跳转，而是返回 302 响应本身，这是我们在 Web 安全测试中查看中间过程的必备手段。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
