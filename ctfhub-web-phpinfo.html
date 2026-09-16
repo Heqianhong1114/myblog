@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-PHPINFO Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-PHPINFO Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.16 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, 信息泄露, PHPINFO</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - 信息泄露</li>
+        <li><strong>题目名称：</strong>PHPINFO</li>
+        <li><strong>提示：</strong>无（考察敏感信息泄露）</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>题目名为“PHPINFO”，页面提示查看 phpinfo。phpinfo 是 PHP 提供的一个函数，用于输出服务器的详细配置信息。由于页面信息量极其庞大，包含大量配置项和环境变量，Flag 大概率隐藏其中。解题策略是利用浏览器的页面内搜索功能（<code>Ctrl + F</code>），直接搜索关键字快速定位。</p >
+
+    <h2>3. 操作步骤</h2>
+    
+    <p><strong>第一步：开启环境与按钮跳转</strong></p >
+    <p>开启题目后，页面展示了一个简单的按钮“点击查看phpinfo”。直接点击该按钮，跳转到真正的 phpinfo 详情页。</p >
+
+    <p><strong>第二步：面对海量信息“大海捞针”（踩坑）</strong></p >
+    <p>跳转后的页面极其漫长，包含了 PHP 版本信息、配置指令（Directive）、模块（Additional Modules）、环境变量（Environment）等成千上万行数据。肉眼逐行翻阅不仅效率极低，而且会浪费大量的环境倒计时时间。</p >
+    <p><em>注：看到这么多表格瞬间有点懵，意识到不能硬看。</em></p >
+
+    <p><strong>第三步：Ctrl+F 精准定位（成功）</strong></p >
+    <p>直接在页面按下 <code>Ctrl + F</code> 呼出搜索框，输入关键字 <code>ctfhub</code>。页面迅速跳转并高亮到 <code>Environment</code>（环境变量）区域。在变量名为 <code>FLAG</code> 的一行，发现了值：</p >
+    <pre><code>ctfhub{c7f4d7e63b0e7cdb4ab2a}</code></pre>
+    <p>复制该值并提交至平台，顺利通关。</p >
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>被页面信息量震慑：</strong>新人看到 phpinfo 页面时，往往会被其庞大的表格和密密麻麻的英文劝退。实际上，面对这种“信息海洋”，最重要的是善用工具（如浏览器的 Ctrl+F 查找功能），而不是盲目硬看。</li>
+        <li><strong>关注环境计时：</strong>CTFHub 的环境有倒计时，每分钟消耗 1 个金币。遇到长内容页面，一定要第一时间寻找最快的方法（搜索），以免金币白白流失。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>phpinfo() 的作用：</strong>它是 PHP 中一个用于展示运行环境的函数，包含 PHP 版本、环境变量、HTTP 头信息、文件路径等。</li>
+        <li><strong>信息泄露漏洞：</strong>如果开发者在生产环境中未删除 <code>phpinfo.php</code> 等测试文件，攻击者就可以直接访问。这可能导致服务器绝对路径、数据库账号密码甚至 Flag 等敏感信息泄露，这是 Web 安全中最基础的漏洞之一。</li>
+        <li><strong>环境变量（Environment）：</strong>除了服务器配置，PHP 也能读取系统环境变量。在 CTF 中，出题人经常把 Flag 直接设置在环境变量中（如变量名 <code>FLAG</code>），等待选手发现。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
