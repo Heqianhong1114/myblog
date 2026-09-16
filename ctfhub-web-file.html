@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-目录遍历 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-目录遍历 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.16 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, 信息泄露, 目录遍历</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - 信息泄露</li>
+        <li><strong>题目名称：</strong>目录遍历</li>
+        <li><strong>提示：</strong>无</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>开启题目环境后，页面显示了一个类似于文件列表的界面，提示为 <code>Index of /flag_in_here</code>。这说明目标服务器配置不当，开启了目录索引功能（Directory Listing），导致我们可以像看自己电脑文件夹一样浏览服务器的目录结构。最初的思路是尝试构造 <code>../</code> 进行路径穿越，但在实际测试中遇到了阻碍，最终决定直接手动逐个点击目录来寻找 Flag。</p >
+
+    <h2>3. 操作步骤</h2>
+    
+    <p><strong>第一步：分析初始页面</strong></p >
+    <p>访问题目提供的环境网址，页面直接展示了根目录 <code>/flag_in_here/</code> 下的文件列表。里面包含了四个文件夹：<code>1/</code>、<code>2/</code>、<code>3/</code>、<code>4/</code>。</p >
+
+    <p><strong>第二步：手动翻找目录（核心过程）</strong></p >
+    <p>由于页面可以直接点击，我决定直接手工点开每一个文件夹进行查看。</p >
+    <ul>
+        <li>点击 <code>1/</code>，发现里面还有子文件夹，继续点进 <code>1/1/</code>，发现里面只有 Parent Directory，是个空目录。</li>
+        <li>点击 <code>2/</code>，没有发现明显的文件。</li>
+        <li>点击 <code>3/</code>，进入后看到了一个子目录 <code>2/</code>，点击进入 <code>3/2/</code>，发现里面有一个文件 <code>flag.txt</code>。</li>
+    </ul>
+
+    <p><strong>第三步：获取 Flag</strong></p >
+    <p>直接点击 <code>flag.txt</code>，浏览器成功加载并显示了文件内容，拿到了 Flag。</p >
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>过度依赖工具导致卡壳：</strong>一开始看到“目录遍历”这个考点，第一反应是去用 Burp Suite 抓包改包，或者写 Python 脚本去构造 <code>../</code> 路径穿越。但在这个过程中遇到了环境报错，同时由于 Python 的 requests 库会自动解析并抵消 URL 中的 <code>../</code>，导致脚本一直 404，陷入了僵局。</li>
+        <li><strong>回归最原始的方法：</strong>在工具尝试失败后，突然意识到既然服务器连目录索引都直接暴露出来了，文件就真真实实地放在服务器上。与其用复杂的工具去猜路径，不如直接利用浏览器逐层点击。最终在 <code>3/2/</code> 这个较深的目录里发现了 <code>flag.txt</code>。</li>
+        <li><strong>CTF中的心态：</strong>很多新人遇到题目容易想得太复杂，其实有时候最朴实的手工测试往往最快能出结果。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>目录遍历（Directory Traversal）与目录索引（Directory Listing）：</strong>本题的现象属于服务器配置不当开启了目录索引，允许用户列出目录下的文件。而严格的目录遍历漏洞，通常是指利用 <code>../</code> 参数跳出 Web 根目录，读取系统文件（如 /etc/passwd）。</li>
+        <li><strong>信息泄露的危害：</strong>服务器如果开启了目录索引，攻击者可以在没有任何技术门槛的情况下，顺着目录结构一层层翻找敏感文件（如源码备份、数据库配置文件、密码等），造成严重的信息泄露。</li>
+        <li><strong>防护建议：</strong>在 Web 服务器（如 Apache/Nginx）的配置中，应当关闭目录索引功能，禁止用户浏览文件列表。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
