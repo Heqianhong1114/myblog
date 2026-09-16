@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-bak文件 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-bak文件 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.16 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, 信息泄露, 源码审计</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - 信息泄露 / 备份文件下载</li>
+        <li><strong>题目名称：</strong>bak文件</li>
+        <li><strong>提示：</strong>开发者将代码备份文件放在了 web 目录下，导致源码泄露。</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>页面直接给出了提示：“Flag in index.php source code.”。由于 PHP 文件在服务器端会被解析执行，浏览器无法直接查看其源码。但开发者在修改代码时，经常会留下 <code>.bak</code> 后缀的备份文件（如 <code>index.php.bak</code>）。这类文件在服务器上不会被当作 PHP 执行，而是被当作纯文本返回给浏览器，导致源码泄露。</p >
+
+    <h2>3. 操作步骤</h2>
+    
+    <p><strong>第一步：开启环境与信息收集</strong></p >
+    <p>开启题目后，页面显示 <code>Flag in index.php source code.</code>。目标非常明确：需要获取 <code>index.php</code> 的源代码。</p >
+
+    <p><strong>第二步：构造备份文件 URL（触发下载）</strong></p >
+    <p>在浏览器地址栏的 URL 末尾拼接备份后缀，访问：<code>http://challenge-xxx.sandbox.ctfhub.com:10800/index.php.bak</code>。按下回车后，浏览器并没有像访问 <code>index.php</code> 那样解析页面，而是直接弹出了“新建下载任务”窗口，说明成功触发了源码泄露。</p >
+
+    <p><strong>第三步：源码审计获取 Flag（成功）</strong></p >
+    <p>下载 <code>index.php.bak</code> 文件（大小仅 204 字节），直接拖入 VS Code 打开。搜索关键字 <code>ctfhub</code>，一眼就在源码第 9 行的注释中找到了 Flag：</p >
+    <pre><code>ctfhub{b08b31f7db7611edc8989b0a}</code></pre>
+    <p>提交至平台，顺利通关。</p >
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>源码文件被解析 vs 被下载：</strong>PHP 源码之所以在浏览器里看不见，是因为服务器把它“炒熟”了（执行成了 HTML）。而 <code>.bak</code> 后缀是服务器不认识的“生肉”，只能作为静态文件原样传送，这就是信息泄露的本质。</li>
+        <li><strong>习惯用 VS Code 审计源码：</strong>不要用浏览器直接查看源码文件（排版乱、易看漏），直接拖进 VS Code，用代码编辑器的语法高亮和全局搜索，能最快定位 Flag。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>bak 文件泄露：</strong>编辑器在保存文件时可能会自动生成 <code>.bak</code> 或 <code>~</code> 等备份文件，若被遗忘在 Web 目录下，攻击者可直接通过 URL 拼接下载源码。</li>
+        <li><strong>源码审计基础：</strong>拿到源码后，直接搜索 <code>flag</code>、<code>password</code>、<code>key</code> 等敏感词汇，是 CTF 和真实渗透中最快的突破手段。</li>
+        <li><strong>安全防御建议：</strong>上线前清理临时/备份文件，并在 Web 服务器配置中直接拒绝访问 <code>.bak</code>、<code>.swp</code>、<code>.log</code> 等后缀。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
