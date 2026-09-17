@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-默认口令 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-默认口令 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.17 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, 密码口令, 默认口令, 信息搜集</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - 密码口令 / 默认口令</li>
+        <li><strong>题目名称：</strong>默认口令</li>
+        <li><strong>提示：</strong>系统上线时未修改初始化密码，导致默认口令泄露。</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>开启环境后，发现是一个“亿邮邮件网关”的登录界面。由于页面包含了验证码（Captcha），无法使用 Burp Suite 进行自动化爆破。因此，破局点转向“信息搜集（OSINT）”。根据系统名称“亿邮邮件网关”，在搜索引擎上查找该产品的出厂默认账号密码，从而直接登录获取 Flag。</p >
+
+    <h2>3. 操作步骤</h2>
+    
+    <p><strong>第一步：尝试弱口令与用户枚举漏洞（踩坑）</strong></p >
+    <p>尝试输入常见的用户名（如 <code>admin</code>）和弱口令（如 <code>123456</code>）。系统返回 <code>user is not exists</code>，这说明该系统存在“用户名枚举漏洞”，即先校验用户名是否存在，再校验密码。这提示我们需要寻找特定的默认用户名，而不是盲目猜密码。</p >
+
+    <p><strong>第二步：搜索引擎信息收集</strong></p >
+    <p>直接百度/Google搜索关键词“<code>亿邮邮件网关 默认口令</code>”。在搜索结果中，找到了一篇总结了常见设备默认密码的技术文章，其中明确列出了“亿邮邮件网关”的默认凭据：用户名 <code>eyougw</code>，密码 <code>admin@(eyou)</code>。</p >
+
+    <p><strong>第三步：登录系统获取 Flag（成功）</strong></p >
+    <p>返回登录页面，输入默认用户名 <code>eyougw</code>，密码 <code>admin@(eyou)</code>，并正确填写验证码。点击登录后，成功进入后台，页面直接回显了 Flag：</p >
+    <pre><code>ctfhub{7186b685ce18c05a36d7b55c}</code></pre>
+    <p>提交至平台，顺利通关。</p >
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>验证码机制阻断自动化爆破：</strong>尝试使用 Burp Suite 爆破时，由于每次请求验证码都会变化，自动化脚本难以识别。这体现了验证码在安全防御中的有效性，也强制我们改变攻击策略（从暴力破解转为信息搜集）。</li>
+        <li><strong>用户枚举漏洞（User Enumeration）：</strong>当返回“用户不存在”而非“用户名或密码错误”时，攻击者可以借此枚举出系统内所有真实的用户名。这是信息泄露的一种，为后续攻击提供了极大便利。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>默认口令漏洞：</strong>设备或系统出厂时自带的初始密码。若管理员在部署上线时未及时修改，攻击者只需知道设备型号，即可通过搜索引擎查到默认口令并直接登录系统。</li>
+        <li><strong>信息搜集（OSINT）</strong>：在渗透测试中，信息搜集的价值往往大于直接攻击。了解目标系统的品牌、型号、版本，是寻找公开漏洞和默认凭据的基础。</li>
+        <li><strong>安全防御建议：</strong>设备上线前必须强制修改出厂默认密码；登录失败应使用模糊提示（如“用户名或密码错误”）以防止用户枚举；必须部署验证码机制。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
