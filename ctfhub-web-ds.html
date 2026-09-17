@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-DS_Store Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-DS_Store Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.17 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, 信息泄露, DS_Store</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - 信息泄露 / 备份文件下载</li>
+        <li><strong>题目名称：</strong>DS_Store</li>
+        <li><strong>提示：</strong>DS_Store 是 Mac OS 保存文件夹自定义属性的隐藏文件，通过 DS_Store 可以知道这个目录里面所有文件的清单。</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>Mac OS 系统在访问文件夹时，会自动生成一个名为 <code>.DS_Store</code> 的隐藏文件，用于记录文件夹的图标位置、视图设置等元数据。如果开发者在 Mac 环境下打包上传源码时未清理此文件，攻击者便可以通过 URL 拼接直接下载它。该文件内部以明文形式存储了当前目录下的所有文件名称，我们可以从中寻找包含 flag 字样的敏感文件，进而直接访问获取 Flag。</p >
+
+    <h2>3. 操作步骤</h2>
+    
+    <p><strong>第一步：开启环境并构造下载链接</strong></p >
+    <p>开启题目后，页面提示“试着寻找 flag”。直接在浏览器地址栏的 URL 末尾拼接 <code>/.DS_Store</code>：<br><code>http://challenge-xxx.sandbox.ctfhub.com:10800/.DS_Store</code><br>回车后，浏览器成功触发下载任务，文件大小 16.00 KB。</p >
+
+    <p><strong>第二步：极简工具审计源码（踩坑与惊喜）</strong></p >
+    <p>下载文件后，本以为需要动用 Python 脚本或十六进制编辑器来进行解析。但尝试直接用 Windows 自带的<strong>记事本</strong>打开后，虽然文件主体部分是二进制乱码，但在文件内容的倒数第二行，赫然出现了明文的文件名：<code>$ded9ee3beff952f1651dc41aeef43fa4.txt</code>，且旁边自带提示 <code>flag here!</code>。</p >
+    <p><em>注：这说明 .DS_Store 在记录文件清单时是以明文存储的，普通的文本搜索依然有效，没必要过度依赖复杂工具。</em></p >
+
+    <p><strong>第三步：清理字符并访问目标（成功）</strong></p >
+    <p>复制该文件名，去掉前面的 <code>$</code> 符号和中间可能存在的多余空格或换行符，拼接到目标 URL 后方访问：<br><code>http://challenge-xxx.sandbox.ctfhub.com:10800/ded9ee3beff952f1651dc41aeef43fa4.txt</code><br>页面成功直接吐出 Flag：<code>ctfhub{665f63a4481d2b2e421175f0}</code>。提交至平台，顺利通关。</p >
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>杀鸡焉用牛刀（工具选择）：</strong>处理 .DS_Store 本来准备写 Python 脚本解析或上十六进制工具，结果用最基础的记事本，结合肉眼找关键词（flag、.txt），不到几秒钟就拿到了线索。在保证不遗漏信息的前提下，简单的工具往往效率最高。</li>
+        <li><strong>URL 字符清理：</strong>直接从乱码里复制出来的文件名经常会夹带特殊符号（如 <code>$</code>）、空格或换行符。直接粘贴到浏览器容易 404，建议先粘贴到 VS Code 里，用 <code>Ctrl + H</code> 批量清理掉多余字符后再访问，养成干净处理字符串的习惯。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>.DS_Store 漏洞原理：</strong>它是 macOS 专有的隐藏文件，包含了目录下的文件名清单（明文）。一旦被部署到 Web 目录，就会导致网站目录结构泄露。</li>
+        <li><strong>信息泄露利用链路：</strong>下载隐藏文件 -> 提取文件名清单 -> 发现敏感文件（flag.txt/备份包/配置文件） -> 直接通过 URL 访问获取敏感信息。</li>
+        <li><strong>安全防御建议：</strong>在 Git 仓库中添加 <code>.gitignore</code> 文件忽略 <code>.DS_Store</code>；在 Web 服务器（Nginx/Apache）配置中，拒绝外部访问所有以 <code>.</code> 开头的隐藏文件。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
