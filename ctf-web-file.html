@@ -39,7 +39,7 @@
     <p><strong>第一步：环境与木马准备</strong></p>
     <ul>
         <li>在本地 <code>muma</code> 文件夹创建一个 PHP 木马文件。建议内容为：<code>GIF89a\n&lt;?php @eval($_POST['cmd']); ?&gt;</code>（首行的 <code>GIF89a</code> 是万能图片头，用于后续绕过文件头检查）。</li>
-        <li><strong>避坑：</strong>由于本地杀毒软件（如 Windows Defender）会拦截 PHP 木马，必须提前将 <code>muma</code> 文件夹加入杀软白名单。（比如我在桌面上建了个叫muma的文件夹）</li>
+        <li><strong>避坑：</strong>由于本地杀毒软件（如 Windows Defender）会拦截 PHP 木马（比如我在桌面上建了个叫muma的文件夹），必须提前将 <code>muma</code> 文件夹加入杀软白名单。</li>
         <li>打开 Burp Suite 社区版，点击顶部菜单 <code>Proxy</code> -> <code>Intercept</code>，确保按钮显示为 <b>Intercept is on</b>（拦截开启）。</li>
         <li>点击 BP 界面右上角的 <b>Open browser</b> 按钮，此时会弹出一个带有 Burp 标志的浏览器。以后所有的访问、点击上传操作，都在这一个 BP 自带浏览器里完成。</li>
     </ul>
