@@ -1,71 +1,167 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <title>myblog</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>4g_Heqianhong_blog</title>
+  <style>
+    /* 全局样式设定：简洁、清晰的阅读体验 */
+    body {
+      max-width: 820px;
+      margin: 0 auto;
+      padding: 40px 20px 60px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: #24292e;
+      line-height: 1.6;
+      background-color: #ffffff;
+    }
+
+    /* 第一行标题 */
+    h1 {
+      font-size: 2.2em;
+      margin: 0 0 10px 0;
+      color: #111111;
+      letter-spacing: 1px;
+    }
+
+    /* 第二行说明文字 */
+    .maintainer {
+      font-size: 1em;
+      color: #777777;
+      margin: 0 0 30px 0;
+      padding-bottom: 20px;
+      border-bottom: 1px solid #eaecef;
+    }
+
+    /* 模块标题样式（模仿你文章里的蓝色横线风格） */
+    h2 {
+      font-size: 1.4em;
+      color: #0366d6;
+      margin: 40px 0 20px 0;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #0366d6;
+      display: inline-block;
+    }
+
+    /* 列表样式 */
+    ul {
+      list-style-type: none;
+      padding: 0;
+      margin: 0 0 30px 0;
+    }
+
+    li {
+      margin-bottom: 14px;
+      padding-left: 10px;
+      transition: all 0.2s ease;
+    }
+
+    /* 链接样式 */
+    a {
+      text-decoration: none;
+      color: #1b1f23;
+      font-size: 1.05em;
+      transition: color 0.2s ease;
+    }
+
+    a:hover {
+      color: #0366d6;
+      text-decoration: underline;
+    }
+
+    /* 页脚 */
+    footer {
+      margin-top: 50px;
+      padding-top: 20px;
+      border-top: 1px solid #eaecef;
+      text-align: center;
+      color: #999999;
+      font-size: 0.9em;
+    }
+  </style>
 </head>
-<body style="padding: 40px; font-family: sans-serif;">
-  <h1>myblog</h1>
-  <p>Project maintained by Heqianhong1114</p>
-  <hr>
-  <h2>最新文章</h2>
-  <a href="post.html">» My First Post - 2026-09-09</a>
-  <br><br><a href="bugku-web-huaji.html">» 【Bugku CTF】Web-滑稽 Writeup - 2026-09-11</a ><br><br>
-  <a href="bugku-signin.html">» 【Bugku CTF】Misc-签到题 Writeup - 2026-09-11</a ><br><br>
-  <a href="bugku-web-calculator.html">» 【Bugku CTF】Web-计算器 Writeup - 2026-09-11</a ><br><br>
-  <a href="bugku-web-alert.html">» 【Bugku CTF】Web-alert Writeup - 2026-09-11</a ><br><br>
-  <a href="bugku-misc-image.html">» 【Bugku CTF】Misc-这是一张单纯的图片 Writeup - 2026-09-11</a ><br><br>
-  <a href="win11-reinstall-writeup.html">» Windows 11 重装实战 Writeup（解决校园网无法连接） - 2026-09-11</a><br><br>
-  <a href="bugku-web-stop.html">» 【Bugku CTF】Web-你必须让他停下 Writeup - 2026-09-12</a ><br><br>
-  <a href="bugku-web-header.html">» 【Bugku CTF】Web-头等舱 Writeup - 2026-09-12</a ><br><br>
-  <a href="bugku-web-get.html">» 【Bugku CTF】Web-GET Writeup - 2026-09-12</a ><br><br>
-  <a href="windows-uninstall-error5.html">» Windows 软件卸载故障排障记录：Python Error 5 - 2026-09-12</a ><br><br>
-  <a href="bugku-misc-stego.html">» 【Bugku CTF】Misc-隐写 Writeup - 2026-09-12</a ><br><br>
-  <a href="bugku-web-post.html">» 【Bugku CTF】Web-POST Writeup - 2026-09-12</a ><br><br>
-  <a href="bugku-pwn-swiss.html">» 【Bugku CTF】PWN-瑞士军刀 Writeup - 2026-09-12</a ><br><br>
-  <a href="bugku-crypto-morse.html">» 【Bugku CTF】Crypto-/- Writeup - 2026-09-12</a ><br><br>
-  <a href="bugku-crypto-railfence.html">» 【Bugku CTF】Crypto-聪明的小羊 Writeup - 2026-09-12</a ><br><br>
-  <a href="bugku-crypto-ook.html">» 【Bugku CTF】Crypto-ok Writeup - 2026-09-12</a ><br><br>
-  <a href="bugku-crypto-brainfuck.html">» 【Bugku CTF】Crypto-Brainfuck Writeup - 2026-09-12</a ><br><br>
-  <a href="bugku-reverse-baby.html">» 【Bugku CTF】Reverse-入门逆向 Writeup - 2026-09-13</a ><br><br>
-  <a href="bugku-misc-linux.html">» 【Bugku CTF】Misc-linux Writeup - 2026-09-13</a ><br><br>
-  <a href="bugku-misc-corevalues.html">» 【Bugku CTF】Misc-富强民主 Writeup - 2026-09-13</a ><br><br>
-  <a href="bugku-web-maodun.html">» 【Bugku CTF】Web-矛盾 Writeup - 2026-09-13</a ><br><br>
-  <a href="bugku-web-backup.html">» 【Bugku CTF】Web-备份是个好习惯 Writeup - 2026-09-13</a ><br><br>
-  <a href="bugku-web-web-shell.html">» 【Bugku CTF】Web-网站被黑 Writeup - 2026-09-13</a ><br><br>
-  <a href="bugku-web-variablel.html">» 【Bugku CTF】Web-变量1 Writeup - 2026-09-13</a ><br><br>
-  <a href="bugku-web-localadmin.html">» 【Bugku CTF】Web-本地管理员 Writeup - 2026-09-13</a ><br><br>
-  <a href="bugku-web-eval.html">» 【Bugku CTF】Web-eval Writeup - 2026-09-13</a ><br><br>
-  <a href="bugku-web-source.html">» 【Bugku CTF】Web-源代码 Writeup - 2026-09-13</a ><br><br>
-  <a href="bugku-misc-telnet.html">» 【Bugku CTF】Misc-telnet Writeup - 2026-09-13</a ><br><br>
-  <a href="bugku-misc-hidden-text.html">» 【Bugku CTF】Misc-眼见非实 Writeup - 2026-09-13</a ><br><br>
-  <a href="bugku-web-password.html">» 【Bugku CTF】Web-好像需要密码 Writeup - 2026-09-14</a ><br><br>
-  <a href="bugku-misc-easy.html">» 【Bugku CTF】Misc-easy_nbt Writeup - 2026-09-14</a ><br><br>
-  <a href="bugku-crypto-transposition.html">» 【Bugku CTF】Crypto-散乱的密文 Writeup - 2026-09-14</a ><br><br>
-  <a href="bugku-web-bp.html">» 【Bugku CTF】Web-bp Writeup - 2026-09-14</a ><br><br>
-  <a href="bugku-crypto-ook2.html">» 【Bugku CTF】Crypto-.!? Writeup - 2026-09-15</a ><br><br>
-  <a href="ctfhub-web-method.html">» 【CTFHub】Web-请求方式 Writeup - 2026-09-15</a ><br><br>
-  <a href="ctf-web-302.html">» 【CTFHub】Web-302跳转 Writeup - 2026-09-15</a ><br><br>
-  <a href="ctfhub-web-cookie.html">» 【CTFHub】Web-Cookie Writeup - 2026-09-15</a ><br><br>
-  <a href="ctfhub-web-basic.html">» 【CTFHub】Web-基础认证 Writeup - 2026-09-15</a ><br><br>
-  <a href="ctfhub-response.html">» 【CTFHub】Web-响应包源代码 Writeup - 2026-09-16</a ><br><br>
-  <a href="ctfhub-web-phpinfo.html">» 【CTFHub】Web-PHPINFO Writeup - 2026-09-16</a ><br><br>
-  <a href="ctfhub-web-file.html">» 【CTFHub】Web-目录遍历 Writeup - 2026-09-16</a ><br><br>
-  <a href="ctf-web-sc.html">» 【CTFHub】Web-网站源码 Writeup - 2026-09-16</a ><br><br>
-  <a href="ctf-web-bak.html">» 【CTFHub】Web-bak文件 Writeup - 2026-09-16</a ><br><br>
-  <a href="ctf-web-vim.html">» 【CTFHub】Web-vim缓存 Writeup - 2026-09-16</a ><br><br>
-  <a href="ctfhub-web-ds.html">» 【CTFHub】Web-DS_store Writeup - 2026-09-17</a ><br><br>
-  <a href="ctf-web-weak-password.html">» 【CTFHub】Web-弱口令 Writeup - 2026-09-17</a ><br><br>
-  <a href="ctf-web-default.html">» 【CTFHub】Web-默认口令 Writeup - 2026-09-17</a ><br><br>
-  <a href="ctf-web-double-write.html">» 【CTFHub】Web-双写后缀 Writeup - 2026-09-17</a ><br><br>
-  <a href="ctf-web-00-truncation">» 【CTFHub】Web-00截断 Writeup - 2026-09-17</a ><br><br>
-  <a href="ctf-web-file-header-check.html">» 【CTFHub】Web-文件头检查 Writeup - 2026-09-18</a ><br><br>
-  <a href="ctf-web-mime.html">» 【CTFHub】Web-MIME绕过 Writeup - 2026-09-18</a ><br><br>
-  <a href="ctf-web-htaccess.html">» 【CTFHub】Web-.htaccess Writeup - 2026-09-19</a ><br><br>
-  <a href="ctf-web-f-e-v.html">» 【CTFHub】Web-前端验证 Writeup - 2026-09-19</a ><br><br>
-  <a href="ctf-web-no-v.html">» 【CTFHub】Web-无验证 Writeup - 2026-09-19</a ><br><br>
-  <a href="ctf-web-file.html">» 【微方法论】Burp Suite 文件上传漏洞基础利用手法小结 Writeup - 2026-09-19</a ><br><br>
-  <hr>
+<body>
+
+  <h1>4g_Heqianhong_blog</h1>
+  <p class="maintainer">Project maintained by Heqianhong1114</p >
+
+  <!-- 板块 A -->
+  <h2>B【CTFHub】</h2>
+  <ul>
+    <li><a href=" ">» 【CTFHub】Web-请求方式 Writeup - 2026-09-15</a ></li>
+    <li><a href="ctf-web-302.html">» 【CTFHub】Web-302跳转 Writeup - 2026-09-15</a ></li>
+    <li><a href="ctfhub-web-cookie.html">» 【CTFHub】Web-Cookie Writeup - 2026-09-15</a ></li>
+    <li><a href="ctfhub-web-basic.html">» 【CTFHub】Web-基础认证 Writeup - 2026-09-15</a ></li>
+    <li><a href="ctfhub-response.html">» 【CTFHub】Web-响应包源代码 Writeup - 2026-09-16</a ></li>
+    <li><a href="ctfhub-web-phpinfo.html">» 【CTFHub】Web-PHPINFO Writeup - 2026-09-16</a ></li>
+    <li><a href="ctfhub-web-file.html">» 【CTFHub】Web-目录遍历 Writeup - 2026-09-16</a ></li>
+    <li><a href="ctf-web-sc.html">» 【CTFHub】Web-网站源码 Writeup - 2026-09-16</a ></li>
+    <li><a href="ctf-web-bak.html">» 【CTFHub】Web-bak文件 Writeup - 2026-09-16</a ></li>
+    <li><a href="ctf-web-vim.html">» 【CTFHub】Web-vim缓存 Writeup - 2026-09-16</a ></li>
+    <li><a href="ctfhub-web-ds.html">» 【CTFHub】Web-DS_store Writeup - 2026-09-17</a ></li>
+    <li><a href="ctf-web-weak-password.html">» 【CTFHub】Web-弱口令 Writeup - 2026-09-17</a ></li>
+    <li><a href="ctf-web-default.html">» 【CTFHub】Web-默认口令 Writeup - 2026-09-17</a ></li>
+    <li><a href="ctf-web-double-write.html">» 【CTFHub】Web-双写后缀 Writeup - 2026-09-17</a ></li>
+    <li><a href="ctf-web-00-truncation">» 【CTFHub】Web-00截断 Writeup - 2026-09-17</a ></li> <!-- 保持原样不加 .html -->
+    <li><a href="ctf-web-file-header-check.html">» 【CTFHub】Web-文件头检查 Writeup - 2026-09-18</a ></li>
+    <li><a href="ctf-web-mime.html">» 【CTFHub】Web-MIME绕过 Writeup - 2026-09-18</a ></li>
+    <li><a href="ctf-web-htaccess.html">» 【CTFHub】Web-.htaccess Writeup - 2026-09-19</a ></li>
+    <li><a href="ctf-web-f-e-v.html">» 【CTFHub】Web-前端验证 Writeup - 2026-09-19</a ></li>
+    <li><a href="ctf-web-no-v.html">» 【CTFHub】Web-无验证 Writeup - 2026-09-19</a ></li>
+  </ul>
+
+  <!-- 板块 B -->
+  <h2>D【微方法论】</h2>
+  <ul>
+    <li><a href="ctf-web-file.html">» 【微方法论】Burp Suite 文件上传漏洞基础利用手法小结 Writeup - 2026-09-19</a ></li>
+  </ul>
+
+  <!-- 板块 C -->
+  <h2>A【Bugku CTF】</h2>
+  <ul>
+    <li><a href="post.html">» My First Post - 2026-09-09</a ></li> <!-- 已移动到此处，注意原链接为空 -->
+    <li><a href="bugku-web-huaji.html">» 【Bugku CTF】Web-滑稽 Writeup - 2026-09-11</a ></li>
+    <li><a href="bugku-signin.html">» 【Bugku CTF】Misc-签到题 Writeup - 2026-09-11</a ></li>
+    <li><a href="bugku-web-calculator.html">» 【Bugku CTF】Web-计算器 Writeup - 2026-09-11</a ></li>
+    <li><a href="bugku-web-alert.html">» 【Bugku CTF】Web-alert Writeup - 2026-09-11</a ></li>
+    <li><a href="bugku-misc-image.html">» 【Bugku CTF】Misc-这是一张单纯的图片 Writeup - 2026-09-11</a ></li>
+    <li><a href="bugku-web-stop.html">» 【Bugku CTF】Web-你必须让他停下 Writeup - 2026-09-12</a ></li>
+    <li><a href="bugku-web-header.html">» 【Bugku CTF】Web-头等舱 Writeup - 2026-09-12</a ></li>
+    <li><a href="bugku-web-get.html">» 【Bugku CTF】Web-GET Writeup - 2026-09-12</a ></li>
+    <li><a href="bugku-misc-stego.html">» 【Bugku CTF】Misc-隐写 Writeup - 2026-09-12</a ></li>
+    <li><a href="bugku-web-post.html">» 【Bugku CTF】Web-POST Writeup - 2026-09-12</a ></li>
+    <li><a href="bugku-pwn-swiss.html">» 【Bugku CTF】PWN-瑞士军刀 Writeup - 2026-09-12</a ></li>
+    <li><a href="bugku-crypto-morse.html">» 【Bugku CTF】Crypto-/- Writeup - 2026-09-12</a ></li>
+    <li><a href="bugku-crypto-railfence.html">» 【Bugku CTF】Crypto-聪明的小羊 Writeup - 2026-09-12</a ></li>
+    <li><a href="bugku-crypto-ook.html">» 【Bugku CTF】Crypto-ok Writeup - 2026-09-12</a ></li>
+    <li><a href="bugku-crypto-brainfuck.html">» 【Bugku CTF】Crypto-Brainfuck Writeup - 2026-09-12</a ></li>
+    <li><a href="bugku-reverse-baby.html">» 【Bugku CTF】Reverse-入门逆向 Writeup - 2026-09-13</a ></li>
+    <li><a href="bugku-misc-linux.html">» 【Bugku CTF】Misc-linux Writeup - 2026-09-13</a ></li>
+    <li><a href="bugku-misc-corevalues.html">» 【Bugku CTF】Misc-富强民主 Writeup - 2026-09-13</a ></li>
+    <li><a href="bugku-web-maodun.html">» 【Bugku CTF】Web-矛盾 Writeup - 2026-09-13</a ></li>
+    <li><a href="bugku-web-backup.html">» 【Bugku CTF】Web-备份是个好习惯 Writeup - 2026-09-13</a ></li>
+    <li><a href="bugku-web-web-shell.html">» 【Bugku CTF】Web-网站被黑 Writeup - 2026-09-13</a ></li>
+    <li><a href="bugku-web-variablel.html">» 【Bugku CTF】Web-变量1 Writeup - 2026-09-13</a ></li>
+    <li><a href="bugku-web-localadmin.html">» 【Bugku CTF】Web-本地管理员 Writeup - 2026-09-13</a ></li>
+    <li><a href="bugku-web-eval.html">» 【Bugku CTF】Web-eval Writeup - 2026-09-13</a ></li>
+    <li><a href="bugku-web-source.html">» 【Bugku CTF】Web-源代码 Writeup - 2026-09-13</a ></li>
+    <li><a href="bugku-misc-telnet.html">» 【Bugku CTF】Misc-telnet Writeup - 2026-09-13</a ></li>
+    <li><a href="bugku-misc-hidden-text.html">» 【Bugku CTF】Misc-眼见非实 Writeup - 2026-09-13</a ></li>
+    <li><a href="bugku-web-password.html">» 【Bugku CTF】Web-好像需要密码 Writeup - 2026-09-14</a ></li>
+    <li><a href="bugku-misc-easy.html">» 【Bugku CTF】Misc-easy_nbt Writeup - 2026-09-14</a ></li>
+    <li><a href="bugku-crypto-transposition.html">» 【Bugku CTF】Crypto-散乱的密文 Writeup - 2026-09-14</a ></li>
+    <li><a href="bugku-web-bp.html">» 【Bugku CTF】Web-bp Writeup - 2026-09-14</a ></li>
+    <li><a href="bugku-crypto-ook2.html">» 【Bugku CTF】Crypto-.!? Writeup - 2026-09-15</a ></li>
+  </ul>
+
+  <!-- 板块 D -->
+  <h2>C【Windows 相关】</h2>
+  <ul>
+    <li><a href="win11-reinstall-writeup.html">» Windows 11 重装实战 Writeup（解决校园网无法连接） - 2026-09-11</a ></li>
+    <li><a href="windows-uninstall-error5.html">» Windows 软件卸载故障排障记录：Python Error 5 - 2026-09-12</a ></li>
+  </ul>
+
   <footer>Hosted on GitHub Pages</footer>
+
 </body>
 </html>
