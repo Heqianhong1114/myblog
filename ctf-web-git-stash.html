@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-Git泄露(Stash) Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-Git泄露(Stash) Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.20 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, 信息泄露, Git, Python</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - 信息泄露 / Git泄露</li>
+        <li><strong>题目名称：</strong>Stash</li>
+        <li><strong>提示：</strong>开发人员可能把未完成或未提交的代码放进了 Git 的暂存区（Stash），并连同 <code>.git</code> 目录一起部署到了线上。</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>题目名为“Stash”，这在 Git 中代表“暂存”或“储藏”。开发人员写了一半不想提交，就会把代码塞进 Stash 里。这题的思路依然是抓取完整的 <code>.git</code> 文件夹，然后使用 <code>git stash</code> 相关的命令，把藏起来的代码掏出来。</p >
+
+    <h2>3. 操作步骤</h2>
+    
+    <p><strong>第一步：环境准备与工具确认</strong></p >
+    <p>重启电脑后，我打开了 VS Code。因为之前已经把 Git、Python 和 <code>githacker</code> 安装好了，所以不需要重新配置环境，直接进入工作目录 <code>D:\githack\GitHack-master\GitHack-master></code> 准备开打。</p >
+
+    <p><strong>第二步：提取完整 .git 仓库</strong></p >
+    <p>开启 CTFHub 新环境，拿到目标 URL：<code>http://challenge-53864692085c83e6.sandbox.ctfhub.com:10800</code>。因为上一题 <code>GitHack</code> 丢失历史记录的教训，这次我直接使用更强大的 <code>githacker</code> 工具，并专门指定了一个新文件夹输出：</p >
+    <pre><code>githacker --url http://challenge-53864692085c83e6.sandbox.ctfhub.com:10800/.git/ --output ./source_code_stash</code></pre>
+    <p>工具成功跑完，在左侧生成了 <code>source_code_stash</code> 文件夹。</p >
+
+    <p><strong>第三步：寻找被藏起来的记录（踩坑与转折）</strong></p >
+    <p>在源码文件夹里右键“在集成终端中打开”，敲下查看暂存区的命令：</p >
+    <pre><code>git stash list</code></pre>
+    <p>终端立刻弹出了提示：<code>stash@{0}: WIP on master: fe38bb9 add flag</code>。非常走运，出题人留下了名为“add flag”的暂存备注。</p >
+    <p>紧接着，我使用命令把暂存区的东西拿出来合并：</p >
+    <pre><code>git stash pop</code></pre>
+    <p><strong>【核心踩坑】</strong>执行完命令后，终端刷刷刷地输出了一大段红色的英文，我看到 <code>Changes not staged for commit: modified: 50x.html, index.html</code> 的时候，第一反应是“完了，合并冲突报错了！”。但仔细一看，并没有 Error 字眼。经过导师讲解，原来这是 Git 在说：“嘿，我从抽屉里把东西拿出来了，把这两个文件给改动了哦。”这不是报错，而是操作成功的提示！</p >
+
+    <p><strong>第四步：获取 Flag（成功）</strong></p >
+    <p>在合并暂存区内容的瞬间，左侧资源管理器里凭空多出了一个名为 <code>27966530128400.txt</code> 的随机文件（这类随机数字命名的文件往往是隐藏的线索）。双击打开，里面赫然写着：</p >
+    <pre><code>ctfhub{0739ed964beec6c40e41cfa8}</code></pre>
+    <p>复制并提交，成功拿下！</p >
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>把“提示”当成“报错”：</strong>在使用 <code>git stash pop</code> 时，终端经常会出现 <code>Changes not staged for commit</code> 或 <code>no changes added to commit</code> 的字眼。新手很容易被密密麻麻的英文吓到，其实这只是 Git 的日常事务提醒，意味着操作成功了。</li>
+        <li><strong>Log 与 Stash 的区别：</strong>通过这两道题，我彻底理清了两个概念。Log 题的 Flag 曾被提交，后来又删了，所以要用 <code>git reset --hard HEAD^</code> 回到过去找；而 Stash 题的 Flag 根本没提交，只是被“藏”在了草稿箱，用 <code>git stash pop</code> 直接拿出来即可。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>Git Stash 漏洞原理：</strong>开发人员将未提交的代码存入暂存区（Stash）后，如果直接把带有 <code>.git</code> 目录的代码部署到了线上，攻击者就可以通过下载源码，查看暂存区记录，发现被故意隐藏的敏感数据。</li>
+        <li><strong>核心命令：</strong>
+            <ul>
+                <li><code>git stash list</code>：列出所有暂存的记录，帮助我们判断有没有“宝贝”被藏起来。</li>
+                <li><code>git stash pop</code>：恢复最近的一次暂存（默认 <code>stash@{0}</code>），并且将暂存记录从列表中删除。</li>
+            </ul>
+        </li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
