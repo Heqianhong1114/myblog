@@ -50,7 +50,7 @@
     <p>终端立刻弹出了提示：<code>stash@{0}: WIP on master: fe38bb9 add flag</code>。非常走运，出题人留下了名为“add flag”的暂存备注。</p >
     <p>紧接着，我使用命令把暂存区的东西拿出来合并：</p >
     <pre><code>git stash pop</code></pre>
-    <p><strong>【核心踩坑】</strong>执行完命令后，终端刷刷刷地输出了一大段红色的英文，我看到 <code>Changes not staged for commit: modified: 50x.html, index.html</code> 的时候，第一反应是“完了，合并冲突报错了！”。但仔细一看，并没有 Error 字眼。经过导师讲解，原来这是 Git 在说：“嘿，我从抽屉里把东西拿出来了，把这两个文件给改动了哦。”这不是报错，而是操作成功的提示！</p >
+    <p><strong>【核心踩坑】</strong>执行完命令后，终端刷刷刷地输出了一大段红色的英文，我看到 <code>Changes not staged for commit: modified: 50x.html, index.html</code> 的时候，第一反应是“完了，合并冲突报错了！”。但仔细一看，并没有 Error 字眼。原来这是 Git 在说：“嘿，我从抽屉里把东西拿出来了，把这两个文件给改动了哦。”这不是报错，而是操作成功的提示！</p >
 
     <p><strong>第四步：获取 Flag（成功）</strong></p >
     <p>在合并暂存区内容的瞬间，左侧资源管理器里凭空多出了一个名为 <code>27966530128400.txt</code> 的随机文件（这类随机数字命名的文件往往是隐藏的线索）。双击打开，里面赫然写着：</p >
