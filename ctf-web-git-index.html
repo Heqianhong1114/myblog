@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-Git泄露(Index) Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        table { border-collapse: collapse; width: 100%; margin-top: 15px; font-size: 0.95em; }
+        th, td { border: 1px solid #e1e4e8; padding: 8px; text-align: left; }
+        th { background-color: #f6f8fa; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-Git泄露(Index) Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.20 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, 信息泄露, Git, Python</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - 信息泄露 / Git泄露</li>
+        <li><strong>题目名称：</strong>Index</li>
+        <li><strong>提示：</strong>开发人员可能把文件添加进暂存区（Index），但未提交（commit），随后工作区文件被删，需要从暂存区中恢复。</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>题目名为“Index”（索引/暂存区）。在 Git 的工作流中，修改文件后执行 <code>git add</code>，文件会进入暂存区（Index），随后才会执行 <code>git commit</code> 正式提交。如果开发人员只执行了 <code>add</code> 却没来得及 <code>commit</code>，即便工作区的文件后来被删除了，它的“灵魂”（元数据）依然保留在 <code>.git</code> 的 Index 中。我们只需下载完整的源码，然后用对应的 Git 命令把暂存区的东西“掏出来”。</p >
+
+    <h2>3. 操作步骤</h2>
+    
+    <p><strong>第一步：环境清理与开题</strong></p >
+    <p>重启电脑后，我打开 VS Code，确认 Python、Git 和 githacker 依然可用，无需重新安装。开启 CTFHub 环境，拿到目标 URL：<code>http://challenge-bb44f6d692b7e70f.sandbox.ctfhub.com:10800</code>。</p >
+
+    <p><strong>第二步：下载完整仓库</strong></p >
+    <p>吸取了前两题的经验，直接使用 <code>githacker</code> 命令（避免使用 <code>python GitHack.py</code> 导致丢失历史记录），并在终端执行：</p >
+    <pre><code>githacker --url http://challenge-bb44f6d692b7e70f.sandbox.ctfhub.com:10800/.git/ --output ./source_code_index</code></pre>
+    <p><strong>【踩坑记录】</strong>：命令执行后，终端中间爆出一大段红色的 ERROR 字眼（<code>ERROR Cloning into ...</code>）。第一反应是“是不是路径写错了要重来？”但仔细看红字下面，紧跟着绿色的 <code>done.</code> 和 <code>INFO 1 / 1 were exploited successfully</code>。经导师讲解，那行红色的字只是工具在克隆时的一个小牢骚（路径转义问题），实际文件已经成功下载了。于是我们继续往下走。</p >
+
+    <p><strong>第三步：进入目录，查看状态</strong></p >
+    <p>在左侧资源管理器中，找到新生成的 <code>source_code_index</code> 文件夹，点开里面长串字母数字的文件夹 <code>f83626cf07f827990190b1da20efc343</code>，右键选择“在集成终端中打开”。</p >
+    <p>在新终端里输入：</p >
+    <pre><code>git status</code></pre>
+    <p>终端显示：<code>Changes not staged for commit: modified: 223682594213022.txt, 50x.html, index.html</code>。这说明除了网页基础文件被修改过外，还有一个随机数字命名的 <code>.txt</code> 文件被修改过，它就是我们要找的目标。</p >
+
+    <p><strong>第四步：掏出暂存区里的文件</strong></p >
+    <p>这道题的核心命令不是 <code>git reset</code>，也不是 <code>git stash</code>，而是专门针对 Index 的恢复命令：</p >
+    <pre><code>git checkout-index -a</code></pre>
+    <p>执行完这条命令后，终端没有抛出任何报错。但是，左侧的资源管理器里，原本那个随机命名的 <code>223682594213022.txt</code> 文件赫然出现！</p >
+
+    <p><strong>第五步：获取 Flag</strong></p >
+    <p>双击打开 <code>223682594213022.txt</code>，里面写着：</p >
+    <pre><code>ctfhub{8ed7c371315ea44802e99703}</code></pre>
+    <p>复制并提交到 CTFHub，成功拿下 Index 关卡！</p >
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>把“成功警告”当成“报错”：</strong>终端输出红字 ERROR 时不要慌，看它后面有没有 <code>done</code> 或者 <code>successfully</code> 之类的绿字。我们需要的是结果，过程中的怨言不影响。</li>
+       
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>Git Index (暂存区) 概念：</strong>它是 Git 三棵树（工作区、暂存区、版本库）中间的重要一环。如果只 <code>git add</code> 没有 <code>git commit</code>，文件就会一直挂在 Index 里。</li>
+        <li><strong>核心命令：</strong>
+            <ul>
+                <li><code>git status</code>：查看当前工作区和暂存区的状态，能快速发现被删除或修改的隐蔽文件。</li>
+                <li><code>git checkout-index -a</code>：从暂存区（Index）中将所有（-a）文件检出到当前工作目录，即便它们被物理删除了也能恢复出来。</li>
+            </ul>
+        </li>
+    </ul>
+
+    <h2>6. 三种 Git 泄露比较</h2>
+    <p>为了更好地理清思路，我将这三道 CTF 题目中出现的 Git 泄露类型进行了横向对比，它们分别对应了 Git 工作流中的不同阶段：</p >
+    
+    <table>
+        <thead>
+            <tr>
+                <th>泄露类型</th>
+                <th>开发人员做了什么（痛点）</th>
+                <th>破局核心命令</th>
+                <th>通俗比喻</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>Log</strong></td>
+                <td>写了 Flag，正常提交（commit），后来又把它删掉了（remove flag）。</td>
+                <td><code>git log</code><br><code>git reset --hard HEAD^</code></td>
+                <td><strong>时光倒流</strong><br>Flag 曾存在过，被删了。用时光机倒回到删除前的历史版本。</td>
+            </tr>
+            <tr>
+                <td><strong>Stash</strong></td>
+                <td>写了 Flag，不想提交，把它塞进了草稿箱（git stash），后来也没拿出来。</td>
+                <td><code>git stash list</code><br><code>git stash pop</code></td>
+                <td><strong>掏抽屉</strong><br>Flag 没正式提交，只是被藏在了暂存区。我们把抽屉拉开倒出来。</td>
+            </tr>
+            <tr>
+                <td><strong>Index</strong></td>
+                <td>写了 Flag 并执行了 <code>git add</code> 放到索引区，但没提交，随后工作区文件也被删了。</td>
+                <td><code>git status</code><br><code>git checkout-index -a</code></td>
+                <td><strong>恢复索引</strong><br>文件物理上没了，但登记簿上还有。我们照着索引簿把它重新恢复出来。</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
