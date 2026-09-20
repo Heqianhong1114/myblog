@@ -50,7 +50,7 @@
     <p>我点开了左侧的 <code>PRISTINE</code>（纯净物）表。这里记录着所有文件的原始内容。我按照文件大小筛选，发现第 2 行的文件大小为 33 字节（恰好是一个 Flag 的长度），它的哈希值是：<code>$sha1$e80581278f907c367fac511d3efff2bf191c6c52</code>。</p >
 
     <p><strong>第五步：手工拼凑终极链接</strong></p >
-    <p>SVN 存储文件有固定的路径规则：<code>.svn/pristine/</code> + 哈希前两位 + <code>/</code> + 剩余字符 + <code>.svn-base</code>。我尝试拼接并访问，结果又报错了 404。经过导师指点，原来前面的 <code>$sha1$</code> 只是标识算法，拼接时不需要带上它。</p >
+    <p>SVN 存储文件有固定的路径规则：<code>.svn/pristine/</code> + 哈希前两位 + <code>/</code> + 剩余字符 + <code>.svn-base</code>。我尝试拼接并访问，结果又报错了 404。原来前面的 <code>$sha1$</code> 只是标识算法，拼接时不需要带上它。</p >
     <p>最终构造正确的 URL：</p >
     <pre><code>http://challenge-4a4f2a423219dc50.sandbox.ctfhub.com:10800/.svn/pristine/e8/0581278f907c367fac511d3efff2bf191c6c52.svn-base</code></pre>
 
