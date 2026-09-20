@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-SVN泄露 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href=" ">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-SVN泄露 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.20 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, 信息泄露, SVN, SQLite</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - 信息泄露 / SVN泄露</li>
+        <li><strong>题目名称：</strong>SVN泄露</li>
+        <li><strong>提示：</strong>开发人员使用 SVN 进行版本控制并直接部署到线上，导致 <code>.svn</code> 文件夹泄露。Flag 在服务端旧版本的源代码中。</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>题目提示非常明确，源码中遗留了 <code>.svn</code> 文件夹。SVN 的 <code>.svn</code> 目录包含记录所有文件路径的数据库文件 <code>wc.db</code>，以及存储原始文件内容的 <code>pristine</code> 文件夹。我们只需下载 <code>wc.db</code> 数据库，从中找到目标文件的哈希值，然后拼凑出服务器上的物理路径，即可下载到被删除的 Flag 文件。</p >
+
+    <h2>3. 操作步骤</h2>
+    
+    <p><strong>第一步：环境探测与工具受挫</strong></p >
+    <p>开启 CTFHub 环境后，我首先想去 GitHub 下载 <code>svnExploit</code> 工具，结果发现该仓库已经 404（被原作者删除了）。导师及时给出备用方案：手动下载数据库，并用可视化工具查看。我下载并安装了 <code>DB Browser for SQLite</code> 软件。</p >
+
+    <p><strong>第二步：获取核心数据库 wc.db</strong></p >
+    <p>在浏览器直接访问目标 URL 拼接上 <code>/.svn/wc.db</code>，成功下载了一个大小为 120.00 KB 的 <code>wc.db</code> 文件。</p >
+
+    <p><strong>第三步：使用数据库软件寻宝</strong></p >
+    <p>打开 DB Browser for SQLite，加载 <code>wc.db</code>。点击“浏览数据”，选择 <code>NODES</code> 表，看到了一条非常显眼的记录：<code>flag_3008724284.txt</code>。我满心欢喜地去浏览器访问 <code>http://.../flag_3008724284.txt</code>，结果却是一个无情的 <strong>404 Not Found</strong>。</p >
+    <p><strong>【踩坑记录】</strong>：明明数据库里有这个文件，为什么访问不到？查看表字段发现，这个文件的 <code>checksum</code>（哈希值）是 <code>NULL</code>。原来文件在工作区被删除了，所以直接访问 404。</p >
+
+    <p><strong>第四步：绝境逢生，寻找丢失的哈希值</strong></p >
+    <p>在导师的指导下，我点开了左侧的 <code>PRISTINE</code>（纯净物）表。这里记录着所有文件的原始内容。我按照文件大小筛选，发现第 2 行的文件大小为 33 字节（恰好是一个 Flag 的长度），它的哈希值是：<code>$sha1$e80581278f907c367fac511d3efff2bf191c6c52</code>。</p >
+
+    <p><strong>第五步：手工拼凑终极链接</strong></p >
+    <p>SVN 存储文件有固定的路径规则：<code>.svn/pristine/</code> + 哈希前两位 + <code>/</code> + 剩余字符 + <code>.svn-base</code>。我尝试拼接并访问，结果又报错了 404。经过导师指点，原来前面的 <code>$sha1$</code> 只是标识算法，拼接时不需要带上它。</p >
+    <p>最终构造正确的 URL：</p >
+    <pre><code>http://challenge-4a4f2a423219dc50.sandbox.ctfhub.com:10800/.svn/pristine/e8/0581278f907c367fac511d3efff2bf191c6c52.svn-base</code></pre>
+
+    <p><strong>第六步：成功获取 Flag</strong></p >
+    <p>浏览器访问这个 URL 后，直接下载了一个文件。用记事本打开下载的文件，里面赫然写着：</p >
+    <pre><code>ctfhub{8228b6af601bc15221e3fd6e}</code></pre>
+    <p>提交至 CTFHub，顺利通关！</p >
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>工具失效不慌：</strong>本次原本准备用自动化脚本 <code>svnExploit</code>，但 GitHub 仓库 404。这说明安全工具更迭很快，不能过度依赖，掌握手动下载 <code>wc.db</code> 并分析的方法是根本。</li>
+        <li><strong>理解 SVN 的删除逻辑：</strong>在 <code>NODES</code> 表看到文件，直接访问却 404，是因为文件在服务器被删除了。此时它的“实体”被藏在了 <code>PRISTINE</code> 表里，必须去那里找哈希。</li>
+        <li><strong>URL 拼接的坑：</strong>拿到哈希值后，<code>$sha1$</code> 只是前缀，实际文件名不包含它。去掉前缀并按照“前两位作目录”的规则拼接，是成功的关键。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>SVN 泄露原理：</strong>SVN 为了追踪版本，会在工作目录生成 <code>.svn</code> 文件夹。若部署时未清理，攻击者可直接下载其内容。</li>
+        <li><strong>核心文件：</strong>
+            <ul>
+                <li><code>.svn/wc.db</code>：SQLite 数据库，记录文件路径（<code>NODES</code> 表）和原始文件哈希（<code>PRISTINE</code> 表）。</li>
+                <li><code>.svn/pristine/</code>：存放所有文件原始内容的目录，文件名即文件哈希。</li>
+            </ul>
+        </li>
+        <li><strong>物理路径映射：</strong><code>/.svn/pristine/</code> + 哈希前两位 + <code>/</code> + 哈希剩余 + <code>.svn-base</code>。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
