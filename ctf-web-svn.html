@@ -46,8 +46,8 @@
     <p>打开 DB Browser for SQLite，加载 <code>wc.db</code>。点击“浏览数据”，选择 <code>NODES</code> 表，看到了一条非常显眼的记录：<code>flag_3008724284.txt</code>。我满心欢喜地去浏览器访问 <code>http://.../flag_3008724284.txt</code>，结果却是一个无情的 <strong>404 Not Found</strong>。</p >
     <p><strong>【踩坑记录】</strong>：明明数据库里有这个文件，为什么访问不到？查看表字段发现，这个文件的 <code>checksum</code>（哈希值）是 <code>NULL</code>。原来文件在工作区被删除了，所以直接访问 404。</p >
 
-    <p><strong>第四步：绝境逢生，寻找丢失的哈希值</strong></p >
-    <p>在导师的指导下，我点开了左侧的 <code>PRISTINE</code>（纯净物）表。这里记录着所有文件的原始内容。我按照文件大小筛选，发现第 2 行的文件大小为 33 字节（恰好是一个 Flag 的长度），它的哈希值是：<code>$sha1$e80581278f907c367fac511d3efff2bf191c6c52</code>。</p >
+    <p><strong>第四步：寻找丢失的哈希值</strong></p >
+    <p>我点开了左侧的 <code>PRISTINE</code>（纯净物）表。这里记录着所有文件的原始内容。我按照文件大小筛选，发现第 2 行的文件大小为 33 字节（恰好是一个 Flag 的长度），它的哈希值是：<code>$sha1$e80581278f907c367fac511d3efff2bf191c6c52</code>。</p >
 
     <p><strong>第五步：手工拼凑终极链接</strong></p >
     <p>SVN 存储文件有固定的路径规则：<code>.svn/pristine/</code> + 哈希前两位 + <code>/</code> + 剩余字符 + <code>.svn-base</code>。我尝试拼接并访问，结果又报错了 404。经过导师指点，原来前面的 <code>$sha1$</code> 只是标识算法，拼接时不需要带上它。</p >
