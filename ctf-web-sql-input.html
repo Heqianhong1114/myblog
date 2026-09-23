@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-SQL注入整数型 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-SQL注入整数型 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.23 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, SQL注入, 整数型, Union联合查询, information_schema</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - SQL注入 / 整数型注入</li>
+        <li><strong>题目名称：</strong>整数型注入</li>
+        <li><strong>环境：</strong>通过 Open Browser 打开外部浏览器访问靶场环境。</li>
+        <li><strong>目标：</strong>页面提供了一个 ID 输入框，输入数字搜索新闻数据。页面源码直接暴露了后端SQL语句。目的是利用未过滤的输入拼接，查询并获取隐藏的Flag。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>整数型注入原理：</strong>后端接收参数后，未进行类型检查与参数化查询，直接将用户输入拼接进SQL语句。由于参数本身是数字，因此注入时不需要单引号闭合，可直接通过 <code>and</code> 构造真假条件来探测，或通过 <code>union select</code> 进行联合查询注入。</p >
+    <p><strong>通俗比喻（快递分拣员）：</strong>相当于快递分拣员拿单号找包裹。正常单号是数字（如<code>id=1</code>）。如果用户恶意输入“<code>-1 union select 1,2</code>”，管理员没区分“单号”和“指令”，直接把这两句话当成一个命令执行。因为 -1 号包裹不存在，大脑（数据库）转而去执行后半句“把财务账本（敏感数据）拿给我”的指令（联合查询），导致信息泄露。</p >
+    <p><strong>URL编码说明：</strong>浏览器在地址栏提交时，会自动将空格转为 <code>+</code> 或 <code>%20</code>，逗号转为 <code>%2C</code>，括号转为 <code>%28</code>。这都是正常的URL编码，不影响Payload功能。</p >
+
+    <h2>3. 操作步骤</h2>
+    
+    <p><strong>第一步：漏洞探测（判断存在整数型注入）</strong></p >
+    <p>在输入框中依次输入以下内容，并观察页面回显和页面打印出的SQL语句：</p >
+    <ul>
+        <li><strong>输入 <code>1</code>：</strong>页面正常显示，回显SQL语句为 <code>select * from news where id=1</code>，结果 Data: ctfhub。（正常业务逻辑）</li>
+        <li><strong>输入 <code>1 and 1=1</code>：</strong>回显正常。因为 <code>1=1</code> 是永远为真的条件，相当于 <code>and 真</code>，不影响原查询结果。</li>
+        <li><strong>输入 <code>1 and 1=2</code>：</strong>回显为空。因为 <code>1=2</code> 是永远为假的条件，相当于 <code>and 假</code>，把整个 <code>where</code> 条件变成假，数据库查不到任何数据。</li>
+    </ul>
+    <p><strong>结论：</strong>这里参数没有引号包裹，输入的数字直接拼接到了 SQL 语句的 <code>id=</code> 后面，确认存在<strong>整数型注入</strong>。拼接部分 <code>and 1=1</code> 与 <code>and 1=2</code> 的作用，就是用来验证我们的恶意条件是否被数据库当作代码执行了（即验证漏洞是否存在）。</p >
+
+    <p><strong>第二步：判断字段数（列数）</strong></p >
+    <p>使用 <code>order by</code> 探测查询结果的列数，目的是为了后续的 <code>union select</code> 做铺垫：</p >
+    <ul>
+        <li><strong>输入 <code>1 order by 2</code>：</strong>页面正常回显。说明查询结果至少有 2 列。</li>
+        <li><strong>输入 <code>1 order by 3</code>：</strong>页面无数据回显或报错。因为超出了列数限制，数据库无法按第3列排序。</li>
+    </ul>
+    <p><strong>结论：</strong>当前表共有 <strong>2个字段</strong>。后续的 <code>union select</code> 必须严格对齐2列，否则会报错。</p >
+
+    <p><strong>第三步：寻找黄金回显点</strong></p >
+    <p>输入 <code>-1 union select 1,2</code>，页面成功回显 <code>ID: 1</code>，<code>Data: 2</code>。</p >
+    <p><strong>原理解析：</strong>为什么用 <code>-1</code>？如果写 <code>1 union select 1,2</code>，因为数据库里确实存在 id=1 的数据，后端会把前半句查到的数据显示出来，页面就看不到我们注入的数字了。而 <code>-1</code> 在数据库里是不存在的，前半句 <code>select * from news where id=-1</code> 查不到任何东西，页面就不得不显示后半句 <code>union select 1,2</code> 的结果。</p >
+    <p><strong>结论：</strong>数字 <code>1</code> 和 <code>2</code> 成功显示在页面上，这两个位置就是“黄金回显点”，是我们后续替换为查询语句的“广告位”。</p >
+
+    <p><strong>第四步：联合查询脱库（查库名、表名、字段名、数据）</strong></p >
+    <p>利用找到的回显点，配合 MySQL 自带库 <code>information_schema</code> 进行脱库：</p >
+    <ul>
+        <li><strong>查库名：</strong>输入 <code>-1 union select 1,database()</code>。页面回显 <code>Data: sqli</code>。<code>database()</code> 是MySQL内置函数，用来返回当前使用的数据库名。确定当前数据库为 <code>sqli</code>。</li>
+        <li><strong>查表名：</strong>输入 <code>-1 union select 1,group_concat(table_name) from information_schema.tables where table_schema=database()</code>。页面回显 <code>Data: flag,news</code>。原理解析：<code>information_schema.tables</code> 是MySQL自带的“户口本”，记录了所有表的信息。<code>group_concat()</code> 能把查到的多行表名拼成一行显示。<code>where table_schema=database()</code> 限定只查当前库。发现目标表 <code>flag</code>。</li>
+        <li><strong>查字段名：</strong>输入 <code>-1 union select 1,group_concat(column_name) from information_schema.columns where table_name='flag'</code>。页面回显 <code>Data: flag</code>。原理解析：在 <code>columns</code> 表里查 <code>flag</code> 表里有哪些列（字段），确定字段名为 <code>flag</code>。</li>
+        <li><strong>获取数据：</strong>输入 <code>-1 union select 1,flag from flag</code>。页面成功回显最终的Flag，提交至CTFHub，通关成功。</li>
+    </ul>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>拼接部分的作用：</strong>输入 <code>1 and 1=1</code> / <code>1 and 1=2</code> 是用来验证我们的恶意条件是否被数据库当作代码执行了。如果执行了，真条件正常，假条件无数据，说明存在注入。</li>
+        <li><strong>为什么必须用-1：</strong>联合查询必须保证前后查询的列数一致（这里我们判断出是2列）。同时，为了让我们注入的 <code>select 1,2</code> 显示出来，必须让前面语句查询为空（用不存在的负数如 <code>-1</code> 使得前半句查询失败）。</li>
+        <li><strong>URL编码带来的困扰：</strong>浏览器在地址栏提交时，会自动将空格转为 <code>+</code> 或 <code>%20</code>，逗号转为 <code>%2C</code>，括号转为 <code>%28</code>。在手动输入长Payload时容易出错，建议后续使用 Burp Suite 重放器进行操作。</li>
+        <li><strong>information_schema目录的作用：</strong>MySQL的 <code>information_schema</code> 库是核心，其中 <code>tables</code> 表记录所有表名，<code>columns</code> 表记录所有字段名，是SQL注入脱库的必经之路。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>标准注入流程：</strong>判断注入类型（数字/字符） -> 判断字段数（<code>order by</code>） -> 确定回显位置（<code>union select</code>） -> 利用 <code>information_schema</code> 查库名、表名、字段名 -> 脱取数据。</li>
+        <li><strong>聚合函数使用：</strong>当回显位置有限，但查询结果有多行时，使用 <code>group_concat()</code> 在一行中拼接多个查询结果，便于快速获取全量信息。</li>
+        <li><strong>系统函数与内置库：</strong>熟练记忆 <code>database()</code>，以及 <code>information_schema.tables</code> 和 <code>information_schema.columns</code> 这两张核心表。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
