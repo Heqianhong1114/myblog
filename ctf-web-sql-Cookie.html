@@ -69,7 +69,7 @@
             <p><strong>Payload 2：</strong> <code>Cookie: id=1 and 1=2</code></p>
         </div>
         <p class="info-line"><span class="info-label">执行目的：</span>测试是否存在 SQL 注入漏洞。</p >
-        <p class="info-line"><span class="info-label">BP操作过程：</span>开启 BP 的 <code>Intercept is on</code>，浏览器点击搜索，BP 拦截到请求后，右键 <code>Send to Repeater</code>。在 Repeater 的请求包中，将 Cookie 修改为以上 Payload，点击 <code>Send</code>。</p >
+        <p class="info-line"><span class="info-label">BP操作过程：</span>开启 BP 的 <code>Intercept is on</code>，由于当前页面没有输入框，直接在 BP 自带的浏览器界面按 <code>F5</code> 刷新页面。BP 拦截到请求后，右键 <code>Send to Repeater</code>。在 Repeater 的请求包中，将 Cookie 修改为以上 Payload，点击 <code>Send</code>。</p >
         <p class="info-line"><span class="info-label">回显结果：</span>发送 <code>and 1=1</code> 时右侧 Response 正常显示 <code>ID: 1</code> 和 <code>Data: ctfhub</code>；发送 <code>and 1=2</code> 时页面数据消失或报错。</p >
         <p class="info-line"><span class="info-label">获得信息：</span>确认存在 SQL 注入漏洞，且为<strong>整数型注入</strong>（无需引号闭合）。</p >
     </div>
