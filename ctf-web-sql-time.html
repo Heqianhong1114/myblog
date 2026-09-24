@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-SQL注入时间盲注 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-SQL注入时间盲注 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.24 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, SQL注入, 时间盲注, SQLmap</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - SQL注入 / 时间盲注</li>
+        <li><strong>题目名称：</strong>时间盲注</li>
+        <li><strong>环境：</strong>通过 Open Browser 打开外部浏览器访问靶场环境。</li>
+        <li><strong>目标：</strong>页面没有任何回显数据，没有报错信息，也没有“真/假”的页面状态变化。唯一能作为判断标准的，是页面的响应时间（延时）。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>时间盲注原理：</strong>当页面失去一切可视化的反馈时，只能依靠<strong>时间差</strong>。通过构造 <code>sleep()</code> 函数，让数据库在满足特定条件时“睡”几秒。如果页面卡住了，说明条件为真；如果秒加载，说明条件为假。这是所有盲注中最慢、最考验耐心的一种。</p >
+    
+    <div class="diff-box">
+        <strong>前期试错与信息积累：</strong>
+        <ul>
+            <li><strong>输入 <code>1</code>：</strong>页面正常返回。</li>
+            <li><strong>输入 <code>1 and sleep(5)</code>：</strong>页面卡了五六秒才加载。这证明了 SQL 语句中的 <code>sleep()</code> 函数被执行了，且该注入点是<strong>整数型</strong>（无引号包裹）。</li>
+            <li><strong>核心判断：</strong>将“不可见的逻辑”转换为“可见的时间延迟”，这是时间盲注的灵魂。由于手工脚本跑时间盲注耗时长且极易因网络波动失败，再加上上一题的经验，我们再次选择 SQLmap 进行降维打击。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤与命令对比（核心）</h2>
+    
+    <p><strong>第一步：使用 SQLmap 进行终极脱库</strong></p >
+    <p>在 CMD 中进入 sqlmap 目录，执行了以下终极命令：</p >
+    <div class="payload-box">
+        <p><code>python sqlmap.py -u "http://challenge-xxx.sandbox.ctfhub.com:10800/?id=1" --technique=T --dbms=mysql -T flag -C flag --dump --batch --threads=1</code></p>
+    </div>
+
+    <div class="diff-box">
+        <strong>布尔盲注与时间盲注的 SQLmap 命令对比分析：</strong>
+        <p>两次行动脱库目标一致，命令绝大部分参数相同，但以下两个核心参数有本质区别：</p>
+        <ul>
+            <li>
+                <strong><code>--technique=B</code> 与 <code>--technique=T</code>（核心不同点）：</strong>
+                <ul>
+                    <li>布尔盲注（上一关）使用了 <code>--technique=B</code>，明确告诉 SQLmap 使用“页面状态变化（真/假）”来判定。</li>
+                    <li>时间盲注（本关）必须使用 <code>--technique=T</code>，告诉 SQLmap 页面没有任何视觉变化，只能通过“测量请求响应时间”来判定真假，避免工具走弯路去测试其他无效的注入方式。</li>
+                </ul>
+            </li>
+            <li>
+                <strong><code>--string="query_success"</code> 的有无（关键差异）：</strong>
+                <ul>
+                    <li>布尔盲注命令中，我们添加了 <code>--string="query_success"</code>，这是为了适配当时页面会出现“真/假”文字回显的特征，帮工具绕过初始判定。</li>
+                    <li>时间盲注命令中，<strong>去掉了 <code>--string</code> 参数</strong>。因为时间盲注完全不依赖页面返回了什么内容，而是依赖“卡了多少秒”。匹配字符串在这里没有意义，只会干扰工具对时间的测量。</li>
+                </ul>
+            </li>
+        </ul>
+        <p>除了这两个核心差异，其余参数如 <code>--dbms=mysql</code>（指定数据库类型提速）、<code>-T flag -C flag --dump</code>（精确指定表与字段直接脱库）、<code>--batch</code>（全自动运行）以及 <code>--threads=1</code>（强制单线程保护环境不崩溃），在两次行动中完全相同，是 SQLmap 脱库的标准姿势。</p>
+    </div>
+
+    <p><strong>SQLmap 命令逐字详细拆解：</strong></p >
+    <ul>
+        <li><code>python sqlmap.py</code>：运行 SQLmap 主程序。</li>
+        <li><code>-u "URL"</code>：指定目标 URL，必须带上参数（如 <code>?id=1</code>）。</li>
+        <li><code>--technique=T</code>：指定使用时间盲注（Time-based blind）。</li>
+        <li><code>--dbms=mysql</code>：指定后端数据库类型为 MySQL。</li>
+        <li><code>-T flag -C flag</code>：直接指定目标表名（Table）为 <code>flag</code>，字段名（Column）为 <code>flag</code>。</li>
+        <li><code>--dump</code>：导出数据（脱库）。</li>
+        <li><code>--batch</code>：全自动模式，无需人工干预。</li>
+        <li><code>--threads=1</code>：强制单线程，防止高并发把靶场环境跑崩溃。</li>
+    </ul>
+    <p>执行后，SQLmap 自动调整了延时基准（日志显示：“adjusting time delay to 1 second due to good response times”），并精准完成了脱库，输出Flag：<code>ctfhub{4dd0a14c856809933be95624}</code>，提交通关。</p >
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：没有回显也没有布尔状态。</strong>页面完全不回显，必须转换思维，将时间差作为唯一的判断标准。</li>
+        <li><strong>坑2：盲目相信手工脚本。</strong>虽然手写脚本能锻炼逻辑，但在实战中遇到时间盲注，直接上 SQLmap 才是最高效的。</li>
+        <li><strong>坑3：SQLmap 参数混用。</strong>在时间盲注中如果错误地加上 <code>--string</code>，工具会去匹配页面内容，导致无法利用时间延迟判定真假，从而报错无法注入。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>SQL 注入四大盲区：</strong>
+            <ul>
+                <li>联合查询：页面有回显位置。</li>
+                <li>报错注入：页面无回显，但报错信息可见。</li>
+                <li>布尔盲注：页面无回显也无报错，但“真/假”状态变化可见。</li>
+                <li>时间盲注：页面一切静默，仅靠响应时间差判断（本关）。</li>
+            </ul>
+        </li>
+        <li><strong>时间盲注核心函数：</strong><code>sleep(秒数)</code>、<code>if(条件, sleep(5), 0)</code>。</li>
+        <li><strong>SQLmap 工具进阶认知：</strong>针对不同盲注场景，灵活切换 <code>--technique</code> 参数，并正确判断是否需要添加 <code>--string</code>。工具只是工具，只有理解了工具背后对应的注入逻辑，才能精准指挥工具解决复杂问题。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
