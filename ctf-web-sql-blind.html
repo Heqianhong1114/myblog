@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-SQL注入布尔盲注 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-SQL注入布尔盲注 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.24 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, SQL注入, 布尔盲注, Python脚本, SQLmap</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - SQL注入 / 布尔盲注</li>
+        <li><strong>题目名称：</strong>布尔盲注</li>
+        <li><strong>环境：</strong>通过 Open Browser 打开外部浏览器访问靶场环境。</li>
+        <li><strong>目标：</strong>页面无正常回显数据且无报错信息，仅通过“真/假”状态（如query_success/query_error）反馈。需要通过构造条件，编写脚本或使用工具进行逐字提取。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>布尔盲注原理：</strong>当页面完全失去数据输出能力时，只能依赖页面状态的改变（如显示"query_success"或"query_error"）来作为布尔值（0或1）的反馈。通过构造逻辑判断语句，一步步推断出数据的内容。</p >
+
+    <div class="diff-box">
+        <strong>前期试错与信息积累：</strong>
+        <ul>
+            <li><strong>输入 <code>1</code>：</strong>页面显示 <code>query_success</code>。得到了“真”的页面特征。<strong>目的：</strong>确认正常业务逻辑，寻找对照基准。</li>
+            <li><strong>输入 <code>1 and 1=1</code> / <code>1 and 1=2</code>：</strong>两者均显示 <code>query_success</code>。得到了“后端只校验语法，不校验结果集”的信息。<strong>目的与局限：</strong>证明普通逻辑判断无法让“假”反馈出现，必须转换思路。</li>
+            <li><strong>输入 <code>1 and if(1=1, 1, 1/0)</code> 与 <code>if(1=2, 1, 1/0)</code>：</strong>前者成功，后者报错。得到了“必须利用 <code>if()</code> 结合 <code>1/0</code> 强制触发除零报错来制造真假差异”的信息。<strong>目的：</strong>让不可见的盲注，变成可以通过页面状态区分的逻辑判断。</li>
+        </ul>
+    </div>
+
+    <div class="diff-box">
+        <strong>为什么我们最终放弃了 Python 脚本，而选择 SQLmap：</strong>
+        <ul>
+            <li><strong>为什么用：</strong>手写脚本虽能跑通逻辑，但盲注需要成千上万次请求。网络稍有波动，二分法判断就会出错，导致输出的字符串整体错位（如出现反引号等脏字符），难以提取出正确完整的数据。</li>
+            <li><strong>为什么可以：</strong>我们在前期探索中已经彻底摸清了这题的真假判定标准（<code>query_success</code> 为真，且必须使用布尔盲注）。这种有明确标准且重复性极高的工作，正是 SQLmap 最擅长处理的场景。</li>
+        </ul>
+    </div>
+
+    <div class="diff-box">
+        <strong>SQLmap 是什么？能干什么？怎么用？</strong>
+        <ul>
+            <li><strong>是什么：</strong>SQLmap 是一款开源的自动化 SQL 注入漏洞检测与利用工具，堪称“工业级脱库神器”。</li>
+            <li><strong>能干什么：</strong>自动探测注入类型（联合、报错、盲注等），识别数据库类型，并自动化脱库（获取库名、表名、字段名、具体数据），甚至支持读写文件和获取系统权限。</li>
+            <li><strong>后期使用流程：</strong>
+                <ol>
+                    <li>探测注入点：<code>python sqlmap.py -u "URL" --batch</code></li>
+                    <li>获取所有库名：<code>--dbs</code></li>
+                    <li>获取指定库的表名：<code>-D "库名" --tables</code></li>
+                    <li>获取指定表的字段名：<code>-T "表名" --columns</code></li>
+                    <li>获取具体数据：<code>-T "表名" -C "字段名" --dump</code></li>
+                </ol>
+            </li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <p><strong>第一步：编写 Python 脚本进行手工自动化（踩坑阶段）</strong></p >
+    <p>编写了一个基于二分法的 Python 脚本，核心使用 <code>ascii()</code> 和 <code>substr()</code> 函数。但由于盲注请求量大，网络波动导致输出错乱，虽然理论上可行，但实战效率极低，频繁触发脏字符。</p >
+
+    <p><strong>第二步：使用 SQLmap 进行终极脱库（成功阶段）</strong></p >
+    <p>在 CMD 中进入 sqlmap 目录，执行了以下终极命令：</p >
+    <div class="payload-box">
+        <p><code>python sqlmap.py -u "http://challenge-xxx.sandbox.ctfhub.com:10800/?id=1" --technique=B --dbms=mysql --string="query_success" -T flag -C flag --dump --batch --threads=1</code></p>
+    </div>
+
+    <p><strong>SQLmap 命令逐字详细拆解：</strong></p >
+    <ul>
+        <li><code>python sqlmap.py</code>：使用 Python 运行 SQLmap 的主程序脚本。</li>
+        <li><code>-u "URL"</code>：指定目标 URL，注意必须带上参数（如 <code>?id=1</code>）。</li>
+        <li><code>--technique=B</code>：指定使用布尔盲注（Boolean-based blind）。告诉工具不用去测联合查询或报错注入，节省时间。</li>
+        <li><code>--dbms=mysql</code>：指定后端数据库类型为 MySQL，跳过自动指纹识别。</li>
+        <li><code>--string="query_success"</code>：核心参数。告诉 SQLmap：“只要页面里出现 <code>query_success</code> 这个词，就认定条件为真。” 这直接绕过了 SQLmap 默认的启发式误判。</li>
+        <li><code>-T flag -C flag</code>：直接指定目标表名（Table）为 <code>flag</code>，字段名（Column）为 <code>flag</code>。</li>
+        <li><code>--dump</code>：导出数据（脱库）。</li>
+        <li><code>--batch</code>：全自动模式，遇到询问一律选默认，无需人工干预。</li>
+        <li><code>--threads=1</code>：强制单线程。盲注对服务器压力极大，多线程容易把靶场环境跑崩溃。</li>
+    </ul>
+    <p>执行后，SQLmap 自动完成了所有猜解工作，输出最终Flag：<code>ctfhub{9829615ad577b88e8b88efc1}</code>，提交通关。</p >
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：普通逻辑测试无效。</strong>单纯的 <code>and 1=2</code> 无法触发“假”的状态，必须使用 <code>if(条件, 1, 1/0)</code> 强制制造差异。</li>
+        <li><strong>坑2：手写脚本的脆弱性。</strong>网络波动会导致二分法定位出错，引发整个字符串的错位（出现反引号、竖线等脏字符），且查错极其困难。</li>
+        <li><strong>坑3：SQLmap 的初始误判。</strong>如果不加 <code>--string</code> 参数，SQLmap 自带的测试逻辑会被这道题的机制欺骗，提示无法注入。必须手动指定特征字符串。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>布尔盲注核心公式：</strong>判断真假必须使用 <code>1 and if(条件, 1, 1/0)</code>。数据提取使用 <code>ascii(substr((子查询), 位置, 1))</code>。</li>
+        <li><strong>工具与原理的关系：</strong>SQLmap 极大地提高了效率，但其底层原理依然是我们手写脚本的逻辑。只有懂得了“为什么”，才能在使用工具报错时精准修正参数（如本次的 <code>--string</code>）。</li>
+        <li><strong>SQLmap 标准流程：</strong><code>-u</code> 指定目标 -> <code>--technique</code> 指定技术 -> <code>--string</code> 指定特征 -> <code>--dbs</code>/<code>--tables</code>/<code>--columns</code>/<code>--dump</code> 逐步脱库。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
