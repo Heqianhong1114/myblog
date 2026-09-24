@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-SQL注入MySQL结构 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-SQL注入MySQL结构 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.24 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, SQL注入, MySQL结构, 联合查询, information_schema</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - SQL注入 / MySQL结构</li>
+        <li><strong>题目名称：</strong>MySQL结构</li>
+        <li><strong>环境：</strong>通过 Open Browser 打开外部浏览器访问靶场环境。</li>
+        <li><strong>目标：</strong>利用注入漏洞，查询系统库 <code>information_schema</code> 获取随机生成的表名与字段名，最终获取 Flag。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>本关核心考点：</strong>这关与之前靶场最大的不同在于，它的目标表名和字段名并非直接叫 <code>flag</code>，而是<strong>随机生成的字符串</strong>（例如本次的 <code>dzmpffkhxz</code> 和 <code>mcqdfaiavk</code>）。如果不知道表名和字段名，就无法直接查询数据。因此，必须熟练运用 MySQL 自带的系统库 <code>information_schema</code>。</p >
+    <p><strong>系统库的作用：</strong>在 MySQL 中，<code>information_schema</code> 是一个信息数据库，它保存着关于 MySQL 服务器所维护的所有其他数据库的信息。其中的 <code>tables</code> 表记录了所有表名，<code>columns</code> 表记录了所有字段名。它是我们摸清数据库结构的“户口本”。</p >
+
+    <div class="diff-box">
+        <strong>为什么本次使用手工联合查询而非 SQLmap：</strong>
+        <p>本次实操中，使用 SQLmap 的 <code>--technique=U</code> 提示无法注入。原因在于 SQLmap 的自动化启发式检测（对比 <code>1=1</code> 与 <code>1=2</code> 的页面差异）被此靶场“只校验语法、不校验结果集”的机制欺骗，触发了误判。这证明了在特定环境中，手工排查依然是不可替代的基础能力。</p >
+    </div>
+
+    <h2>3. 手工联合查询全流程详细拆解</h2>
+    
+    <div class="step-box">
+        <h3>第一步：探测字段数（列数）</h3>
+        <div class="payload-box">
+            <p><strong>Payload 1：</strong> <code>1 order by 2</code></p>
+            <p><strong>Payload 2：</strong> <code>1 order by 3</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">执行目的：</span>确定当前查询结果集有多少列，以便后续构造正确列数的 <code>union select</code>。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>Payload 1 页面正常显示数据；Payload 2 页面无数据回显（报错或空白）。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>确认当前表共有 <strong>2 个字段</strong>。后续 <code>union select</code> 必须严格对齐 2 列。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：寻找黄金回显点</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>-1 union select 1,2</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">执行目的：</span>利用不存在的 <code>-1</code> 使前半句查询为空，强制页面回显后半句 <code>union select</code> 的结果，从而确定数据输出的具体位置。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>页面显示 <code>ID: 1</code>，<code>Data: 2</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>确认第 1 列和第 2 列均为有效回显位。后续查询的库名、表名、字段名、数据都将放入这两个位置（通常放入第 2 列 <code>Data</code> 处展示）。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：查询当前数据库名</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>-1 union select 1,database()</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">执行目的：</span>调用 MySQL 内置函数 <code>database()</code> 获取当前网站使用的数据库名。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>页面显示 <code>Data: sqli</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>确认当前数据库名为 <strong><code>sqli</code></strong>。这是后续查询该库下所有表的基础条件。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：查询当前库的所有表名（利用 MySQL 结构）</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>-1 union select 1,group_concat(table_name) from information_schema.tables where table_schema=database()</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">执行目的：</span>查询系统库 <code>information_schema</code> 中的 <code>tables</code> 表，获取当前库（<code>sqli</code>）下所有的表名。<code>group_concat()</code> 用于将多行表名合并为一行显示，避免只显示第一条。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>页面显示 <code>Data: dzmpffkhxz,news</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>成功获取库中所有表名。发现目标表名为随机生成的字符串 <strong><code>dzmpffkhxz</code></strong>。另一个表 <code>news</code> 为干扰项。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第五步：查询指定表的字段名（列名）</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>-1 union select 1,group_concat(column_name) from information_schema.columns where table_name='dzmpffkhxz'</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">执行目的：</span>查询系统库 <code>information_schema</code> 中的 <code>columns</code> 表，获取上一步发现的随机表 <code>dzmpffkhxz</code> 中所有的字段名。注意表名需加单引号包裹。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>页面显示 <code>Data: mcqdfaiavk</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>确认该表的字段名为随机生成的字符串 <strong><code>mcqdfaiavk</code></strong>。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第六步：提取最终 Flag 数据</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>-1 union select 1,mcqdfaiavk from dzmpffkhxz</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">执行目的：</span>已知表名 <code>dzmpffkhxz</code> 和字段名 <code>mcqdfaiavk</code>，直接从该表查询该字段的具体数据。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>页面显示 <code>Data: ctfhub{533cc30c96903adbd823e5cc}</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>成功提取到 Flag，提交至 CTFHub，通关成功。</p >
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：表名/字段名随机导致 SQLmap 无法直接定位。</strong>如果不先查 <code>information_schema</code>，直接写 <code>select flag from flag</code> 会直接报错找不到表。必须按部就班查结构。</li>
+        <li><strong>坑2：SQLmap 失效与手工排查的价值。</strong>工具自动化判定依赖于预设规则。当工具报错无法注入时，不要直接放弃，手工抓包重放，按照 <code>order by</code> -> <code>union select</code> -> 查系统库 的流程逐一验证，才是破局关键。</li>
+        <li><strong>坑3：环境重置引发结构变化。</strong>一旦环境被销毁重开，库名虽然可能不变（<code>sqli</code>），但随机生成的表名和字段名会全部刷新。重开环境后必须重新执行查询表名和字段名的步骤。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>联合查询注入标准范式：</strong>判断类型 -> <code>order by</code> 判断列数 -> <code>-1 union select 1,2</code> 找回显 -> 查库 -> 查表 -> 查字段 -> 查数据。</li>
+        <li><strong>MySQL 系统库查询核心语法：</strong>
+            <ul>
+                <li>查所有表名：<code>select group_concat(table_name) from information_schema.tables where table_schema=database()</code></li>
+                <li>查指定表字段名：<code>select group_concat(column_name) from information_schema.columns where table_name='随机表名'</code></li>
+            </ul>
+        </li>
+        <li><strong>工具与原理的关系：</strong>理解系统库结构能够应对实战中所有随机表名/字段名的场景，这也是 SQL 注入脱库的基石。工具虽强，但原理才是解决问题的最后防线。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
