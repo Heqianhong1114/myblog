@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-SSRF内网访问 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-SSRF内网访问 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.25 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, SSRF, 内网探测</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - SSRF / 内网访问</li>
+        <li><strong>题目名称：</strong>内网访问</li>
+        <li><strong>环境：</strong>通过 BP 自带浏览器访问靶场环境（因为懒得给普通浏览器装代理，直接用 BP 自带浏览器最省事）。</li>
+        <li><strong>目标：</strong>利用服务端请求伪造漏洞，让靶场服务器去请求它自己本地的 <code>flag.php</code>，从而绕过外网无法直接访问内网的限制。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>本关核心考点：</strong>SSRF（服务端请求伪造）的基础原理。服务器没有对用户传入的 URL 进行严格过滤，导致我们可以“借服务器的刀，杀内网的鱼”。</p >
+    
+
+    <h2>3. 步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：认识漏洞点与空白页的启发</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 打开靶场环境，观察地址栏。</p>
+        </div>
+        <p class="info-line"><span class="info-label">执行目的：</span>寻找真正的注入点位置。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>页面一片空白，地址栏显示 <code>http://challenge-xxx...:10800/?url=_</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>确认漏洞参数是 URL 后面的 <code>url</code>。页面空白是因为服务器不知道要去请求哪里，我们需要传入一个完整的 URL。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：构造内网请求（借刀杀人）</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>?url=http://127.0.0.1/flag.php</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">执行目的：</span>让服务器去请求本机（127.0.0.1）的 flag.php 文件。</p >
+        <p class="info-line"><span class="info-label">操作过程：</span>在浏览器地址栏的 <code>?url=</code> 后面输入 payload。这里我因为手误输入成了 <code>?url=?url=http://...</code>，虽然侥幸执行成功，但这是错误的格式。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>页面直接回显 <code>ctfhub{c76ee823cb70ffed772265e2}</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>成功利用SSRF读取到内网敏感文件，通关。</p >
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>易慌点：没加参数导致空白。 </strong>刚打开靶场页面是一片空白，因为地址栏只有 <code>?url=_</code>，服务器不知道该请求哪里。必须显式地传入完整的URL。</li>
+        <li><strong>坑2：手误导致参数拼接重复。 </strong>我在实测时写了 <code>?url=?url=http://...</code>。虽然本次后端过滤宽松放行了，但如果在严格解析 URL 的后端环境中，多写的 <code>?url=</code> 会被当成目标URL的一部分而导致请求失败。实战中不能依赖这种侥幸。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>SSRF的本质：</strong>服务器端没有对用户输入的URL做校验，导致可以访问外网无法访问的内网系统（127.0.0.1，192.168网段等）。</li>
+        <li><strong>未来的进阶：</strong>本关只是最简单的一关。后续还有“伪协议读取文件（file://）”、“POST请求构造（gopher://）”、“数字IP绕过”等，核心都是围绕“如何构造出服务器能解析的URL”来展开。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
