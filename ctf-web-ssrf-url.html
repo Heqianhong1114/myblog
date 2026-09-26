@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-SSRF URL Bypass Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-SSRF URL Bypass Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.26 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, SSRF, URL Bypass, 解析差异, @符号绕过</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - SSRF / URL Bypass</li>
+        <li><strong>题目名称：</strong>URL Bypass</li>
+        <li><strong>环境：</strong>普通浏览器直接访问。</li>
+        <li><strong>目标：</strong>利用 URL 规范的解析差异，绕过服务端的白名单前缀校验，成功请求内网 <code>127.0.0.1/flag.php</code> 获取 Flag。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    
+    <div class="diff-box">
+        <strong>通俗理解：什么是“校验”与“实际请求”的脱节？</strong>
+        <p>我们可以把服务器想象成一栋大楼的“前台”。老板规定：“凡是自称来自 A 公司（<code>notfound.ctfhub.com</code>）的人，都可以放行”。</p>
+        <p>这个时候，黑客伪造了一个名字：<code>A公司@真正的黑客（127.0.0.1）</code>。</p>
+        <ul>
+            <li><strong>前台（后端校验代码）</strong>：只懂死记硬背，用 <code>startswith("http://notfound.ctfhub.com")</code> 检查字符串，一看名字以 A 公司开头，立刻放行。</li>
+            <li><strong>大楼导航员（cURL / 底层请求库）</strong>：懂标准的 URL 规范。它看到 <code>@</code> 符号，知道 <code>@</code> 前面的只是用户名（Userinfo），<code>@</code> 后面的才是真正的目标主机。于是导航员直接把请求带到了真正的黑客面前（即内网 <code>127.0.0.1</code>）。</li>
+        </ul>
+        <p>这种因“安全校验代码”和“实际发起请求的代码”对 URL 解析不一致产生的漏洞，正是 SSRF 中最经典的绕过手段之一。</p>
+    </div>
+
+    <div class="diff-box">
+        <strong>URL 标准结构拆解：</strong>
+        <p>一个完整的标准 URL 结构如下：</p>
+        <pre><code>scheme://[userinfo@]host[:port]/path?query#fragment</code></pre>
+        <p>对应到我们的 Payload <code>http://notfound.ctfhub.com@127.0.0.1/flag.php</code>：</p>
+        <ul>
+            <li><code>scheme</code>：<code>http://</code> （协议）</li>
+            <li><code>userinfo</code>：<code>notfound.ctfhub.com</code> （用户名，用于基础认证，这里只是伪装用的字符串）</li>
+            <li><code>@</code>：分隔符，告诉解析器前面是用户信息，后面是主机信息</li>
+            <li><code>host</code>：<code>127.0.0.1</code> （真实访问的目标主机）</li>
+            <li><code>path</code>：<code>/flag.php</code> （请求路径）</li>
+        </ul>
+    </div>
+
+    <h2>3. 详细步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：环境探测与规则确认</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 开启题目后，浏览器直接访问靶场首页。</p>
+        </div>
+        <p class="info-line"><span class="info-label">回显结果：</span>页面提示 <code>url must startwith "http://notfound.ctfhub.com"</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>确认后端代码使用了前缀白名单校验，符合我们预测的“校验与请求脱节”场景。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：构造并发送绕过 Payload</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>?url=http://notfound.ctfhub.com@127.0.0.1/flag.php</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">执行目的：</span>利用 <code>@</code> 符号，让前端字符检查通过，让后端实际请求打向内网本机。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>页面直接返回 <code>ctfhub{65738b238e7c337b8fd29e55}</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>成功利用 URL 解析差异绕过了白名单校验。</p >
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：误以为这是单纯的字符串过滤。</strong> 如果只把 <code>notfound.ctfhub.com</code> 当作字面量拼凑（例如直接去修改 Host 头），可能无法成功。必须利用 URL 规范的语法特性（<code>@</code> 符号），构造出在字符串上符合白名单、在协议解析上指向内网的畸形 URL。</li>
+        <li><strong>坑2：前端浏览器可能对 @ 编码。</strong> 在极少数情况下，浏览器会自动把 <code>@</code> 编码为 <code>%40</code> 导致绕过失败。实战中遇到这种情况，通常会直接使用 Burp Suite 抓包，在请求行中修改原始参数，或者用 Python 脚本直接发送请求来确保 Payload 原样送达。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>URL 解析差异（Parser Differential）：</strong> 不同的库（前端 JS、后端框架、cURL 等）对同一个 URL 字符串的理解可能存在差异。安全防御建议不要依赖简单的字符串匹配（<code>startswith</code>）来校验 URL，而应当使用标准的 URL 解析库解析出 host 字段后再进行白名单比对。</li>
+        <li><strong>SSRF 常见绕过手段之 @ 符号：</strong> 利用 <code>http://白名单域名@内网IP</code> 的形式，直击“校验与请求脱节”的逻辑盲区。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
