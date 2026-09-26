@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-SSRF DNS重绑定 Bypass Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-SSRF DNS重绑定 Bypass Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.26 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, SSRF, DNS重绑定, 公网服务利用</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - SSRF / DNS重绑定 Bypass</li>
+        <li><strong>题目名称：</strong>DNS重绑定 Bypass</li>
+        <li><strong>环境：</strong>浏览器直接访问。</li>
+        <li><strong>目标：</strong>利用 DNS 重绑定技术，绕过服务器对内网 IP 的检测，成功访问 <code>127.0.0.1/flag.php</code>。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    
+    <div class="diff-box">
+        <strong>通俗理解：什么是 DNS 重绑定（DNS Rebinding）？</strong>
+        <p>这道题的核心是利用了“时间差”和“解析差异”。我们可以把攻击过程拆成两个角色：</p>
+        <ul>
+            <li><b>后端的安全检查（门卫）</b>：收到我们传入的域名时，会进行一次 DNS 解析。如果解析出的 IP 是内网地址（如 <code>127.0.0.1</code>），就直接拦截。</li>
+            <li><b>底层的请求库（翻译官，如 cURL）</b>：在真正发起请求时，会进行第二次 DNS 解析，然后访问解析出的 IP。</li>
+        </ul>
+        <p>利用公开的 DNS 重绑定服务（如 <code>rbndr.us</code>），可以构造一个域名，让它在<b>第一次解析时返回公网 IP（骗过门卫）</b>，在<b>第二次解析时返回内网 IP（实际攻击目标）</b>。由于两次解析之间存在时间差，且 cURL 会默认跟随解析结果，导致安全校验形同虚设。</p>
+    </div>
+
+    <div class="diff-box">
+        <strong>Payload 构造与原理：</strong>
+        <p>本关使用了公开服务 <code>rbndr.us</code>。它的格式是 <code>http://[IP1十六进制].[IP2十六进制].rbndr.us/</code>。该服务会在这两个 IP 之间随机切换解析结果。</p>
+        <ul>
+            <li><code>7f000001</code>：<code>127.0.0.1</code> 的十六进制。</li>
+            <li><code>7f000002</code>：<code>127.0.0.2</code> 的十六进制（在 Linux 中同样是本机回环地址）。</li>
+        </ul>
+        <p>我们通过多次刷新请求，利用其随机性，让后端的“第一次解析”恰好返回一个能够绕过黑名单检测的 IP，而“第二次解析”返回真正的 <code>127.0.0.1</code>，从而成功请求到内网文件。</p>
+    </div>
+
+    <h2>3. 详细步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：探测拦截规则</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 浏览器直接访问 <code>?url=http://127.0.0.1/flag.php</code>。</p>
+        </div>
+        <p class="info-line"><span class="info-label">回显结果：</span>页面提示 <code>hacker! Ban Intranet IP</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>确认后端对“127”等内网 IP 字符串进行了黑名单校验。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：构造 DNS 重绑定 Payload 并发起攻击</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>?url=http://7f000001.7f000002.rbndr.us/flag.php</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">执行目的：</span>使用 <code>rbndr.us</code> 服务，让域名在两次解析中返回不同的 IP，从而绕过黑名单。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>经过几次刷新后，页面成功返回 <code>ctfhub{27002719be1cace3b343cd9f}</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>成功利用 DNS 重绑定绕过了内网 IP 检测，获取 Flag。</p >
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：使用 127.0.0.1 直接被拦截。</strong> 后端严格匹配了“127”字符串，直接请求内网 IP 被阻断。</li>
+        <li><strong>坑2：公共重绑定服务存在概率性。</strong> 使用 <code>rbndr.us</code> 时，每次请求解析出的 IP 是随机的。如果恰好返回了内网 IP，就会被拦截。解决方案是多次刷新页面，直到某次解析恰好返回了能绕过检测的 IP，同时第二次解析返回了 <code>127.0.0.1</code>。</li>
+        <li><strong>坑3：诱饵 IP 的选择。</strong> 最初使用了 <code>192.168.0.1</code> 作为诱饵，但可能被后端识别为内网网段。后换用 <code>127.0.0.2</code>（十六进制 <code>7f000002</code>）作为诱饵。由于 Linux 系统中 <code>127.0.0.2</code> 同样指向本机，但字符串形式上不含 <code>127.0.0.1</code>，成功绕过了部分过滤逻辑。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>DNS 重绑定攻击的核心：</strong> 利用 DNS 解析的随机性和时间差，让安全校验和实际请求解析出不同的 IP，从而绕过基于 IP 的访问控制。</li>
+        <li><strong>防御建议：</strong> 开发者在防御 SSRF 时，不能依赖一次 DNS 解析的结果。应当在同一时间解析并校验 IP，或者直接禁用不必要的协议，并对目标 IP 进行严格的网段限制（禁止访问内网网段）。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
