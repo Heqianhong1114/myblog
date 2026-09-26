@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-RCE 读取源代码 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .note { background-color: #fff5b1; padding: 10px; border-left: 5px solid #f1c40f; margin: 15px 0; border-radius: 3px; font-size: 0.95em; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.95em; }
+        th, td { border: 1px solid #dfe2e5; padding: 8px 12px; text-align: left; }
+        th { background-color: #f6f8fa; }
+        a { color: #0366d6; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-RCE 读取源代码 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.26 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, RCE, 文件包含, php://filter, 源码泄露, Base64识别</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - RCE / 读取源代码</li>
+        <li><strong>题目名称：</strong>读取源代码</li>
+        <li><strong>环境：</strong>VS Code + 浏览器地址栏 + 在线解码工具。</li>
+        <li><strong>目标：</strong>利用 <code>php://filter</code> 伪协议，读取目标服务器上 <code>/flag</code> 文件的源代码，而非执行它。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>本关核心考点：</strong>利用 <code>php://filter</code> 伪协议实现任意文件源码读取。</p >
+    
+    <div class="diff-box">
+        <strong>知识点（比喻说明）：</strong>
+        <ul>
+            <li><strong>为什么需要 php://filter？</strong> 当文件包含漏洞的 <code>include</code> 函数执行 <code>flag.php</code> 时，它会直接执行 PHP 代码，而不是把源码展示给我们看。这就像是一个装着机密文件的“碎纸机”，你按下开关，它只吐纸屑（执行结果），不给你看原文。我们需要一台“复印机”，在不启动碎纸机的情况下把它的结构复印出来。</li>
+            <li><strong>php://filter 的作用：</strong> 它是一个“过滤器”。通过 <code>convert.base64-encode</code> 编码过滤器，可以让服务器在读取文件时，先将其转换为 Base64 字符串，从而避免被 PHP 解析器执行。我们拿到 Base64 字符串后，在自己的电脑上解码，就能看到原始源码。</li>
+        </ul>
+    </div>
+
+    <h2>3. 详细步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：源码审计与路径获取</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 访问靶场 URL，直接查看页面回显的 PHP 源码。</p>
+        </div>
+        <pre><code>&lt;?php
+error_reporting(E_ALL);
+if (isset($_GET['file'])) {
+    if ( substr($_GET["file"], 0, 6) === "php://" ) {
+        include($_GET["file"]);
+    } else {
+        echo "Hacker!!!";
+    }
+} else {
+    highlight_file(__FILE__);
+}
+?&gt;
+&lt;hr&gt;
+i don't have shell, how to get flag? &lt;br&gt;
+flag in &lt;code&gt;/flag&lt;/code&gt;</code></pre>
+        <p class="info-line"><span class="info-label">代码逐行解析：</span></p >
+        <ul>
+            <li><code>substr($_GET["file"], 0, 6) === "php://"</code>：强制要求 file 参数必须以 php:// 开头。</li>
+            <li><code>flag in &lt;code&gt;/flag&lt;/code&gt;</code>：提示明确告诉了我们目标文件的绝对路径为 <code>/flag</code>。</li>
+        </ul>
+        <p class="info-line"><span class="info-label">获得信息：</span>存在文件包含漏洞，且已知目标文件路径，但需要防止代码被执行，需要使用 php://filter。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：构造并输入 Payload 读取源码</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>?file=php://filter/read=convert.base64-encode/resource=/flag</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">为什么要输入：</span></p >
+        <ul>
+            <li><code>php://filter</code>：告诉服务器我们要进行流过滤。</li>
+            <li><code>read=convert.base64-encode</code>：指定在读取时使用 Base64 编码。</li>
+            <li><code>resource=/flag</code>：指定我们要读取的目标文件。</li>
+        </ul>
+        <p class="info-line"><span class="info-label">回显结果：</span>页面顶部成功回显一长串 Base64 字符串 <code>Y3RmaHVieVzZjMzZhZmNkMTU5MTFlMzUzMDIyNTljNX0K</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>源码已成功编码输出，当前处于数据流状态。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：使用在线工具解码并提交 Flag</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 将 Base64 字符串复制到在线工具 <a href="https://base64.us" target="_blank">https://base64.us</a> 中进行解码。</p >
+        <p class="info-line"><span class="info-label">为什么用这个工具：</span> 界面简洁，支持一键解码，且提供快捷键 `Ctrl + Enter`。对于 CTF 新手和日常快速验证非常方便。</p >
+        <p class="info-line"><span class="info-label">解码结果：</span><code>ctfhub{6c36afcd15911e35302259c5}</code></p >
+        <p class="info-line"><span class="info-label">获得信息：</span>成功获取 Flag，提交通关。</p >
+    </div>
+
+    <h2>4. 课外拓展：如何快速识别 Base64 编码</h2>
+    <div class="note">
+        在实战中，服务器不会告诉你“这是 Base64”。当你看到一段“奇怪的乱码”时，需要通过以下特征来判断它是否是需要解码的 Base64 字符串。
+    </div>
+    <ul>
+        <li><b>特征1：字符集组成</b>。只包含大小写英文字母（A-Z, a-z）、数字（0-9）、加号（+）、斜杠（/）。如果字符串里有空格、换行、中文标点，大概率不是 Base64。</li>
+        <li><b>特征2：结尾等号</b>。这是 Base64 最经典的“尾巴”。因为 Base64 算法把 3 个字节编码为 4 个字符，如果原文长度不是 3 的倍数，就会用 `=` 或 `==` 来补齐。（例如本次结果末尾就是 `==`）。</li>
+        <li><b>特征3：长度规律</b>。Base64 编码后的字符串长度通常是 <b>4 的倍数</b>（除去末尾的换行）。如果你拿到一串字符，长度正好是 4 的倍数，且没有标点符号，就很值得怀疑。</li>
+        <li><b>特征4：视觉直觉与对比</b>。
+            <ul>
+                <li>MD5 是 32 位纯数字和 a-f 的组合。</li>
+                <li>Hex 编码是 `%` 开头的 URL 编码。</li>
+                <li>Base64 则是大小写混合、包含 `+` `/` 和 `=`，看起来像一堆无意义的字母数字。</li>
+            </ul>
+        </li>
+    </ul>
+    <p>本次我们看到的 <code>Y3RmaHVieVzZjMzZhZmNkMTU5MTFlMzUzMDIyNTljNX0K</code>，大小写字母与数字交织，结尾没有 `=`，但长度正好是 4 的倍数（44 位），且明显不像正常的英文单词或代码，这就是典型的 Base64。</p>
+
+    <h2>5. 踩坑记录与复盘</h2>
+    <ul>
+        <li><b>直接包含 /flag 无回显（逻辑推导，非踩坑）：</b> 初始想法可能会想直接输入 <code>?file=/flag</code>，但这会被 PHP 解析器直接执行，输出可能是一片空白或者报错。这正是需要用到 php://filter 的根本原因。所以在遇到文件包含时，如果目标是“看源码”，思维要立刻切换到 filter 伪协议。</li>
+        <li><b>URL 路径与相对路径：</b> 提示中已经写明了绝对路径 <code>/flag</code>，不需要去猜相对路径（如 <code>./flag</code>），读取伪协议时最好以绝对路径为准。</li>
+    </ul>
+
+    <h2>6. 知识总结与横向对比</h2>
+    <div class="note">
+        <strong>核心心得（对比 php://input）：</strong><br>
+        我们在上一关掌握了 <code>php://input</code> 用于执行代码，这一关掌握了 <code>php://filter</code> 用于读取源码。两者都是文件包含漏洞下的“伪协议双子星”，但用途完全不同，需要根据题目目的灵活切换。
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>对比维度</th>
+                <th>php://input</th>
+                <th>php://filter</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><b>核心用途</b></td>
+                <td>执行代码（RCE），获取服务器控制权</td>
+                <td>读取文件源码，用于代码审计或直接获取 Flag</td>
+            </tr>
+            <tr>
+                <td><b>数据流向</b></td>
+                <td>输入流（Client -> Server 执行）</td>
+                <td>输出流（Server -> Client 读取）</td>
+            </tr>
+            <tr>
+                <td><b>请求方式</b></td>
+                <td>强制要求 POST 请求，Body 中传递 PHP 代码</td>
+                <td>GET 请求即可，直接在 URL 中传递 payload</td>
+            </tr>
+            <tr>
+                <td><b>结果处理</b></td>
+                <td>直接回显命令执行结果</td>
+                <td>回显 Base64 字符串，需要本地自行解码</td>
+            </tr>
+            <tr>
+                <td><b>应用场景</b></td>
+                <td>需要调用 <code>system</code> 等命令函数执行时</td>
+                <td>需要查看文件源代码，但文件被 PHP 引擎解析时</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="diff-box">
+        <strong>总结：</strong>
+        <ul>
+            <li>看到 <code>include($file)</code> 且目标是执行命令：想想 <code>php://input</code>。</li>
+            <li>看到 <code>include($file)</code> 且目标是查看源码：秒上 <code>php://filter</code>。</li>
+        </ul>
+    </div>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
