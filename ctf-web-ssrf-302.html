@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-SSRF 302跳转 Bypass Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-SSRF 302跳转 Bypass Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.26 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, SSRF, 302跳转, URL Bypass</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - SSRF / 302跳转 Bypass</li>
+        <li><strong>题目名称：</strong>302跳转 Bypass</li>
+        <li><strong>环境：</strong>浏览器直接访问。</li>
+        <li><strong>目标：</strong>利用 SSRF 漏洞，通过外部可控的 302 跳转服务，绕过服务器对内网 IP 的字符串检测，成功访问 <code>127.0.0.1/flag.php</code> 获取 Flag。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    
+    <div class="diff-box">
+        <strong>通俗理解：如何“借刀杀人”绕过门卫？</strong>
+        <p>这道题的核心依然是<b>“校验逻辑”与“请求逻辑”的脱节</b>。我们可以把请求过程拆成两个角色来理解：</p>
+        <ul>
+            <li><b>后端校验代码（门卫）</b>：只允许请求外网合法域名。如果你输入 <code>127.0.0.1</code> 或 <code>localhost</code>，它直接拦截。</li>
+            <li><b>底层网络库（翻译官，如 cURL）</b>：拥有“跟随 302 跳转”的默认行为。你让它去请求 A 页面，A 页面返回“302，去访问 B”，翻译官就会乖乖地转去访问 B。</li>
+        </ul>
+        <p><b>攻击思路：</b>我们找一个外部的、可控的 302 跳转服务（如 <code>httpbin.org</code>）。门卫一看是 <code>httpbin.org</code>，外网域名，放行！然后 cURL 发请求过去，收到 302 响应，自动跳转到我们预设的 <code>http://127.0.0.1/flag.php</code>，成功拿到 Flag。</p>
+        <p><em>比喻参考：综合了 Vaadata SSRF Cheat Sheet 与 HackTricks SSRF 指南中对“校验逻辑与解析逻辑不一致”的通俗化演绎。</em></p>
+    </div>
+
+    <div class="diff-box">
+        <strong>实战中常见的绕过形式：</strong>
+        <ul>
+            <li><b>利用公开 302 服务：</b><code>http://httpbin.org/redirect-to?url=http://127.0.0.1/flag.php</code></li>
+            <li><b>利用域名解析：</b><code>http://127.0.0.1.nip.io</code>，自动解析为 127.0.0.1</li>
+            <li><b>利用 URL 编码：</b><code>http://127.0.0.1%2Fflag.php</code>，绕过前端过滤，后端解码后生效</li>
+            <li><b>利用短网址服务：</b>将 <code>127.0.0.1</code> 转换为短网址，隐蔽性更强，但容易被封禁</li>
+            <li><b>自建 302 跳转：</b>利用 Python 或 Nginx 在自己服务器上写一个 302 跳转脚本，配合内网穿透使用</li>
+        </ul>
+    </div>
+
+    <h2>3. 详细步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：探测拦截规则</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 浏览器直接访问 <code>?url=http://127.0.0.1/flag.php</code>。</p>
+        </div>
+        <p class="info-line"><span class="info-label">回显结果：</span>页面提示 <code>hacker! Ban Intranet IP</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>确认后端使用了黑名单，禁用了“127”、“172”等内网 IP 字符串。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：利用 302 跳转和 localhost 绕过检测</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>?url=http://httpbin.org/redirect-to?url=http://localhost/flag.php</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">执行目的：</span>让门卫看到外网合法域名 <code>httpbin.org</code> 放行，然后 cURL 收到 302 跳转指令，去访问内网 <code>localhost</code>（即 127.0.0.1）。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>页面直接返回 <code>ctfhub{c4453cfa6980e26e932dccc0}</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>成功利用 302 跳转 + localhost 替换，绕过了 IP 黑名单检测。</p >
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：直接使用 127.0.0.1 被拦截。</strong> 后端会直接搜索 URL 中的“127”字符串，一旦发现就立即阻断。</li>
+        <li><strong>坑2：使用 URL 编码后依然被拦截。</strong> 把 <code>127.0.0.1</code> 进行 URL 编码 <code>%31%32%37.0.0.1</code> 之后，后端解码后发现依然是“127”，依然会拦截。</li>
+        <li><strong>坑3：绕过方案：使用 localhost。</strong> <code>localhost</code> 在 Linux 中默认解析为 <code>127.0.0.1</code>，但字符串中不含“127”，完美绕过后端的关键字匹配。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>SSRF + 302 绕过的本质：</strong> 校验逻辑只看“外部域名”，而底层请求库（cURL）会跟随 302 跳转，导致“放行的请求”最终打到了内网。</li>
+        <li><strong>防御建议：</strong> 在 SSRF 防护中，必须禁止请求库自动跟随 302 跳转，或者对跳转后的目标 URL 进行二次校验，否则所有基于 URL 白名单的校验都会形同虚设。</li>
+        <li><strong>实战思维：</strong> 在进行 SSRF 绕过时，要多关注 URL 标准的特性和底层库的默认行为，往往一个简单的字符替换（如 <code>127.0.0.1</code> 换成 <code>localhost</code>）就能绕过绝大多数粗粒度的防御。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
