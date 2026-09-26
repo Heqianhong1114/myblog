@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-RCE 命令注入-过滤空格 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .note { background-color: #fff5b1; padding: 10px; border-left: 5px solid #f1c40f; margin: 15px 0; border-radius: 3px; font-size: 0.95em; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.95em; }
+        th, td { border: 1px solid #dfe2e5; padding: 8px 12px; text-align: left; }
+        th { background-color: #f6f8fa; }
+        a { color: #0366d6; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-RCE 命令注入-过滤空格 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.26 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, RCE, 命令注入, 过滤空格, ${IFS}, 重定向符</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - RCE / 命令注入</li>
+        <li><strong>题目名称：</strong>过滤空格</li>
+        <li><strong>环境：</strong>浏览器 + 输入框提交。</li>
+        <li><strong>目标：</strong>在空格字符被过滤的情况下，利用 Linux 特性替代空格，拼接命令并读取 Flag。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>本关核心考点：</strong>命令注入中空格的绕过方式，以及输入重定向符的运用。</p >
+    
+    <div class="diff-box">
+        <strong>知识点（比喻说明）：</strong>
+        <ul>
+            <li><strong>空格替代思路：</strong> 在 Linux 命令中，空格用于分隔命令和参数。当空格被黑名单拦截时，我们就像“不能开口说话”的特工，必须用其他手势来传递信息。常用的替代品有 <code>${IFS}</code>（系统内置变量，代表空格）、<code>&lt;</code>（输入重定向符）、<code>%09</code>（Tab键的URL编码）。</li>
+            <li><strong>输入重定向符 &lt;：</strong> <code>cat&lt;flag.php</code> 相当于 <code>cat flag.php</code>。它不需要空格，而且与命令紧挨着，极其适合绕过空格和短字符串过滤。</li>
+            <li><strong>对比：SQL注入 vs 命令注入：</strong> 在 SQL 注入中，<code>/**/</code> 是经典的注释符，能完美替代空格；但在 Linux Shell 中，<code>/</code> 是路径分隔符，<code>*</code> 是通配符，<code>cat/**/flag</code> 无法解析为一个正确的文件路径，因此在此语境下无法替代空格。</li>
+        </ul>
+    </div>
+
+    <h2>3. 详细步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：源码审计与漏洞定位</h3>
+        <pre><code>&lt;?php
+if (isset($_GET['ip']) && $_GET['ip']) {
+    $ip = $_GET['ip'];
+    $m = [];
+    if (!preg_match_all("/ /", $ip, $m)) {
+        $cmd = "ping -c 4 {$ip}";
+        exec($cmd, $res);
+    } else {
+        $res = $m;
+    }
+}
+?&gt;</code></pre>
+        <p class="info-line"><span class="info-label">代码逐行解析：</span></p >
+        <ul>
+            <li><code>preg_match_all("/ /", $ip, $m)</code>：过滤了参数中的<strong>空格字符</strong>。</li>
+            <li>其他逻辑与之前的命令注入相同，只需要绕过空格的限制即可。</li>
+        </ul>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：探测目标文件（使用 ${IFS}）</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>127.0.0.1;ls${IFS}/</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">为什么要输入：</span>验证漏洞存在并查看根目录。使用 <code>${IFS}</code> 替代原本的 `<code>ls /</code>` 之间的空格，Linux 会自动将 `${IFS}` 解析为空格。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>成功列出根目录，发现根目录无 flag，推测 flag 在当前目录。</p >
+        
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>127.0.0.1;ls</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">回显结果：</span>发现目标文件 <code>flag_20149288656555.php</code>。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：使用 base64 和重定向符读取并解码 Flag</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>127.0.0.1;base64&lt;flag_20149288656555.php</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">为什么要输入：</span>因为文件后缀是 <code>.php</code>，直接读取可能会被浏览器解析成 HTML 隐藏。使用 <code>base64</code> 强转编码可以规避。同时，<code>&lt;</code> 是输入重定向符，将文件内容传给 base64 命令，完美替代了空格，绕过 <code>/ /</code> 过滤。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>得到 Base64 字符串 <code>PD9waHAgLy8gY3RmaHViezYxOTMxNjY4NzhmZmM2YTRkZDA4Yzdi</code></p >
+        <p class="info-line"><span class="info-label">操作：</span> 将字符串复制到在线工具 <a href="https://base64.us" target="_blank">https://base64.us</a> 进行解码。</p >
+        <p class="info-line"><span class="info-label">解码结果：</span><code>&lt;?php // ctfhub{6193166878fc6a4dd08c7b}</code></p >
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><b>关于 <code>/**/</code> 替代空格的误区：</b> 受 SQL 注入影响，曾考虑使用 <code>/**/</code>。但在 Shell 中，这会被解析为路径和通配符，导致命令解析失败。此路不通，必须改用 <code>${IFS}</code> 或 <code>&lt;</code>。</li>
+        <li><b>延续 base64 读取习惯：</b> 直接使用 <code>cat&lt;flag.php</code> 可能会因为文件内容为 <code>&lt;?php // ...</code> 而返回空白。使用 <code>base64</code> 读取是极其稳妥的实战策略。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>命令注入绕过空格的方法：</strong> <code>${IFS}</code>、<code>&lt;</code>、<code>%09</code>、<code>{cmd,arg}</code>。</li>
+        <li><strong>Web 环境下读源码的黄金组合：</strong> 读取文件（base64） + 绕过过滤（&lt;） + 本地解码。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
