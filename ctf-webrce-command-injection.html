@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-RCE 命令注入-无过滤 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .note { background-color: #fff5b1; padding: 10px; border-left: 5px solid #f1c40f; margin: 15px 0; border-radius: 3px; font-size: 0.95em; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.95em; }
+        th, td { border: 1px solid #dfe2e5; padding: 8px 12px; text-align: left; }
+        th { background-color: #f6f8fa; }
+        a { color: #0366d6; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-RCE 命令注入-无过滤 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.26 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, RCE, 命令注入, 盲注排错, 内存取证</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - RCE / 命令注入</li>
+        <li><strong>题目名称：</strong>命令注入-无过滤</li>
+        <li><strong>环境：</strong>浏览器 + 输入框提交。</li>
+        <li><strong>目标：</strong>利用无过滤的命令注入漏洞，通过 Linux 系统命令定位并读取隐藏的 Flag 文件。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>本关核心考点：</strong>命令注入漏洞利用、盲注排错技巧、Base64 编码读取与内存取证。</p >
+    
+    <div class="diff-box">
+        <strong>知识点（比喻说明）：</strong>
+        <ul>
+            <li><strong>命令注入的本质：</strong> 后端代码使用 <code>exec("ping -c 4 {$_GET['ip']}")</code>。它就像一家餐厅的“传菜员”，你跟他说“去拿4号桌的菜单”，他照做；但如果你说“去拿4号桌的菜单；把保险柜的钥匙给我”，他会把后面的命令也当成工作指令一起执行。</li>
+            <li><strong>盲注与回显：</strong> <code>exec()</code> 函数默认只捕获“标准输出（stdout）”，不捕获“标准错误（stderr）”。当文件不存在或没有权限时，报错信息会丢失，页面一片空白。此时需要使用 <code>2>&1</code> 将错误重定向到标准输出，让报错现形。</li>
+            <li><strong>Base64 读取技巧：</strong> 目标文件可能包含纯 PHP 代码（如 <code>&lt;?php // flag... ?&gt;</code>），直接 <code>cat</code> 会被 PHP 引擎解析导致空白。使用 <code>base64</code> 命令将其转为纯文本字符串，再本地解码，即可绕过解析器的干扰。</li>
+        </ul>
+    </div>
+
+    <h2>3. 详细步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：源码审计与漏洞定位</h3>
+        <pre><code>&lt;?php
+$res = FALSE;
+if (isset($_GET['ip']) && $_GET['ip']) {
+    $cmd = "ping -c 4 {$_GET['ip']}";
+    exec($cmd, $res);
+}
+?&gt;</code></pre>
+        <p class="info-line"><span class="info-label">代码逐行解析：</span></p >
+        <ul>
+            <li><code>$cmd = "ping -c 4 {$_GET['ip']}";</code>：直接拼接用户输入，无任何过滤。</li>
+            <li><code>exec($cmd, $res);</code>：执行命令，并将输出存入 <code>$res</code> 数组。</li>
+        </ul>
+        <p class="info-line"><span class="info-label">获得信息：</span>存在无过滤的命令注入漏洞，可通过分号 <code>;</code> 拼接系统命令执行。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：探测目录与寻找目标</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>127.0.0.1; ls -la</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">回显结果：</span>发现当前目录下存在 <code>index.php</code> 和一个可疑的随机命名文件 <code>28894297862778.php</code>（42字节）。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>这个 42 字节的文件极有可能包含了 Flag。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：排错与盲注探测（关键步骤）</h3>
+        <p class="info-line"><span class="info-label">为什么要输入：</span>直接 <code>cat</code> 文件没有回显，需要排查是命令被禁用、文件不存在还是文件内容被隐藏。</p >
+        <ul>
+            <li>测试 <code>cat /etc/passwd</code>：成功回显，证明 <code>cat</code> 命令正常。</li>
+            <li>测试 <code>cat /flag 2>&1</code>：报错 <code>No such file or directory</code>，证明根目录无 flag 文件。</li>
+            <li>测试 <code>env</code>：发现 <code>FLAG=not_flag</code>，这是一个故意设置的假 Flag 烟雾弹。</li>
+        </ul>
+        <p class="info-line"><span class="info-label">获得信息：</span>真正的 Flag 藏在那个 42 字节的文件里，但直接读取显示空白，需要进行编码绕过。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：Base64 编码读取并解码 Flag</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>127.0.0.1; base64 28894297862778.php</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">回显结果：</span>得到 Base64 字符串 <code>PD9waHAgLy8gY3RmaHViezlmYzBkMDJkMGJhOTEwN2EzZTRhYzNi... </code></p >
+        <p class="info-line"><span class="info-label">操作：</span> 将字符串复制到在线工具 <a href="https://base64.us" target="_blank">https://base64.us</a> 进行解码。</p >
+        <p class="info-line"><span class="info-label">解码结果：</span><code>&lt;?php // ctfhub{9fc0d02d0ba9107a23e4ac3b}</code></p >
+        <p class="info-line"><span class="info-label">获得信息：</span>成功获取真实 Flag。</p >
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><b>“幽灵文件”的迷惑：</b> 误以为 <code>ls /</code> 中的 <code>lib</code> 或 <code>home</code> 是 flag 目录，浪费了大量时间尝试读取。教训：认准输出，不要主观臆测。</li>
+        <li><b>报错被吞没（stdout vs stderr）：</b> <code>cat /flag</code> 一片空白，导致排查陷入僵局。加上 <code>2>&1</code> 后瞬间真相大白。教训：在盲注场景下，务必记得重定向错误输出。</li>
+        <li><b>假 Flag 的干扰（not_flag）：</b> 环境变量里藏着 <code>FLAG=not_flag</code>，容易让人信以为真。</li>
+        <li><b>PHP 代码解析导致空白：</b> 42 字节的文件里是 <code>&lt;?php // ctfhub{...}</code>。直接 <code>cat</code> 时，<code>&lt;?php</code> 被 PHP 解析器吞掉，<code>//</code> 将后续内容转为注释，因此页面空白。必须使用 <code>base64</code> 强制转码绕过解析器。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>命令注入的核心攻击链：</strong> 确认注入点 -> 使用 <code>;</code> 或 <code>|</code> 拼接命令 -> 探测环境 -> 定位目标文件 -> 读取并提交。</li>
+        <li><strong>盲注排错技巧：</strong> 善用 <code>2>&1</code> 重定向标准错误输出，让隐藏的报错信息（如“权限不足”或“文件不存在”）浮出水面。</li>
+        <li><strong>文件读取绕过：</strong> 当 <code>cat</code> 读不出内容时，优先尝试 <code>tac</code>、<code>nl</code>、<code>base64</code>、<code>xxd</code> 等替代命令。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
