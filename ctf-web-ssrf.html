@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【微方法论】Web SSRF 漏洞基础利用手法小结（基于CTFHub）</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        h3 { margin-top: 20px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .note { background-color: #fff5b1; padding: 10px; border-left: 5px solid #f1c40f; margin: 15px 0; border-radius: 3px; font-size: 0.95em; }
+        table { border-collapse: collapse; width: 100%; margin-top: 15px; font-size: 0.95em; }
+        th, td { border: 1px solid #e1e4e8; padding: 8px; text-align: left; }
+        th { background-color: #f6f8fa; }
+        .template-box { background-color: #f0f6ff; border: 1px solid #c8e1ff; padding: 15px; border-radius: 6px; margin-top: 15px; }
+        .template-box h4 { margin-top: 0; color: #0366d6; border-bottom: 1px solid #c8e1ff; padding-bottom: 5px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【微方法论】Web SSRF 漏洞基础利用手法小结（基于CTFHub）</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.26 | <strong>分类：</strong>Web安全 | <strong>标签：</strong>SSRF, Gopher协议, Bypass, FastCGI, Redis, 微方法论</p >
+    </div>
+
+    <h2>1. 简介与核心逻辑</h2>
+    <p>SSRF（服务端请求伪造）的本质，是攻击者通过构造恶意参数，让服务器端发起一个原本无法从外网发起的请求。其核心攻击逻辑为：<strong>寻找请求参数 -> 探测内网服务/协议 -> 绕过防御机制 -> 利用 Gopher 协议打穿内网应用（RCE/写 Shell/脱库）。</strong></p>
+
+    <h2>2. 题型分类与实战差异</h2>
+    <p>基于CTFHub技能树的通关经历，SSRF可以从以下三个维度进行分类：</p>
+
+    <h3>2.1 按利用目的分类</h3>
+    <ul>
+        <li><strong>探测类：</strong>探测内网存活主机、扫描端口（如 8000-9000）。利用响应时间、状态码、回显内容的差异来判断。推荐用 Python 脚本并发扫描，避免使用 Burp Suite 社区版 Intruder（限速极慢）。</li>
+        <li><strong>读取类：</strong>利用 <code>file://</code> 伪协议读取服务器本地文件（如 <code>file:///etc/passwd</code>），或利用 <code>http://</code> 读取内网 Web 文件。</li>
+        <li><strong>打击类（高阶）：</strong>利用 <code>gopher://</code> 协议构造 TCP 数据包，攻击内网的 FastCGI（9000）、Redis（6379）等服务，实现 RCE。</li>
+    </ul>
+
+    <h3>2.2 按利用协议分类</h3>
+    <ul>
+        <li><strong>HTTP/S：</strong>只能发送 GET 请求，常用于内网 Web 探测、读取云元数据（<code>http://100.100.100.200/</code>）。</li>
+        <li><strong>File：</strong>读取本地文件，注意后面必须是三个斜杠 <code>file:///</code>。</li>
+        <li><strong>Gopher：</strong>SSRF 的终极武器，允许构造任意 TCP 数据包（可发 POST、FastCGI、Redis 命令）。</li>
+    </ul>
+
+    <h3>2.3 按绕过机制分类</h3>
+    <ul>
+        <li><strong>IP 限制绕过：</strong>URL Bypass (<code>@</code>), 数字 IP Bypass (进制转换), 302 跳转 Bypass, DNS 重绑定 Bypass。</li>
+    </ul>
+
+    <h2>3. 通用攻击流程与实战心法（核心）</h2>
+    
+    <div class="note">
+        <strong>核心法则：先探测，后读取，拒绝盲猜！</strong><br>
+        在读取目标文件前，绝对不要凭猜测去拼路径。应先用 PHP 的 <code>scandir('/')</code> 或 <code>ls /</code> 列出目录结构，找到真实文件名后，再进行精准读取。这在 Redis 关卡中帮助我们成功定位到了随机命名的 Flag 文件。
+    </div>
+
+    <ul>
+        <li><strong>工具的选择：</strong>手工构造 FastCGI/Redis 二进制流极其痛苦，必须使用 <code>Gopherus3</code> 工具自动生成 Payload。在 Python 脚本中调用工具（<code>subprocess.run</code>）能避免 Windows 环境下的文件编码和复制乱码问题。</li>
+        <li><strong>Gopher 双重编码原理：</strong>第一次 <code>quote</code> 将 HTTP 报文转义；拼接成 Gopher URL 后，必须再进行一次 <code>quote(gopher_payload, safe='')</code>，防止 <code>:</code>、<code>/</code>、<code>_</code> 等符号被参数截断。</li>
+    </ul>
+
+    <h2>4. 常见防御机制与 Bypass Payload 汇总</h2>
+    
+    <table>
+        <tr>
+            <th>防御机制</th>
+            <th>原理剖析</th>
+            <th>绕过 Payload 示例</th>
+        </tr>
+        <tr>
+            <td><strong>IP黑名单（如 ban 127）</strong></td>
+            <td>后端仅做字符串匹配，而底层 cURL 按协议解析。</td>
+            <td><code>http://2130706433/</code> (十进制)<br><code>http://0x7f000001/</code> (十六进制)<br><code>http://localhost/</code> (域名替换)</td>
+        </tr>
+        <tr>
+            <td><strong>域名白名单前缀</strong></td>
+            <td>后端使用 <code>startswith</code> 校验，cURL 解析 <code>@</code> 符号。</td>
+            <td><code>http://notfound.ctfhub.com@127.0.0.1/flag.php</code></td>
+        </tr>
+        <tr>
+            <td><strong>302跟随跳转</strong></td>
+            <td>后端校验初始 URL 是外网地址，cURL 自动跟随 302 跳到内网。</td>
+            <td><code>?url=http://httpbin.org/redirect-to?url=http://localhost/flag.php</code></td>
+        </tr>
+        <tr>
+            <td><strong>IP 访问限制</strong></td>
+            <td>利用 DNS 解析的时间差，第一次解析返回公网 IP 骗过门卫，第二次解析返回内网 IP 发起真实请求。</td>
+            <td><code>?url=http://7f000001.7f000002.rbndr.us/flag.php</code></td>
+        </tr>
+    </table>
+
+    <h2>5. 协议利用高阶指南（Gopher 专题）</h2>
+
+    <div class="template-box">
+        <h4>5.1 构造 POST 请求与 multipart/form-data</h4>
+        <ul>
+            <li><strong>POST 表单：</strong>构造 <code>application/x-www-form-urlencoded</code> 报文，<code>Content-Length</code> 必须动态计算为实际 Body 长度（例如 <code>key=xxx</code> 为 36，不是 6）。</li>
+            <li><strong>文件上传：</strong>构造 <code>multipart/form-data</code> 报文。必须指定 <code>boundary</code>，并在 Body 中包含 <code>Content-Disposition: form-data; name="file"; filename="test.php"</code>。换行符严格使用 <code>\r\n</code>。</li>
+        </ul>
+    </div>
+
+    <div class="template-box">
+        <h4>5.2 攻击 FastCGI (PHP-FPM: 9000)</h4>
+        <ul>
+            <li><strong>核心原理：</strong>设置 <code>PHP_VALUE = auto_prepend_file = php://input</code>，配合 <code>allow_url_include = On</code>，使 PHP 执行 POST 进来的代码。</li>
+            <li><strong>关键踩坑：</strong><code>CONTENT_LENGTH</code> 必须等于 PHP 代码的真实长度（否则 <code>php://input</code> 为空）。代码末尾务必加上 <code>exit();</code> 阻断原文件的重定向逻辑（如 302）。</li>
+        </ul>
+    </div>
+
+    <div class="template-box">
+        <h4>5.3 攻击 Redis (6379)</h4>
+        <ul>
+            <li><strong>写 Webshell：</strong><code>config set dir /var/www/html</code> -> <code>config set dbfilename shell.php</code> -> <code>set key "<?php ... ?>"</code> -> <code>save</code>。</li>
+            <li><strong>血泪坑点（RDB 二进制头）：</strong>Redis 落盘的文件带 <code>REDIS0007</code> 头，会导致 PHP 解析崩溃。解决方案：<strong>换用新文件名</strong>（如 <code>x.php</code>），并使用 <code>readfile()</code> 替代被禁用的 <code>file_get_contents()</code> 读取内容。</li>
+        </ul>
+    </div>
+
+    <h2>6. 实战避坑指南（血泪总结）</h2>
+    <ul>
+        <li><strong>协议读取乱码（???）的解决：</strong>读 <code>flag.php</code> 源码出现 <code>???</code>，是因为浏览器把 <code>&lt;?php</code> 标签渲染成了乱码。此时必须在地址栏最前面加上 <code>view-source:</code>，直接展示原始文本。</li>
+        <li><strong>双重编码的“画蛇添足”：</strong>Python 的 <code>urllib.parse.quote()</code> 遇到 <code>\r\n</code> 会自动转成 <code>%0D%0A</code>。千万不要手动执行 <code>replace("%0A", "%0D%0A")</code>，否则会产生 <code>%0D%0D%0A</code> 这种畸形的换行符，导致 HTTP 400 Bad Request。</li>
+        <li><strong>反斜杠截断与代理问题：</strong>Gopher 的 Payload 作为 URL 参数传输时，必须对整个 Gopher URL 进行二次编码（<code>safe=''</code>），防止特殊字符被截断。</li>
+        <li><strong>环境限制与备用方案：</strong>在 302 跳转和 DNS 重绑定关卡中，靶机可能无法访问外网服务（如 <code>httpbin.org</code>、<code>rbndr.us</code>）。一定要准备备用服务（<code>httpbingo.org</code>、<code>1u.ms</code>），或者切换为 Python 脚本 / BP 抓包发送。</li>
+    </ul>
+
+    <h2>7. 安全防御建议</h2>
+    <ul>
+        <li><strong>禁止跟随 302 跳转：</strong>底层请求库（如 cURL）必须关闭自动跳转功能，或者对跳转后的目标 URL 进行二次校验。</li>
+        <li><strong>URL 解析归一化：</strong>不要使用字符串匹配来校验 URL。必须使用标准解析库提取 Host 字段，解析为 IP 后，严格判断其是否属于内网网段（<code>127.0.0.0/8</code>, <code>10.0.0.0/8</code>, <code>172.16.0.0/12</code>, <code>192.168.0.0/16</code>）。</li>
+        <li><strong>禁用不必要的协议：</strong>除了 HTTP/HTTPS，其余协议如 <code>file://</code>、<code>gopher://</code>、<code>dict://</code> 必须在入口处全部拦截。</li>
+        <li><strong>限制请求端口：</strong>只允许请求 80 和 443 等常规 Web 端口，禁止请求内网服务端口（如 6379、9000）。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
