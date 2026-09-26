@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-RCE eval执行 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-RCE eval执行 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.26 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, RCE, eval执行</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - RCE / eval执行</li>
+        <li><strong>题目名称：</strong>eval执行</li>
+        <li><strong>环境：</strong>VS Code + 浏览器地址栏 (URL 编码)。</li>
+        <li><strong>目标：</strong>利用服务器未过滤的 PHP <code>eval()</code> 函数，直接执行 PHP 代码，进而调用系统命令寻找并读取 Flag。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>本关核心考点：</strong>PHP代码执行漏洞（eval注入）与系统命令执行的结合。</p >
+    
+    <div class="diff-box">
+        <strong>知识点（比喻说明）：</strong>
+        <ul>
+            <li><strong>eval() 的本质：</strong>如果把服务器比作一家餐厅，普通网页是“点菜单”，而 <code>eval()</code> 就是一个“万能翻译官”。它会把你输入的内容当成 PHP 语法来解析执行。你输入的内容必须符合 PHP 语法规范（比如结尾加分号），否则“翻译官”会报错（Parse error）。</li>
+            <li><strong>eval 与 system 的关系：</strong><code>eval()</code> 只能执行 PHP 代码，不能直接执行 Linux 命令。如果你写 <code>ls</code>，它不认识。你必须写 <code>system('ls');</code>，意思是“翻译官（eval）接到指令，转头去调用餐厅的服务员（system），让服务员去后厨执行找东西的命令（ls）”。</li>
+            <li><strong>请求方式：</strong>源码使用 <code>$_REQUEST['cmd']</code>，说明 GET 和 POST 均可传参。</li>
+        </ul>
+    </div>
+
+    <h2>3. 详细步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：源码审计与漏洞定位</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 访问靶场 URL，直接查看页面回显的 PHP 源码。</p>
+        </div>
+        <pre><code>&lt;?php
+if (isset($_REQUEST['cmd'])) {
+    eval($_REQUEST["cmd"]);
+} else {
+    highlight_file(__FILE__);
+}
+?&gt;</code></pre>
+        <p class="info-line"><span class="info-label">代码逐行解析：</span></p >
+        <ul>
+            <li><code>if (isset($_REQUEST['cmd']))</code>：检测 HTTP 请求中是否传入了 `cmd` 参数（无论 GET 还是 POST）。</li>
+            <li><code>eval($_REQUEST["cmd"]);</code>：如果传入了，不经过任何过滤，直接将 `cmd` 的值作为 PHP 代码执行。</li>
+            <li><code>else { highlight_file(__FILE__); }</code>：如果没有传入参数，就高亮显示当前文件（源码）的内容，这也就是为什么我们能看到代码的原因。</li>
+        </ul>
+        <p class="info-line"><span class="info-label">获得信息：</span>存在 eval 代码执行漏洞，无过滤，必须传入 PHP 代码（带分号）。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：连通性测试与信息收集</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>?cmd=phpinfo();</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">为什么要输入：</span>这是安全测试的第一步“探路”。我们要确认 eval 是否能成功解析 PHP 代码，并且看看服务器环境（PHP版本、系统信息）。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>页面成功渲染出紫色的 phpinfo 配置信息页。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>确认漏洞利用成功，PHP 5.6.40，Linux 环境。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：执行系统命令寻找 Flag</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>?cmd=system('ls /');</code></p>
+            <p><strong>URL编码版：</strong> <code>?cmd=system(%27ls%20/%27);</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">为什么要输入：</span>因为 eval 不能直接执行 `ls`，必须借用 PHP 的 `system()` 函数。后面的 `ls /` 是为了列出根目录下的所有文件，寻找 flag 文件的位置。为了防止浏览器转义单引号，实际发送时替换为了 <code>%27</code>。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span>列出了根目录，发现可疑文件 <code>flag_17419</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>确定目标 Flag 文件的绝对路径为 <code>/flag_17419</code>。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：读取 Flag 并提交</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>?cmd=system('cat /flag_17419');</code></p>
+            <p><strong>URL编码版：</strong> <code>?cmd=system(%27cat%20/flag_17419%27);</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">为什么要输入：</span>借助 PHP 的 system 函数，调用 Linux 的 `cat` 命令，读取文件内容。</p >
+        <p class="info-line"><span class="info-label">回显结果：</span><code>ctfhub{70cff1c261c7affd44aa0ec5}</code></p >
+        <p class="info-line"><span class="info-label">获得信息：</span>成功获取 Flag，提交通关。</p >
+    </div>
+
+    <h2>4. 知识总结</h2>
+    <ul>
+        <li><strong>RCE 的本质：</strong> 服务器把用户的输入当成了指令执行。eval 执行的是 PHP 代码，system/exec/shell_exec 执行的是操作系统命令。</li>
+        <li><strong>寻找 Flag 的顺序：</strong> 先探路（phpinfo），再查目录（ls /），最后读文件（cat /flag_xxx）。记住 `cat`、`tac`、`nl` 等读文件命令。</li>
+        <li><strong>URL 编码防转义：</strong> 在浏览器直接测试时，空格用 <code>%20</code> 替代，单引号用 <code>%27</code> 替代，可以避免很多因为浏览器地址栏自动解码带来的玄学报错。这是常规的操作习惯，非踩坑记录，是加固手段。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
