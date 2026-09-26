@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-暴力破解-基于表单的暴力破解 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-暴力破解-基于表单的暴力破解 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.26 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, 暴力破解, Burp Suite, Intruder</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - 暴力破解 (Burte Force)</li>
+        <li><strong>题目名称：</strong>基于表单的暴力破解</li>
+        <li><strong>环境：</strong>使用 Burp Suite 社区版自带浏览器（Proxy -> Intercept -> Open Browser）访问靶场，避免更改系统代理导致校园网断连。</li>
+        <li><strong>目标：</strong>登录表单未设防（无验证码、无锁定），通过 Burp Intruder 交叉爆破，找出正确的账号密码并成功登录。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>登录页面未采取任何防护措施（如验证码、登录失败次数限制、IP 限制等），攻击者可以通过抓包，利用工具批量提交不同的账号密码组合进行穷举尝试。</p>
+    
+    <div class="diff-box">
+        <strong>Intruder 攻击类型选择：</strong>
+        <ul>
+            <li><strong>Sniper（狙击手）：</strong>单一 Payload 集，依次替换每个标记位，适合单参数爆破。</li>
+            <li><strong>Cluster bomb（集束炸弹）：</strong>多个 Payload 集交叉组合（笛卡尔积），<strong>本关核心选择</strong>，用于同时爆破用户名和密码。</li>
+        </ul>
+    </div>
+
+    <div class="diff-box">
+        <strong>判定爆破成功的核心指标：</strong>
+        <ul>
+            <li><code>Status code</code>：通常均为 200，无法直接区分。</li>
+            <li><code>Response received</code>：可能因报错信息长短出现波动，存在误导性（如本次遇到的 105 干扰项）。</li>
+            <li><code>Length</code>（响应包长度）：这是最准确的判断依据，登录成功和失败的页面长度通常有显著差异。</li>
+            <li><code>Response</code> 直接搜索成功关键字（如 <code>success</code>）。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：抓包与发送至 Intruder</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> BP 自带浏览器访问靶场 → 输入错误账号（admin / 123） → BP 开启 <code>Intercept is on</code> → 点击 Login 抓包 → 右键选择 <code>Send to Intruder</code>（Ctrl+I） → 关闭拦截（<code>Intercept is off</code>）。</p>
+        </div>
+        <p class="info-line"><span class="info-label">执行目的：</span>捕获标准的 POST 提交请求，准备交给 Intruder 模块进行批量修改重放。</p>
+        <p class="info-line"><span class="info-label">获得信息：</span>确认请求体格式为 <code>username=admin&password=123&submit=Login</code>。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：配置攻击点 (Positions)</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 进入 <code>Intruder</code> -> <code>Positions</code> → 点击 <code>Clear §</code> 清空默认标记 → 选中 <code>admin</code> 点击 <code>Add §</code> → 选中 <code>123</code> 点击 <code>Add §</code> → 攻击类型下拉框选择 <code>Cluster bomb</code>。</p>
+        </div>
+        <p class="info-line"><span class="info-label">执行目的：</span>精确标记需要替换的变量位置，并设置交叉组合攻击模式。</p>
+        <p class="info-line"><span class="info-label">获得信息：</span>底部提示 <code>2 payload positions</code>。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：配置字典 (Payloads)</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 进入 <code>Payloads</code> 标签页 → <code>Payload set</code> 选 1 (用户名) → 类型选 <code>Simple list</code> → 在输入框内<strong>逐个手动输入</strong>并点击 <code>Add</code> 添加：<code>admin</code>、<code>root</code>、<code>test</code>、<code>pikachu</code> → 切换 <code>Payload set</code> 为 2 (密码) → 逐个手动添加：<code>123456</code>、<code>password</code>、<code>000000</code>、<code>admin888</code>、<code>12345678</code>、<code>abc123</code>。</p>
+        </div>
+        <p class="info-line"><span class="info-label">执行目的：</span>为两个变量分别装载测试字典。</p>
+        <p class="info-line"><span class="info-label">获得信息：</span>Payload count 分别为 4 和 6，Request count 显示为 24（4x6=24 个请求）。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：发起攻击 (Start Attack)</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 点击右上角 <code>Start Attack</code> → 弹出的社区版限速警告框点击 <code>OK</code> → 耐心等待 24 个请求全部跑完（约二十秒左右）。</p>
+        </div>
+    </div>
+
+    <div class="step-box">
+        <h3>第五步：分析结果与验证</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 观察 <code>Length</code> 列。发现绝大多数请求 Length 均为 35111，而第 39 行（test / abc123）的 Length 为 <code>35087</code>，存在明显差异。</p>
+        </div>
+        <p class="info-line"><span class="info-label">执行目的：</span>过滤冗余请求，精准定位成功页面。</p>
+        <p class="info-line"><span class="info-label">回显结果：</span>双击第 39 行 → 底部 <code>Response</code> 搜索 <code>success</code>，显示 1 match，页面上渲染出 <code>login success</code>。</p>
+        <p class="info-line"><span class="info-label">获得信息：</span>成功获取正确凭据：<strong>test / abc123</strong>。去浏览器实际输入，页面返回 login success，通关。</p>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：误判 <code>Response received</code> 为成功指标。</strong>第一次跑字典时（未加 abc123），发现 root / 000000 的 <code>Response received</code> 为 105（其他为 5-28）。以为成功了，但浏览器验证失败。深究发现：<code>Response received</code> 只是服务器压缩后返回的字节数，报错语句不同会导致大小波动。实战中应以 <code>Length</code> 或搜索关键字为准。</li>
+        <li><strong>坑2：字典漏配导致失败。</strong>Pikachu 内置了多组账号密码，第一次字典太基础（没有 abc123），导致全部试错。后续参考 WP 补充了 <code>test/abc123</code> 才成功。</li>
+        <li><strong>坑3：代理冲突。</strong>直接用系统代理会断校园网。解决方式是使用 Burp 自带浏览器（自带代理与证书），避免了插件与网络环境配置冲突。</li>
+        <li><strong>坑4：社区版限速。</strong>Burp 社区版会弹出 Intruder 限速警告，直接 <code>OK</code> 即可。小字典（<50条）耐心等待即可，无需折腾专业版。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>Burp Suite Intruder 核心攻击模式的适用场景：</strong>单变量爆破用 <code>Sniper</code>，多变量交叉爆破用 <code>Cluster bomb</code>。Payload 可以手动逐个 Add，也可以 Load 大字典。</li>
+        <li><strong>精准判断爆破成功：</strong>不要迷信单一数据（如 Response received），结合 <code>Length</code> 排序，并在 Response 渲染页用 <code>Ctrl+F</code> 搜索关键字（success / 成功），是最稳妥的验证组合拳。</li>
+        <li><strong>暴力破解防御方案：</strong>增加服务端校验的验证码、限制错误登录次数（如 5 次锁定账号）、IP 频率限制、甚至引入双因素认证（2FA）。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
