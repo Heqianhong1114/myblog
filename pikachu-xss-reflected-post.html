@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-XSS-反射型XSS(post) Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-XSS-反射型XSS(post) Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.27 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, XSS, 反射型XSS, POST型注入</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - Cross-Site Scripting (XSS)</li>
+        <li><strong>题目名称：</strong>反射型xss(post)</li>
+        <li><strong>环境：</strong>Burp Suite 社区版自带浏览器，先登录后测试。</li>
+        <li><strong>目标：</strong>在 POST 请求参数中注入恶意 JS 代码，并成功执行弹窗。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>与 GET 型类似，后端未对用户输入进行过滤和转义，直接将其输出到页面。区别在于数据的传输方式变成了 POST 请求，参数藏在请求体（Request Body）中，无法通过修改 URL 来直接注入。</p>
+    
+    <div class="diff-box">
+        <strong>【核心对比】GET 型与 POST 型 XSS 的差异：</strong>
+        <ul>
+            <li><strong>GET 型：</strong>数据在 URL 中，通过修改地址栏参数即可测试。</li>
+            <li><strong>POST 型：</strong>数据在请求体中，必须使用 Burp Suite 抓包，拦截 POST 请求并修改请求体中的参数。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：登录并探测注入点</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 在bp自带浏览器访问靶场，使用 <code>admin/123456</code> 进行登录。登录成功后，页面出现“Which NBA player do you like?”输入框。</p>
+        </div>
+        <p class="info-line"><span class="info-label">分析：</span> 该输入框是一个 POST 表单，提交后的 URL 变成了 <code>xss_reflected_post.php</code>，确认是 POST 方式的反射型注入点。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：抓包与 Repeater 注入</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 在输入框输入 <code>test</code> 并提交，Burp 拦截到 POST 请求。</p>
+        </div>
+        <p class="info-line"><span class="info-label">请求体：</span> <code>message=test&submit=submit</code></p>
+        <p class="info-line"><span class="info-label">注入操作：</span> 右键发送到 <code>Repeater</code>，将请求体修改为：<code>message=&lt;script&gt;alert(1)&lt;/script&gt;&submit=submit</code>，点击 <code>Send</code>。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：验证弹窗</h3>
+        <p class="info-line"><span class="info-label">坑点发现：</span> 在 Repeater 中点击 <code>Render</code> 标签，并未弹出对话框。这是因为 Burp Suite 的渲染沙箱会主动拦截 JavaScript 的执行。</p>
+        <p class="info-line"><span class="info-label">绕过验证：</span> 在 Response 区域右键，选择 <code>Open response in browser</code>，复制临时 URL，粘贴到 Burp 自带浏览器中打开。</p>
+        <p class="info-line"><span class="info-label">回显结果：</span> 浏览器成功弹出 <code>127.0.0.1 显示 1</code>，证明 Payload 被执行，漏洞利用成功。</p>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：Burp Repeater 的 Render 功能不执行 JS。</strong>出于安全考虑，Burp 内置的响应渲染器屏蔽了脚本执行。实战中必须使用 <code>Open response in browser</code> 或手动构造 HTML 文件在浏览器打开，才能触发弹窗。</li>
+        <li><strong>坑2：登录状态维持。</strong>从普通浏览器切换到 Burp 自带浏览器时，需重新使用 <code>admin/123456</code> 登录，否则无法进入注入页面。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>POST 型 XSS 的利用场景：</strong>常见于评论提交、资料修改等表单交互处。攻击者需要构造一个自动提交的 POST 表单（如利用 JS 自动提交）或诱导受害者点击恶意链接，才能完成攻击。</li>
+        <li><strong>Burp 的实用功能：</strong>熟练使用 <code>Repeater</code> 改包以及 <code>Open response in browser</code> 验证渲染结果，是渗透测试中必不可少的技能。</li>
+        <li><strong>防御建议：</strong>无论 GET 还是 POST，服务端都应一视同仁地进行输入过滤和输出 HTML 实体转义。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
