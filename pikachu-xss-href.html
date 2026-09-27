@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-XSS-xss之href输出 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-XSS-xss之href输出 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.27 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, XSS, 伪协议绕过, 黑名单绕过</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - Cross-Site Scripting (XSS)</li>
+        <li><strong>题目名称：</strong>xss之href输出</li>
+        <li><strong>目标：</strong>输入点位于 <code>&lt;a&gt;</code> 标签的 <code>href</code> 属性中，后端过滤了 <code>javascript:</code> 等关键字。需要绕过黑名单触发弹窗。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>后端将用户输入直接拼接到了 <code>&lt;a href="输入内容"&gt;</code> 的属性值中，且未做严格协议白名单校验。虽然过滤了小写的 <code>javascript:</code> 关键字，但由于 URL 协议不区分大小写，攻击者可以通过大小写混淆绕过黑名单，触发伪协议执行。</p>
+    
+    <div class="diff-box">
+        <strong>伪协议与黑名单绕过：</strong>
+        <ul>
+            <li>在 <code>href</code> 属性中，使用 <code>javascript:</code> 伪协议可以直接执行 JavaScript。</li>
+            <li>后端仅过滤小写字符串（如 <code>str_replace("javascript:", "", ...)</code>）。</li>
+            <li>浏览器解析伪协议时不区分大小写，因此构造 <code>JaVaScRiPt:alert(1)</code> 即可完美绕过过滤。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：探测与尝试</h3>
+        <div class="payload-box">
+            <p><strong>尝试 Payload 1：</strong> <code>" onclick="alert(1)</code>（使用双引号闭合属性注入事件）。</p>
+            <p><strong>尝试 Payload 2：</strong> <code># " onclick="alert(1)</code>（试图用 # 阻止默认跳转）。</p>
+        </div>
+        <p class="info-line"><span class="info-label">现象：</span> 均无法触发弹窗。检查源码发现，Payload 并未被截断，但事件属性未能成功触发。推测后端过滤了事件属性，或浏览器对空 href 的默认跳转行为干扰了事件执行。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：构造绕过 Payload</h3>
+        <div class="payload-box">
+            <p><strong>绕过 Payload：</strong> <code>JaVaScRiPt:alert(1)</code></p>
+        </div>
+        <p class="info-line">利用大小写混合绕过黑名单过滤。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：触发执行</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 将 <code>JaVaScRiPt:alert(1)</code> 提交，F12 显示源码为 <code>&lt;a href="JaVaScRiPt:alert(1)"&gt;...&lt;/a&gt;</code>。点击生成的链接。</p>
+        <p class="info-line"><span class="info-label">结果：</span> 浏览器成功弹出 <code>127.0.0.1 显示 1</code> 的对话框，漏洞利用成功。</p>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：陷入属性闭合的思维定式。</strong>一心想着闭合属性注入事件（如 onclick/onmouseover），却忽略了最基础的 `javascript:` 伪协议。在 <code>href</code> 属性中，伪协议是最直接的执行方式。</li>
+        <li><strong>坑2：后端黑名单的脆弱性。</strong>后端过滤了小写 `javascript:`，但遗漏了大小写混合的情况。这说明仅靠黑名单过滤是无法应对千变万化的 Payload 构造的。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>绕过黑名单的常见思路：</strong>大小写混淆（如 <code>JaVaScRiPt</code>）、换标签（<code>&lt;img&gt;</code>、<code>&lt;svg&gt;</code>）、换事件（<code>onerror</code>、<code>onload</code>）、编码绕过等。</li>
+        <li><strong>防御建议：</strong>不要试图穷举过滤（黑名单），应对输出到 URL 中的内容使用协议白名单（如只允许 http/https），并对所有的输出进行严格的 HTML 实体转义。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
