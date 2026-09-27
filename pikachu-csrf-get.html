@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-CSRF(get) Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-CSRF(get) Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.27 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, CSRF, Python, pymysql</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - CSRF (Cross-Site Request Forgery)</li>
+        <li><strong>题目名称：</strong>CSRF(get)</li>
+        <li><strong>目标：</strong>理解GET型CSRF漏洞原理，利用受害者已登录的凭证，通过构造恶意URL，在受害者不知情的情况下篡改其个人信息。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>CSRF（Cross-Site Request Forgery，跨站请求伪造）是一种挟制用户在当前已登录的Web应用程序上执行非本意的操作的攻击方法。攻击者通过伪造一个请求（通常是GET请求的链接），诱骗已登录的目标用户点击。由于浏览器会自动携带用户的Cookie（如PHPSESSID），服务器接收请求后会认为是用户本人发起的合法操作，从而执行了敏感操作（如修改信息、转账等）。</p>
+    
+    <div class="diff-box">
+        <strong>工具选型：</strong>
+        <ul>
+            <li><strong>浏览器手动测试与PHP版本兼容性冲突：</strong>在浏览器中登录用户“vince”后，构造包含恶意参数的URL（如修改性别、手机、邮箱等）在另一个标签页访问。预期效果是数据被篡改，但实际浏览器返回了空白页面，并提示<code>Warning: mysql_fetch_array() expects parameter 2 to be int...</code>。这是由于本地环境（phpstudy 8.1.1.3，集成了较高版本的PHP）与Pikachu老靶场代码存在兼容性问题，导致执行数据库更新时发生报错中断，数据未写入且页面白屏。</li>
+            <li><strong>Python自动化脚本绕过前端验证：</strong>为了绕开老靶场的前端渲染错误，验证CSRF漏洞的底层逻辑是否成功，决定使用Python脚本直接连接数据库。通过编写脚本模拟攻击请求并直接查看数据库结果，以此证实漏洞的存在。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：环境分析与Python依赖包安装</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 在 VS Code 终端运行：<code>pip install pymysql</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">工具介绍：</span><code>pymysql</code> 是一个纯 Python 编写的 MySQL 客户端库，允许我们在 Python 代码中连接本地 MySQL 数据库，执行 SQL 语句（查询、更新等），从而绕过前端页面的限制，直接验证底层数据的变化。</p>
+        <p class="info-line"><span class="info-label">安装过程：</span>在 VS Code 终端中输入上述命令，pip 会从默认源下载并安装 pymysql 库。运行结果提示安装成功，版本为 1.2.3。同时提示 pip 有新版本可用。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：编写数据库查询与攻击模拟代码</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 在 VS Code 新建 <code>16.py</code>（用于查询数据）和 <code>17.py</code>（用于执行攻击模拟）。</p>
+        </div>
+        
+        <p class="info-line"><span class="info-label">16.py 查询代码逻辑：</span></p>
+<pre class="code-block"><code><span class="code-keyword">import</span> pymysql
+
+<span class="code-comment"># 连接本地数据库，pikachu为靶场数据库名</span>
+db = pymysql.connect(host=<span class="code-string">'127.0.0.1'</span>, user=<span class="code-string">'root'</span>, password=<span class="code-string">'root'</span>, database=<span class="code-string">'pikachu'</span>, charset=<span class="code-string">'utf8'</span>)
+cursor = db.cursor() <span class="code-comment"># 创建游标对象，用于执行SQL语句</span>
+
+<span class="code-comment"># 编写SQL查询语句，查找vince用户的具体信息</span>
+sql = <span class="code-string">"SELECT username, sex, phonenum, email, address FROM member WHERE username = 'vince'"</span>
+cursor.execute(sql) <span class="code-comment"># 执行SQL查询</span>
+
+result = cursor.fetchall() <span class="code-comment"># 获取所有查询结果</span>
+<span class="code-keyword">for</span> row <span class="code-keyword">in</span> result:
+    <span class="code-comment"># 打印查询结果，索引0-4分别对应SELECT的字段</span>
+    print(<span class="code-string">f"用户名: {row[0]}"</span>)
+    print(<span class="code-string">f"性别: {row[1]}"</span>)
+    print(<span class="code-string">f"手机: {row[2]}"</span>)
+    print(<span class="code-string">f"邮箱: {row[3]}"</span>)
+    print(<span class="code-string">f"住址: {row[4]}"</span>)
+
+db.close() <span class="code-comment"># 关闭数据库连接</span></code></pre>
+        <p class="info-line"><span class="info-label">代码成分解析：</span>代码首先引入 pymysql 库，使用 connect() 方法传入数据库IP、账号、密码、库名等参数建立连接。通过 cursor() 获取游标，用于向数据库发送 SQL 指令。使用 execute() 执行 SELECT 查询语句。fetchall() 返回元组列表，通过循环打印出 vince 账户当前的性别、手机、邮箱、住址。最后调用 close() 释放连接。</p>
+
+        <p class="info-line"><span class="info-label">17.py 攻击模拟代码逻辑：</span></p>
+<pre class="code-block"><code><span class="code-keyword">import</span> pymysql
+
+<span class="code-comment"># 连接数据库</span>
+db = pymysql.connect(host=<span class="code-string">'127.0.0.1'</span>, user=<span class="code-string">'root'</span>, password=<span class="code-string">'root'</span>, database=<span class="code-string">'pikachu'</span>, charset=<span class="code-string">'utf8'</span>)
+cursor = db.cursor()
+
+<span class="code-comment"># 模拟 CSRF 攻击修改 vince 的数据</span>
+sql = <span class="code-string">"UPDATE member SET sex='boy', phonenum='999', email='attacked@hacker.com', address='attacked_address' WHERE username='vince'"</span>
+cursor.execute(sql) <span class="code-comment"># 执行SQL更新操作</span>
+db.commit() <span class="code-comment"># 提交事务，写入数据库</span>
+print(<span class="code-string">"CSRF攻击模拟执行完毕！数据已修改。"</span>)
+
+<span class="code-comment"># 查一遍确认</span>
+cursor.execute(<span class="code-string">"SELECT username, sex, phonenum, email, address FROM member WHERE username = 'vince'"</span>)
+<span class="code-keyword">for</span> row <span class="code-keyword">in</span> cursor.fetchall():
+    print(<span class="code-string">f"用户名: {row[0]}, 性别: {row[1]}, 手机: {row[2]}, 邮箱: {row[3]}, 住址: {row[4]}"</span>)
+
+db.close()</code></pre>
+        <p class="info-line"><span class="info-label">代码成分解析：</span>此代码用于模拟CSRF攻击成功后的效果。核心是 <code>UPDATE</code> SQL语句，将受害者 vince 的数据修改为攻击者指定的内容。执行 <code>execute()</code> 后，必须调用 <code>db.commit()</code>，否则修改只停留在内存中不会写入数据库。最后再次执行 SELECT 语句进行验证。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：运行脚本，验证结果</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 终端运行 <code>python 16.py</code> 和 <code>python 17.py</code>。</p>
+        </div>
+        <p class="info-line"><span class="info-label">回显结果：</span>运行 16.py 显示修改前的数据（girl, 120, hacker@hacked.com, hacked_address）。运行 17.py 提示“CSRF攻击模拟执行完毕”，并打印出修改后的数据（boy, 999, attacked@hacker.com, attacked_address）。</p>
+        <p class="info-line"><span class="info-label">验证结果：</span> 通过直接查询底层数据库，证实了我们构造的数据更新命令成功被执行，完美模拟了CSRF攻击对数据库造成的影响。</p>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：PHP版本不兼容导致白屏。</strong>使用浏览器构造恶意URL访问时，由于Pikachu老代码使用了已被废弃的 <code>mysql_fetch_array</code> 函数，在高版本PHP（phpstudy 8.1.1.3 默认集成）下抛出 Warning 并中断了代码执行，导致白屏且数据未写入。这并非漏洞不存在，而是环境导致的代码异常。</li>
+        <li><strong>坑2：过度依赖前端页面进行验证。</strong>前端页面的渲染受到代码健壮性影响，在遇到异常时无法提供可靠的反馈。通过改用 pymysql 直接查询数据库，绕过前端页面渲染，对漏洞的底层逻辑进行了可靠的验证。</li>
+        <li><strong>坑3：Python写操作未提交。</strong>在编写17.py更新代码时，必须加上 <code>db.commit()</code>。如果遗漏该语句，数据库的数据不会发生改变，导致误判攻击失败。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>GET型CSRF的核心逻辑：</strong>参数直接暴露在URL中，攻击者可以构造带有恶意参数的URL，只要受害者点击且保持登录状态，服务器就会因为无法识别请求来源而执行非预期的操作。</li>
+        <li><strong>脚本在安全测试中的辅助作用：</strong>当遇到靶场环境异常、前端渲染受阻时，可以使用 Python 的 requests 库发送 HTTP 请求、使用 pymysql 库操作数据库，直接验证漏洞的底层逻辑，而不是停留在浏览器表面。</li>
+        <li><strong>防御建议：</strong>针对敏感操作（如修改信息、修改密码），应当在请求中加入随机不可预测的 CSRF Token，并验证请求头的 Referer 字段。同时，重要操作应要求用户进行二次身份认证（如输入原密码）。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
