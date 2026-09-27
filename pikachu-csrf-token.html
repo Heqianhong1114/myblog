@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-CSRF Token Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-CSRF Token Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.27 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, CSRF, Token, 重放攻击, F12, VS Code</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - CSRF (Cross-Site Request Forgery)</li>
+        <li><strong>题目名称：</strong>CSRF Token</li>
+        <li><strong>目标：</strong>理解 CSRF Token 防御机制的工作原理，分析在 Token 未严格绑定 Session 或未实现一次性销毁的情况下，利用重放攻击绕过防御的可行性。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>为了防止 CSRF 攻击，开发者通常会在敏感操作的请求中加入一个随机生成的 Token（令牌）。服务器在接收到请求时，会校验 Token 是否合法。然而，如果后端代码在实现时存在逻辑缺陷，例如 Token 没有与当前用户的 Session 严格绑定，或者验证成功后未及时销毁 Token，攻击者一旦捕获到一个合法用户的带 Token 请求，就可以反复使用该请求（重放攻击）来实施 CSRF，导致防御机制失效。</p>
+    
+    <div class="diff-box">
+        <strong>工具选型与心路历程：</strong>
+        <ul>
+            <li><strong>Python 自动化脚本尝试：</strong>尝试使用 <code>requests.Session()</code> 模拟登录并利用正则表达式从页面源码中提取 Token，再发起自动化攻击。但在实际运行中，由于 Pikachu 老靶场代码（PHP 5 时代产物）在高版本 PHP 8 环境下的 Session 兼容性问题，Python 模拟登录频频被服务器拒绝，导致脚本无法获取有效 Token。</li>
+            <li><strong>浏览器 F12 网络面板抓包：</strong>果断放弃 Python 登录尝试，回归浏览器。利用 F12 开发者工具的 Network（网络）面板，开启“保留日志”功能，成功记录了表单提交瞬间的完整请求 URL，精准提取出包含 Token 的攻击载荷。</li>
+            <li><strong>手动重放攻击验证：</strong>通过在新标签页中复用抓取到的带 Token 的完整 URL，向服务器发起多次请求（重放攻击），以验证 Token 防御机制是否有效。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：环境搭建与源码兼容性修复（VS Code 操作）</h3>
+        <p class="info-line"><span class="info-label">踩坑记录：</span>访问 CSRF Token 关卡页面时，页面再次抛出 <code>Warning: mysql_fetch_array() expects parameter 2 to be int...</code> 以及 <code>MYSQL_ASSOC</code> 常量未定义的报错，导致页面白屏。</p>
+        <p class="info-line"><span class="info-label">操作：</span>使用 VS Code 打开报错的文件路径 <code>D:\phpstudy_pro\WWW\pikachu\vul\csrf\csrftoken\token_get_edit.php</code>。</p>
+        <p class="info-line"><span class="info-label">查找与替换：</span>按 <code>Ctrl + H</code>，将 <code>MYSQL_ASSOC</code> 替换为 <code>MYSQLI_ASSOC</code>，按 <code>Ctrl + S</code> 保存。刷新页面后报错消除，数据正常显示。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：认识 Token 机制与隐藏字段分析</h3>
+        <p class="info-line"><span class="info-label">操作：</span>点击“修改个人信息”，按 <code>F12</code> 打开开发者工具，选择 <code>元素</code> (Elements) 标签页，定位到表单源码。</p>
+        <div class="payload-box">
+            <p><strong>隐藏字段：</strong>发现表单中包含一个隐藏的输入框：</p>
+            <p><code>&lt;input type="hidden" name="token" value="486516ab8fcee9cc3f365737916"&gt;</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">分析：</span>该 Token 是服务器随机生成的。因为该表单的提交方式为 GET 请求（<code>method="get"</code>），所以提交时该 Token 会作为参数直接暴露在 URL 中。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：抓取携带 Token 的完整攻击载荷（F12 抓包）</h3>
+        <p class="info-line"><span class="info-label">操作：</span>保持登录状态，回到表单页面填写数据（如性别：girl，手机：110，住址：china），准备提交。</p>
+        <p class="info-line"><span class="info-label">F12 配置：</span>打开 F12 的 <code>网络</code> (Network) 面板，勾选 <code>保留日志</code> (Preserve log)，并点击禁止圈图标清空当前记录。</p>
+        <p class="info-line"><span class="info-label">提交与抓取：</span>点击 <code>submit</code> 提交。在 Network 列表中找到名为 <code>token_get_edit.php</code> 的请求，点击它，在右侧 <code>Headers</code> (标头) -> <code>General</code> (常规) 中，找到 <code>Request URL</code> (请求网址)。右键选择“复制值”。</p>
+        <div class="payload-box">
+            <p><strong>提取到的完整 URL：</strong></p>
+            <p><code>http://127.0.0.1/pikachu/vul/csrf/csrftoken/token_get_edit.php?sex=girl&phonenum=110&email=hacker@hacked.com&address=china&submit=submit&token=486516ab8fcee9cc3f365737916</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">保留日志的作用：</span>提交表单后，页面会发生跳转（重定向）。如果不开启“保留日志”，浏览器会清空之前的请求记录，导致包含 Token 的提交请求瞬间消失。开启后，所有请求都会被保留，方便提取带有敏感参数的请求 URL。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：重放攻击验证</h3>
+        <p class="info-line"><span class="info-label">操作：</span>在浏览器新建两个标签页（保持登录状态，不要退出登录）。</p>
+        <p class="info-line"><span class="info-label">重放攻击：</span>将刚才复制的完整 URL（包含 Token）分别粘贴到新建的两个标签页中并回车。</p>
+        <p class="info-line"><span class="info-label">结果验证：</span>如果页面没有提示“Token 错误”，而是再次显示修改成功（或引发报错白屏，但数据已写入），则证明 Token 机制存在重放漏洞。</p>
+        <p class="info-line"><span class="info-label">数据库验证：</span>运行 Python 查库脚本 <code>check_db.py</code>，确认数据库中的信息被成功修改为 <code>girl/110/china</code>。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第五步：Python 自动化尝试（失败记录与解析）</h3>
+        <p class="info-line"><span class="info-label">操作：</span>编写 Python 脚本，尝试使用 <code>requests.Session()</code> 自动完成登录、Token 提取和攻击。</p>
+        <div class="payload-box">
+            <p><strong>Python 核心代码：</strong></p>
+        </div>
+<pre class="code-block"><code><span class="code-keyword">import</span> requests
+<span class="code-keyword">import</span> re
+
+s = requests.Session()
+login_url = <span class="code-string">"http://127.0.0.1/pikachu/vul/csrf/csrftoken/token_get_login.php"</span>
+login_data = {<span class="code-string">"username"</span>: <span class="code-string">"vince"</span>, <span class="code-string">"password"</span>: <span class="code-string">"123456"</span>, <span class="code-string">"submit"</span>: <span class="code-string">"Login"</span>}
+r_login = s.post(login_url, data=login_data, timeout=5)
+
+<span class="code-keyword">if</span> <span class="code-string">"退出登录"</span> <span class="code-keyword">not in</span> r_login.text:
+    print(<span class="code-string">"[-] 登录失败，请检查账号密码或URL。"</span>)
+    exit()
+
+edit_url = <span class="code-string">"http://127.0.0.1/pikachu/vul/csrf/csrftoken/token_get_edit.php"</span>
+r_edit = s.get(edit_url, timeout=5)
+match = re.search(<span class="code-string">r'name="token" value="(.*?)"'</span>, r_edit.text)
+token = match.group(1)
+
+attack_url = <span class="code-string">"http://127.0.0.1/pikachu/vul/csrf/csrftoken/token_get_edit.php"</span>
+payload = {<span class="code-string">"sex"</span>: <span class="code-string">"boy"</span>, <span class="code-string">"phonenum"</span>: <span class="code-string">"999"</span>, <span class="code-string">"email"</span>: <span class="code-string">"attacked@hacker.com"</span>, <span class="code-string">"address"</span>: <span class="code-string">"attacked_address"</span>, <span class="code-string">"submit"</span>: <span class="code-string">"submit"</span>, <span class="code-string">"token"</span>: token}
+r_attack = s.get(attack_url, params=payload, timeout=5)
+
+<span class="code-comment"># 重放攻击测试</span>
+r_replay = s.get(attack_url, params=payload, timeout=5)</code></pre>
+        <p class="info-line"><span class="info-label">失败原因分析：</span>脚本运行后提示“登录失败”。原因是 Pikachu 老旧靶场在 PHP 8 环境下，Session 机制对 Python <code>requests</code> 库保持的会话识别异常，导致模拟登录失败。这不属于脚本逻辑错误，而是环境兼容性问题。</p>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：PHP 8 环境下的数据库报错。</strong>老靶场代码使用了已被废弃的 <code>MYSQL_ASSOC</code> 常量，导致页面读取数据时崩溃。解决方案是全局替换为 <code>MYSQLI_ASSOC</code>。</li>
+        <li><strong>坑2：地址栏跳转导致丢包。</strong>表单提交后页面立即发生重定向，导致地址栏中带有敏感参数的 URL 瞬间消失。开启 F12 的“保留日志”（Preserve log）功能是解决此问题的关键。</li>
+        <li><strong>坑3：Python 模拟登录兼容性差。</strong>由于 PHP 8 对老靶场 Session 处理机制的改变，Python 脚本无法成功通过 POST 请求模拟登录。在实战中，遇到此类环境障碍，应灵活切换回浏览器手动抓包或使用 Burp Suite 等工具进行拦截。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>CSRF Token 防御机制：</strong>服务端应生成随机且不可预测的 Token，并将其与用户的 Session 绑定。Token 必须在每次验证后销毁（一次性使用），且不应暴露在 URL 中（应置于 POST 请求体中），以防止重放攻击。</li>
+        <li><strong>重放攻击的原理：</strong>攻击者截获并重复发送一个有效的合法请求（包含正确的 Cookie 和 Token），如果服务器没有检测到重复性或 Token 未失效，攻击即可成功。</li>
+        <li><strong>F12 网络面板的战术价值：</strong>在网络攻防实战中，“保留日志”是抓取瞬时请求、分析请求结构、提取敏感参数（如 Token、Session ID）的核心技巧。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
