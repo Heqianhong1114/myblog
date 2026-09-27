@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-XSS-xss之htmlspecialchars Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-XSS-xss之htmlspecialchars Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.27 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, XSS, htmlspecialchars, 伪协议, 上下文逃逸</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - Cross-Site Scripting (XSS)</li>
+        <li><strong>题目名称：</strong>xss之htmlspecialchars</li>
+        <li><strong>目标：</strong>后端使用了 htmlspecialchars() 函数转义 HTML 特殊字符，无法直接注入标签。需要结合上下文，利用 <code>javascript:</code> 伪协议绕过过滤触发弹窗。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>后端通过 <code>htmlspecialchars()</code> 把 <code>&lt;</code>、<code>&gt;</code>、<code>"</code> 等特殊字符转义成了 HTML 实体，导致我们无法伪造闭合标签。但是，当输入点位于 HTML 标签的 <code>href</code> 属性内部时，我们不需要尖括号，可以利用 <code>javascript:</code> 伪协议让链接在被点击时执行 JS 代码。</p>
+    
+    <div class="diff-box">
+        <strong>为什么可以使用 <code>javascript:</code>？</strong>
+        <ul>
+            <li>后端只转义了 HTML 标签字符（尖括号），但 <code>javascript:</code> 是合法的 URL 协议。</li>
+            <li>浏览器解析 <code>href</code> 属性时，识别到该协议，会将其作为 JavaScript 代码执行。这是典型的“上下文逃逸”利用。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：探测输出点与上下文（F12）</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 输入 <code>test</code> 提交，按 F12 审查生成的 HTML 源码。</p>
+        </div>
+        <p class="info-line"><span class="info-label">结果：</span> 发现回显结构为 <code>&lt;a href="test"&gt;test&lt;/a&gt;</code>。</p>
+        <p class="info-line"><span class="info-label">分析：</span> 输入被放置在 <code>&lt;a&gt;</code> 标签的 <code>href</code> 属性中，且由于 <code>htmlspecialchars</code>，无法闭合标签注入事件。常规的 <code>&lt;script&gt;</code> 或 <code>&lt;img&gt;</code> 标签全部失效。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：构造针对性 Payload</h3>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>javascript:alert(1)</code></p>
+        </div>
+        <p class="info-line">在输入框中填入该 Payload 并提交。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：触发执行</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 页面下方生成了一个超链接 <code>&lt;a href="javascript:alert(1)"&gt;javascript:alert(1)&lt;/a&gt;</code>。点击该超链接。</p>
+        <p class="info-line"><span class="info-label">结果：</span> 浏览器成功弹出 <code>127.0.0.1 显示 1</code> 的对话框，漏洞利用成功。</p>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>复盘总结：</strong>渗透测试中，输出点的“上下文（Context）”决定了 Payload 的构造方式。如果输出在标签体内部，需要闭合标签；如果输出在属性内部（如 href/src），则优先尝试伪协议或闭合属性注入事件（如 <code>' onmouseover='alert(1)</code>）。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>htmlspecialchars 的局限性：</strong>它主要防范在 HTML 标签体内部的注入。如果开发者将其用在属性上下文，且没有做好协议校验，依然可能被 <code>javascript:</code> 伪协议绕过。</li>
+        <li><strong>防御建议：</strong>除了对输入进行转义外，输出到 <code>href</code> 时，应严格检查协议头，禁用 <code>javascript:</code>、<code>data:</code> 等危险协议，或者强制给 URL 加上 <code>http://</code> 前缀确保协议安全。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
