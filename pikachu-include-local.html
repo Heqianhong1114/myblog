@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-文件包含-本地文件包含(File Inclusion local) Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-文件包含-本地文件包含(File Inclusion local) Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.28 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, 文件包含, LFI, 路径穿越</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - File Inclusion (本地文件包含)</li>
+        <li><strong>题目名称：</strong>File Inclusion(local)</li>
+        <li><strong>目标：</strong>利用后端未严格过滤的文件包含函数（如 <code>include()</code>），通过构造相对路径穿越目录，读取服务器本地的敏感文件（如 Windows 的 <code>win.ini</code>）。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>本地文件包含漏洞产生的原因是，Web 应用在引用其他文件（如页面模板、库文件）时，允许用户直接控制要包含的文件路径（如通过 URL 的 <code>filename</code> 参数）。如果后端代码未对该参数进行严格的过滤（如未过滤 <code>../</code> 或绝对路径），攻击者就可以利用“路径穿越符”跳出 Web 目录的限制，访问并读取服务器本地任意文件的内容。</p>
+
+    <div class="diff-box">
+        <strong>本地文件包含（LFI）与远程文件包含（RFI）的区别：</strong>
+        <ul>
+            <li><code>File Inclusion (local)</code>：只能包含服务器本地已有的文件。利用方式主要是读取敏感配置文件或配合文件上传漏洞执行 Webshell 代码。</li>
+            <li><code>File Inclusion (remote)</code>：允许包含远程服务器上的文件。前提是 PHP 配置中开启了 <code>allow_url_include=On</code>。攻击者可直接包含恶意脚本，危害更大。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：正常功能测试与参数分析</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 在页面的下拉框中选择一个球员（例如 Kobe），点击提交。</p>
+        </div>
+        <p class="info-line"><span class="info-label">回显特征：</span> 页面成功加载了 Kobe 的图片及介绍文本。同时，浏览器地址栏的 URL 发生变化，变为：<code>http://127.0.0.1/pikachu/vul/fileinclude/fi_local.php?filename=file1.php&submit=提交</code>。</p>
+        <p class="info-line"><span class="info-label">原理分析：</span> 后端代码通过 GET 方式接收了 <code>filename</code> 参数，并将其值（<code>file1.php</code>）传递给 PHP 的 <code>include()</code> 函数执行。这证明 <code>filename</code> 参数是用户可控的注入点。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：路径穿越读取系统文件</h3>
+        <div class="payload-box">
+            <p><strong>攻击 Payload：</strong> 在浏览器地址栏修改 <code>filename</code> 参数，使用路径穿越符 <code>../</code> 跳出当前目录。</p>
+            <p><strong>构造 URL：</strong> <code>http://127.0.0.1/pikachu/vul/fileinclude/fi_local.php?filename=../../../../../../../../Windows/win.ini&submit=提交</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">回显特征：</span> 页面内容发生改变，不再显示球员信息，而是直接在页面顶部输出了 Windows 系统配置文件 <code>win.ini</code> 的内容。回显首行为：<code>; for 16-bit app support [fonts] [extensions] [mci extensions] [files] [Mail] MAPI=1</code>。漏洞利用成功。</p>
+        
+        <p class="info-line"><span class="info-label">代码成分详细解释：</span></p>
+        <ul>
+            <li><code>filename</code>：后端用于接收包含文件路径的参数名。</li>
+            <li><code>../</code>（路径穿越符）：在目录结构中表示上一级目录。连续使用多个 <code>../</code> 可以不断向上跳转，直到跳出 Web 根目录（此处使用了 8 个 <code>../</code>，因为靶场 Web 目录嵌套较深，需要足够数量的穿越符才能到达系统盘根目录）。</li>
+            <li><code>Windows/win.ini</code>：目标系统文件。结合前几关的 RCE 测试，已经确认靶场运行在 Windows 系统。<code>win.ini</code> 是 Windows 的系统配置文件，常用于验证本地文件包含漏洞是否利用成功。</li>
+        </ul>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：源码验证</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 打开 Visual Studio Code，查看 <code>vul/fileinclude/fi_local.php</code> 源码。</p>
+        <p class="info-line"><span class="info-label">源码逻辑：</span> 后端代码核心逻辑为 <code>$filename = $_GET['filename']; include($filename);</code>，未对 <code>$filename</code> 进行任何过滤与校验，直接拼接并执行，导致了路径穿越漏洞。</p>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：前端只提供下拉框，无法直接输入 Payload。</strong>下拉框限制了用户只能选择有限的几个选项。<br>
+        <strong>解决办法：</strong> Web 安全测试中，前端限制不是真正的防御。应直接修改浏览器地址栏中的 URL 参数，或使用抓包工具修改 <code>filename</code> 参数的值，直接向后端发送自定义 Payload。本次通过直接修改地址栏 URL 完成了突破。</li>
+        <li><strong>坑2：路径穿越层级数量的确定。</strong>在 Windows 系统下，Web 根目录的嵌套深度未知，若 <code>../</code> 数量不足，会报错 <code>failed to open stream: No such file or directory</code>。本次测试中，使用了 8 个 <code>../</code> 后成功跳转至系统盘并读取到文件。在实战中，需要根据报错信息灵活调整层级数量。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>漏洞本质：</strong>本地文件包含漏洞的本质是“权限控制失效”。应用把引用文件的权利交给了用户，但未限制用户的引用范围。</li>
+        <li><strong>防御措施：</strong>严格限制包含的文件名，建议使用白名单机制（如只允许包含指定目录下的特定文件）。若必须动态包含，应对用户输入的 <code>../</code>、<code>..\</code>、绝对路径等进行严格过滤，或者在 PHP 配置中通过 <code>open_basedir</code> 限制文件访问范围。</li>
+        <li><strong>实战启发：</strong>文件包含漏洞常配合文件上传漏洞使用，上传的恶意图片或文档若被 LFI 包含，就能直接触发代码执行，形成完整的攻击链。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
