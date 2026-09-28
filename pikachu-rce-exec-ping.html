@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-RCE-远程命令执行(exec "ping") Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-RCE-远程命令执行(exec "ping") Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.28 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, RCE, 命令注入</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - RCE (Remote Command Execute)</li>
+        <li><strong>题目名称：</strong>exec "ping"</li>
+        <li><strong>目标：</strong>利用后端应用未严格过滤的输入点，通过命令拼接符注入并执行系统命令，获取服务器本地信息。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>远程命令执行（RCE）漏洞产生的原因，在于应用程序在实现特定功能（如 ping 测试）时，需要调用操作系统底层命令。若开发者未对用户输入的参数进行严格的过滤或转义，直接将用户输入拼接到了系统命令中，攻击者就可以利用系统支持的“命令拼接符”，在原有命令的基础上，追加执行恶意的系统指令。</p>
+
+    <div class="diff-box">
+        <strong>命令拼接符解析及系统差异：</strong>
+        <ul>
+            <li><code>;</code>：顺序执行。先执行前面的命令，再执行后面的命令。（主要适用于 Linux 系统）</li>
+            <li><code>&</code>：顺序执行。无论前面的命令执行成功与否，均执行后面的命令。（Windows / Linux 均支持）</li>
+            <li><code>|</code>：管道符。将前一个命令的输出结果，作为后一个命令的输入参数。（Windows / Linux 均支持）</li>
+            <li><code>&&</code>：逻辑与。只有前面的命令执行成功，才会执行后面的命令。</li>
+            <li><code>||</code>：逻辑或。只有前面的命令执行失败，才会执行后面的命令。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：正常功能测试与目标系统环境判断</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 在输入框内输入合法的 IP 地址 <code>127.0.0.1</code>，点击 ping 提交。</p>
+        </div>
+        <p class="info-line"><span class="info-label">回显特征：</span> 页面返回了 ping 命令的执行结果，但中文部分出现大量“”乱码，且回显中明确显示 <code>TTL=128</code>。</p>
+        <p class="info-line"><span class="info-label">原理分析：</span> 乱码是因为靶场运行在中文 Windows 系统下，cmd 命令行默认使用 GBK 编码输出，而网页采用 UTF-8 编码解析导致。TTL=128 是 Windows 操作系统的典型特征（Linux 通常为 TTL=64）。</p>
+        <p class="info-line"><span class="info-label">结论：</span> 后端代码确实执行了系统 ping 命令，且目标环境为 Windows 系统，后续构造 Payload 需使用 Windows 支持的拼接符。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：注入恶意命令并获取执行结果</h3>
+        <div class="payload-box">
+            <p><strong>探测 Payload：</strong> <code>127.0.0.1 ; whoami</code></p>
+            <p><strong>回显结果：</strong> 无额外命令执行回显。原因在于 <code>;</code> 是 Linux 的命令分隔符，Windows cmd 无法解析，因此 whoami 未被当作独立命令执行。</p>
+        </div>
+        <div class="payload-box">
+            <p><strong>攻击 Payload 1：</strong> <code>127.0.0.1 & whoami</code></p>
+            <p><strong>回显结果：</strong> 先输出完整的 ping 结果，末尾追加输出了 <code>desktop-efb77t1\heqianhong</code>。</p>
+            <p><strong>攻击 Payload 2：</strong> <code>127.0.0.1 | whoami</code></p>
+            <p><strong>回显结果：</strong> 仅输出 <code>desktop-efb77t1\heqianhong</code>。</p>
+        </div>
+        
+        <p class="info-line"><span class="info-label">代码成分解释：</span></p>
+        <ul>
+            <li><code>127.0.0.1</code>：作为合法参数，用于闭合后端原有的 ping 命令。</li>
+            <li><code>&</code>：在 Windows 中代表顺序执行。因此系统首先执行了 ping 127.0.0.1，随后忽略了 ping 的成功与否，接着执行了 whoami。所以页面同时出现了 ping 的回显和 whoami 的回显。</li>
+            <li><code>|</code>：在 Windows 中代表管道符。系统将 ping 127.0.0.1 产生的所有输出流，作为输入传递给了 whoami 命令。由于 whoami 不需要任何输入参数，它直接忽略传入的数据，执行自身逻辑并输出了当前用户名。因此 ping 的回显被管道拦截，未显示在页面上。</li>
+            <li><code>whoami</code>：Windows 系统内置命令，用于查询当前执行命令的用户身份（此处输出为计算机名\用户名，即 <code>desktop-efb77t1\heqianhong</code>）。</li>
+        </ul>
+        
+        <p class="info-line"><span class="info-label">后端源码推测：</span> 根据回显可以断定，后端 PHP 代码存在类似 <code>system("ping " . $_POST['ipaddress']);</code> 的逻辑。变量 <code>$_POST['ipaddress']</code> 未经任何过滤直接拼接到了 system 函数中，导致了命令注入漏洞。</p>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：命令拼接符的系统兼容性问题。</strong>初次尝试使用 Linux 常见的 <code>;</code> 进行命令分割，导致注入失败。复盘原因在于未事先确认目标操作系统类型。通过观察回显中的 TTL=128 和乱码特征，确认了目标为 Windows，及时将 Payload 替换为 <code>&</code> 和 <code>|</code> 后利用成功。在渗透测试中，明确目标操作系统的类型，是构造正确 Payload 的前提条件。</li>
+        <li><strong>坑2：中文 Windows 系统的回显乱码。</strong>输入正常 IP 时出现乱码，对判断漏洞是否执行成功造成了干扰。此问题不影响命令的实际执行。通过比对回显结构（如 TTL、IP 等关键英文字段），依然可以准确判断命令执行状态。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>漏洞本质：</strong>RCE 漏洞的核心在于“信任边界”被打破。用户输入的数据未经处理跨越边界，被当作系统指令执行。</li>
+        <li><strong>防御措施：</strong>针对远程命令执行，最安全的做法是避免在 Web 层直接调用系统命令。若必须调用，应使用严格的白名单机制（例如：只允许输入合法 IP 的正则表达式），或者使用 <code>escapeshellarg()</code> 和 <code>escapeshellcmd()</code> 等函数对用户输入进行彻底转义，隔离数据与指令。</li>
+        <li><strong>实战启发：</strong>在后续的渗透测试中，遇到类似 ping 等调用系统底层命令的功能点时，应优先测试命令注入。构造 Payload 时务必结合目标操作系统的特性（Linux 与 Windows 在编码及命令语法上有巨大差异）。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
