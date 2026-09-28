@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-RCE-远程命令与代码执行(exec "eval") Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; } 
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-RCE-远程命令与代码执行(exec "eval") Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.28 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, RCE, 代码执行</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - RCE (Remote Code Execute)</li>
+        <li><strong>题目名称：</strong>exec "eval"</li>
+        <li><strong>目标：</strong>利用后端未严格过滤的输入点，实现远程 PHP 代码执行，并通过 PHP 内置函数调用操作系统命令，获取服务器本地信息。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>远程代码执行（RCE）漏洞中的代码执行类型，其成因在于后端代码使用了类似 <code>eval()</code> 这样的危险函数。该函数会将用户输入的字符串内容，直接作为后端脚本语言（本例中为 PHP）的代码来解析和执行。与命令执行的区别在于，代码执行发生在应用层，可以直接操纵 Web 应用的业务逻辑，且可以直接通过脚本语言的内置函数再次发起系统命令调用，危害层级更高。</p>
+
+    <div class="diff-box">
+        <strong>命令执行与代码执行的区别：</strong>
+        <ul>
+            <li><code>exec "ping"</code>（命令执行）：后端通过 <code>system()</code> 等函数调用操作系统命令，攻击者借用操作系统的“手”执行指令。</li>
+            <li><code>exec "eval"</code>（代码执行）：后端通过 <code>eval()</code> 等函数将用户输入作为 Web 脚本语言（PHP）的代码执行，攻击者直接控制后端的“大脑”。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：代码执行验证</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 在输入框输入 <code>phpinfo();</code> 并提交。</p>
+        </div>
+        <p class="info-line"><span class="info-label">回显特征：</span> 页面成功渲染出大段的 PHP 环境信息表格。其中 <code>System</code> 一栏显示 <code>Windows NT DESKTOP-EFB77T1 10.0 build 26200 (Windows 10) AMD64</code>。页面显示 <code>PHP Version 7.3.4</code>，底部带有 <code>Zend Engine</code> 标志。</p>
+        <p class="info-line"><span class="info-label">原理分析：</span> 后端代码将用户输入的 <code>phpinfo();</code> 当作 PHP 代码执行了。<code>phpinfo()</code> 是 PHP 内置函数，用于输出当前 PHP 环境的详细信息。末尾的英文分号 <code>;</code> 是 PHP 语句结束符。此步骤证明了远程代码执行漏洞存在。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：通过 PHP 函数执行系统命令</h3>
+        <div class="payload-box">
+            <p><strong>攻击 Payload：</strong> <code>system('whoami');</code></p>
+            <p><strong>回显结果：</strong> 输入框上方显示 <code>desktop-efb77t1\heqianhong</code>。</p>
+        </div>
+        
+        <p class="info-line"><span class="info-label">代码成分详细解释：</span></p>
+        <ul>
+            <li><code>system()</code>：PHP 的系统执行函数。它将字符串参数作为操作系统命令执行，并返回最后的输出行。与 <code>exec()</code> 不同，<code>system()</code> 会自动将命令执行的结果直接输出到页面（flush 输出缓冲）。</li>
+            <li><code>'whoami'</code>：作为字符串参数传入 system 函数，指示系统执行 <code>whoami</code> 命令。由于是 Windows 环境，输出结果为“计算机名\用户名”。</li>
+            <li><code>;</code>：PHP 语句结束符。</li>
+        </ul>
+        <p class="info-line"><span class="info-label">后端源码推测：</span> 后端代码存在类似 <code>eval($_POST['code']);</code> 的逻辑。这比 <code>exec "ping"</code> 层级更高，因为 <code>eval</code> 执行的是 Web 脚本语言代码（PHP），而不仅是系统命令。</p>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：phpinfo() 撑爆页面导致输入框丢失。</strong>成功执行 <code>phpinfo();</code> 后，由于输出的 HTML 表格过于庞大，导致原本位于顶部的输入框和提交按钮被挤压至底部或被隐藏，无法继续操作。<br>
+        <strong>原因排查：</strong>后端在执行 <code>eval()</code> 后，再次输出 HTML 表单，但 <code>phpinfo()</code> 输出的 HTML 标签（如 <code></body></html></code>）影响了浏览器的 DOM 结构解析。<br>
+        <strong>解决办法：</strong>按 F5 刷新页面。在浏览器弹出“确认重新提交表单”时，选择“取消”，随后按回车重新发起 GET 请求，页面即可恢复初始状态，输入框重新出现。</li>
+        <li><strong>坑2：前端提示“你喜欢的字符还挺奇怪的！”。</strong>在执行 <code>system('whoami');</code> 后，页面出现此提示。<br>
+        <strong>原因分析：</strong>该表单原本的功能可能是对用户输入的字符串进行某种字符处理，而 <code>system('whoami');</code> 是 PHP 代码，并非其预期的字符，因此脚本在正常执行代码后，出现了不符合预期逻辑的提示。这也侧面印证了输入被当作代码执行。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>漏洞本质：</strong>代码执行比命令执行更接近 Web 应用的底层逻辑，攻击者可以直接编写 PHP 脚本实现文件上传、数据库操作、后门植入等目的。</li>
+        <li><strong>防御措施：</strong>极力避免在生产环境中使用 <code>eval()</code>、<code>assert()</code> 等危险函数。如果必须使用，务必对用户输入进行严格的白名单校验，确保输入内容符合预期的数据结构（如仅允许数字、字母等），切勿直接执行用户提交的任意字符串。</li>
+        <li><strong>实战启发：</strong>遇到回显异常或前端页面显示异常时，可以借助 Burp Suite 进行抓包，在 Repeater 中手动构造 POST 请求进行代码注入测试，从而避免前端排版问题带来的干扰。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
