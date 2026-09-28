@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-文件包含-远程文件包含(File Inclusion remote) Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-文件包含-远程文件包含(File Inclusion remote) Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.28 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, 文件包含, RFI, 远程包含</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - File Inclusion (远程文件包含)</li>
+        <li><strong>题目名称：</strong>File Inclusion(remote)</li>
+        <li><strong>目标：</strong>利用后端未严格过滤的文件包含函数（如 <code>include()</code>），通过构造指向外部恶意文件的 URL，让靶场服务器拉取并执行该远程文件中的 PHP 代码。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>远程文件包含漏洞（RFI）产生的前提条件有两个：一是后端代码允许用户控制要包含的文件路径；二是 PHP 配置中开启了 <code>allow_url_include=On</code>。攻击者通过构造指向恶意服务器的 URL，让靶场服务器将远程文件下载到本地并当作 PHP 代码执行，从而可直接获取 Webshell 控制权。</p>
+
+    <div class="diff-box">
+        <strong>本地文件包含（LFI）与远程文件包含（RFI）的区别：</strong>
+        <ul>
+            <li><code>File Inclusion (local)</code>：只能包含服务器本地已有的文件。利用方式主要是读取敏感配置文件或配合文件上传漏洞执行 Webshell 代码。</li>
+            <li><code>File Inclusion (remote)</code>：允许包含远程服务器上的文件。前提是 PHP 配置中开启了 <code>allow_url_include=On</code>。攻击者可直接包含恶意脚本，危害更大。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：环境配置与错误处理</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 进入 <code>File Inclusion (remote)</code> 关卡，发现页面顶部抛出红色警告信息：<code>warning:你的allow_url_include没有打开,请在php.ini中打开了再测试该漏洞,记得修改后,重启中间件服务!</code>。</p>
+        </div>
+        <p class="info-line"><span class="info-label">修复过程：</span> 根据提示，在 PHPStudy 的 PHP 配置文件（此处为 <code>php7.3.4nts/php.ini</code>）中，搜索并修改 <code>allow_url_include=Off</code> 为 <code>allow_url_include=On</code>。修改后保存并重启 Nginx/Apache 服务使配置生效。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：编写模拟远程恶意文件</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 由于靶场在本地，我们在 Web 根目录（<code>D:\phpstudy_pro\WWW</code>）下使用 VS Code 新建文件 <code>shell.txt</code>，写入以下代码并保存：</p>
+            <p><code>&lt;?php echo "pikachu_rfi_success"; ?&gt;</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">代码组成解释：</span></p>
+        <ul>
+            <li><code>&lt;?php</code>：PHP 代码的起始标记。在这个标签内部的代码会被 PHP 解析器执行。</li>
+            <li><code>echo</code>：PHP 的输出语句，用于向页面输出一个或多个字符串。</li>
+            <li><code>"pikachu_rfi_success"</code>：字符串常量，也就是我们期望在页面上看到的具体内容。</li>
+            <li><code>;</code>：PHP 语句结束符，表示一条语句的结束。</li>
+            <li><code>?&gt;</code>：PHP 代码的结束标记。</li>
+        </ul>
+        <p class="info-line"><span class="info-label">文件验证：</span> 浏览器直接访问 <code>http://127.0.0.1/shell.txt</code>，页面显示的是代码本身而非执行结果。原因是 <code>.txt</code> 文件不会被 Web 服务器作为 PHP 解析，这是正常现象，不影响后续被包含时的执行。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：实施远程文件包含攻击</h3>
+        <div class="payload-box">
+            <p><strong>攻击 Payload：</strong> 构造包含远程 URL 的恶意请求。</p>
+            <p><strong>构造 URL：</strong> <code>http://127.0.0.1/pikachu/vul/fileinclude/fi_remote.php?filename=http://127.0.0.1/shell.txt&submit=提交</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">回显特征：</span> 页面顶部成功输出了 <code>pikachu_rfi_success</code>。漏洞利用成功。</p>
+        
+        <p class="info-line"><span class="info-label">攻击 URL 组成详细解释：</span></p>
+        <ul>
+            <li><code>http://127.0.0.1/pikachu/vul/fileinclude/fi_remote.php</code>：目标靶场脚本的访问路径。</li>
+            <li><code>?</code>：URL 参数起始符。</li>
+            <li><code>filename=</code>：参数名，告诉后端我们要控制名为 <code>filename</code> 的变量。</li>
+            <li><code>http://127.0.0.1/shell.txt</code>：参数值，就是我们精心准备的恶意远程文件地址，通过 HTTP 协议拉取。</li>
+            <li><code>&submit=提交</code>：拼凑的表单提交参数，用于触发后端逻辑。</li>
+        </ul>
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：源码验证</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 打开 Visual Studio Code，查看 <code>vul/fileinclude/fi_remote.php</code> 源码。</p>
+        <p class="info-line"><span class="info-label">后端源码代码组成详细解释：</span></p>
+        <ul>
+            <li><code>$filename = $_GET['filename'];</code>：从 HTTP GET 请求中获取参数名为 <code>filename</code> 的值，并赋值给变量 <code>$filename</code>。</li>
+            <li><code>include($filename);</code>：将变量 <code>$filename</code> 传入 <code>include()</code> 函数。该函数会尝试读取并包含指定路径的文件，并将其作为 PHP 代码执行。由于这里没有过滤，攻击者可以传入远程 URL 实现 RFI。</li>
+        </ul>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：allow_url_include 未开启导致利用失败。</strong>进入关卡时页面直接抛出红色警告。解决办法是定位 PHP 配置文件，将 <code>allow_url_include=Off</code> 改为 <code>On</code> 并重启中间件服务。这也是 RFI 漏洞利用的硬性前提条件，实战中需先探测该配置项状态。</li>
+        <li><strong>坑2：直接访问 shell.txt 显示源码而非执行结果。</strong>在验证远程文件时，直接访问 <code>http://127.0.0.1/shell.txt</code> 只会看到 <code>&lt;?php ... ?&gt;</code> 源代码。原因是 Web 服务器根据 <code>.txt</code> 后缀判定为静态文件，未交给 PHP 解析器。在实际 RFI 漏洞利用中，只要远程文件包含 PHP 代码，且目标服务器的 <code>include()</code> 成功拉取该文件，文件中的代码就会被解析执行，不需要远程文件本身具有可执行权限。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>漏洞本质：</strong>远程文件包含漏洞的本质是“引用的越权”。应用允许用户控制包含路径，并且允许包含远程 URL，从而让攻击者将恶意代码带入服务器内部执行。</li>
+        <li><strong>防御措施：</strong>在生产环境中，应确保 <code>allow_url_include=Off</code>。同时，对包含的文件名使用白名单限制，严格过滤 <code>http://</code>、<code>https://</code>、<code>ftp://</code> 等协议前缀，以及绝对路径和路径穿越符。</li>
+        <li><strong>实战启发：</strong>文件包含漏洞利用需要结合文件上传漏洞。攻击者可以先将含有恶意代码的图片或文档上传到服务器，再通过 LFI 包含该上传文件，从而绕过 RFI 的配置限制，实现代码执行。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
