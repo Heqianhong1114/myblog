@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-不安全的文件上传-client check Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-不安全的文件上传-client check Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.28 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, 文件上传, 前端绕过, Burp Suite, 代码执行</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - Unsafe Fileupload (客户端检查)</li>
+        <li><strong>题目名称：</strong>client check</li>
+        <li><strong>目标：</strong>绕过前端 JavaScript 扩展名校验，修改 HTTP 请求中的文件名与文件内容，将包含恶意代码的 PHP 文件上传至服务器并成功执行。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>后端应用为了提升用户体验，会在前端使用 JavaScript 对文件扩展名进行校验，禁止用户上传非图片文件。但这种方式极易绕过，因为攻击者可以使用抓包工具（如 Burp Suite）拦截 HTTP 请求，在请求发出后、服务器接收前，将文件名和文件内容修改为恶意脚本。</p>
+
+    <div class="diff-box">
+        <strong>“前端校验”与“后端校验”的区别：</strong>
+        <ul>
+            <li><code>前端校验</code>：运行在用户浏览器中，通过 JS 实现。仅能拦截普通用户的误操作，对攻击者无效。</li>
+            <li><code>后端校验</code>：运行在服务器端，通过 PHP 等语言实现。这才是真正的安全防线。如果后端校验也缺失，则造成任意文件上传漏洞。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：前端拦截演示与请求分析</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 使用 Burp 自带浏览器，尝试在文件选择框中选择并上传 <code>shell.php</code>。</p>
+            <p><strong>回显：</strong> 浏览器弹出提示框“上传的文件不符合要求，请重新选择！”。</p>
+            <p><strong>原理分析：</strong> 前端 JavaScript 在文件被提交前，检测到后缀名不是图片（如 .jpg, .png），直接阻断，HTTP POST 请求根本未发送。Burp Suite 无法拦截到任何数据。</p>
+        </div>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：绕过前端并使用 Burp 篡改上传请求</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 为了触发 POST 请求，在浏览器中先选择一个真实的图片文件（<code>1.jpg</code>）。打开 Burp Suite 开启代理拦截。</p>
+            <p><strong>篡改请求：</strong> 点击“开始上传”后，Burp 成功拦截 POST 请求，找到 <code>filename="1.jpg"</code>，将其修改为 <code>filename="shell.php"</code>。</p>
+        </div>
+        <p class="info-line"><span class="info-label">代码组成详细解释：</span></p>
+        <ul>
+            <li><code>Content-Disposition: form-data; name="uploadfile"; filename="shell.php"</code>：这是 HTTP 请求中的文件上传描述头。<code>filename</code> 的值会被后端解析为上传的文件名。后端如果只校验后缀，会被绕过。</li>
+            <li><code>Content-Type: image/jpeg</code>：文件类型标识，本例中保持为图片类型，以降低被后端过滤的几率。</li>
+        </ul>
+        <p class="info-line"><span class="info-label">回显特征：</span> 页面提示“文件上传成功”，并显示文件保存路径为：<code>uploads/shell.php</code>。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：在 Burp 中替换请求体，植入 PHP 代码</h3>
+        <p class="info-line"><span class="info-label">发现新问题：</span> 虽然文件上传成功，但直接访问 <code>uploads/shell.php</code> 只显示图片的二进制乱码。原因是文件内容依然是图片，不含 PHP 代码。</p>
+        <p class="info-line"><span class="info-label">解决办法：</span> 在 Burp 拦截到的 POST 请求中，直接替换请求体内容，并伪造文件名与文件类型。</p>
+        
+        <div class="payload-box">
+            <p><strong>Burp Suite 详细操作步骤与原理：</strong></p>
+            <ol>
+                <li>
+                    <strong>开启拦截：</strong> 在 Burp Suite 的 <code>Proxy</code> 面板中，确保 <code>Intercept is on</code>（拦截开启）。<br>
+                    <span class="info-label">为什么：</span> 让 Burp 作为浏览器与服务器之间的“中间人”，暂停 HTTP 请求的发送，以便我们修改数据包。
+                </li>
+                <li>
+                    <strong>触发请求（伪装正常用户）：</strong> 回到浏览器，点击“选择文件”，选中真实的图片 <code>1.jpg</code>，点击“开始上传”。<br>
+                    <span class="info-label">为什么：</span> 前端 JavaScript 只校验扩展名。选择图片能通过前端校验，使得浏览器真正把带有文件数据的 POST 请求发出去。如果直接选 <code>shell.php</code>，请求会在浏览器本地被 JS 掐断，Burp 根本看不到。
+                </li>
+                <li>
+                    <strong>拦截请求：</strong> 此时浏览器会卡住（转圈等待）。切回 Burp Suite，你会看到一个 <code>POST /pikachu/vul/unsafeupload/clientcheck.php</code> 请求。<br>
+                    <span class="info-label">为什么：</span> 这是真正的文件上传请求，包含了 HTTP 请求头和上传的文件内容。
+                </li>
+                <li>
+                    <strong>篡改文件名（第一处修改）：</strong> 在请求头部分，找到 <code>Content-Disposition: form-data; name="uploadfile"; filename="1.jpg"</code>，将 <code>filename="1.jpg"</code> 修改为 <code>filename="shell.php"</code>。<br>
+                    <span class="info-label">为什么：</span> 后端代码通常通过获取 <code>filename</code> 参数来决定保存文件的名字。修改后缀名可以欺骗只检查后缀名的后端，让服务器把文件当作 PHP 脚本来保存。
+                </li>
+                <li>
+                    <strong>篡改文件内容（第二处修改）：</strong> 在请求体（Body）中找到 <code>Content-Type: image/jpeg</code> 下方原有的图片二进制数据（乱码），将其<strong>全部删除</strong>。替换为 PHP 代码：<code>&lt;?php echo "pikachu_upload_success"; ?&gt;</code>。<br>
+                    <span class="info-label">为什么：</span> 仅仅改名字不够，如果文件内容依然是图片，服务器保存后的文件只是一张被改名为 php 的图片，内部没有 PHP 代码，无法被解析器执行。必须把内容替换成真正的 PHP 代码，并且保留 <code>Content-Type: image/jpeg</code> 以欺骗后端可能的文件类型检测（如 getimagesize）。<br>
+                    <span class="info-label">代码结构解析：</span> 请求体中 <code>------WebKitFormBoundary...</code> 是分隔符，代表不同表单字段的边界。<code>Content-Disposition</code> 描述文件信息，空行之后的就是文件的实际内容。
+                </li>
+                <li>
+                    <strong>放行请求与验证：</strong> 确认无误后，点击 <code>Forward</code> 放行请求。随后关闭 <code>Intercept</code>，防止页面其他请求被卡住。<br>
+                    <span class="info-label">为什么：</span> 放行使修改后的恶意请求真正发送给服务器。服务器接收后，将其保存为 PHP 文件，当浏览器访问时，PHP 解析器识别 <code>&lt;?php ... ?&gt;</code> 标签并执行 <code>echo</code> 语句。
+                </li>
+            </ol>
+        </div>
+        <p class="info-line"><span class="info-label">回显特征：</span> 页面提示“文件上传成功”。访问 <code>uploads/shell.php</code>，页面顶部成功执行 PHP 代码并输出 <code>pikachu_upload_success</code>，随后显示部分图片二进制残留的乱码。</p>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：直接上传 PHP 文件导致 Burp 抓不到包。</strong>初次尝试在浏览器中直接选中 <code>shell.php</code>，因为前端 JS 报错“文件不符合要求”，请求被阻断，Burp 无法拦截到任何 POST 数据。<br>
+        <strong>解决办法：</strong>放弃直接在浏览器中上传恶意文件。改为在浏览器中选择合法图片，让请求顺利发出并被 Burp 拦截，随后在 Burp 的原始数据中直接将 <code>filename="1.jpg"</code> 篡改为 <code>filename="shell.php"</code>，成功绕过前端校验。</li>
+        <li><strong>坑2：仅修改文件名导致代码无法执行。</strong>初次仅修改了文件名，文件内容依然为 JPG 图片的二进制数据。访问该文件时，PHP 解析器找不到 <code>&lt;?php</code> 标签，直接输出了图片乱码。<br>
+        <strong>解决办法：</strong>在 Burp 拦截器中，不仅需要修改文件名，还需要<strong>删除请求体中的二进制图片数据，将其替换为有效的 PHP 代码</strong>。这样生成的文件既保留了文件头（以绕过潜在的 <code>getimagesize</code> 检测），又包含了可执行的 PHP 代码，最终成功执行 <code>echo</code> 语句。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>漏洞本质：</strong>不安全的文件上传的本质是“信任边界失效”。前端校验不能作为安全防线，任何客户端的输入都是不可信的。</li>
+        <li><strong>防御措施：</strong>在服务端使用白名单校验文件扩展名（仅允许 .jpg, .png 等），同时对文件内容进行校验（使用 getimagesize() 检查文件头），限制上传目录的执行权限（禁止目录解析 PHP）。</li>
+        <li><strong>实战启发：</strong>遇到文件上传功能，首先应测试前端绕过（直传、抓包改后缀）。如果后端结合了文件头检查，则尝试制作图片马；如果后端还能解析二次渲染后的图片，则需结合文件包含漏洞来执行代码。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
