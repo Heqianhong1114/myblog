@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-不安全的文件上传-MIME type Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-不安全的文件上传-MIME type Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.28 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, 文件上传, MIME类型绕过, Burp Suite</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - Unsafe Fileupload (服务端检查)</li>
+        <li><strong>题目名称：</strong>MIME type</li>
+        <li><strong>目标：</strong>利用后端仅通过 HTTP 请求头中的 <code>Content-Type</code> 来校验文件类型的缺陷，通过篡改该字段为图片类型，绕过限制上传 PHP 文件并成功执行。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>在文件上传中，HTTP 请求会使用 <code>multipart/form-data</code> 格式。对于每个文件，请求体（Body）中会包含一个 <code>Content-Type</code> 字段（例如图片为 <code>image/jpeg</code>，PDF 为 <code>application/pdf</code>）。部分开发者为了省事，会直接在 PHP 后端读取 <code>$_FILES['file']['type']</code> 来判断文件合法性。但客户端提交的 <code>Content-Type</code> 完全由攻击者可控，我们可以通过抓包工具将其修改为合法的图片类型。</p>
+
+    <div class="diff-box">
+        <strong>重点概念区分：顶层请求头与文件分块头</strong>
+        <ul>
+            <li><code>顶层请求头</code>：声明当前请求是 <code>multipart/form-data</code>，并指定分隔符。此字段不可修改，否则服务器无法解析请求。</li>
+            <li><code>文件分块头</code>：在分隔符之后，单独描述上传文件的信息（包括 <code>filename</code> 和 <code>Content-Type</code>）。这里的 <code>Content-Type</code> 才是我们需要修改的。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：直接上传测试与后端拦截分析</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 在浏览器中选择之前创建的 <code>shell.php</code>，点击“开始上传”。</p>
+            <p><strong>回显：</strong> 页面提示“上传的图片只能是jpg,jpeg,png格式的！”。</p>
+            <p><strong>原理分析：</strong> 这说明前端没有校验，请求成功发送到了后端。后端读取了 PHP 文件默认的 <code>Content-Type: application/octet-stream</code>，判定不是图片格式，从而直接阻断。</p>
+        </div>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：使用 Burp 篡改 MIME 类型</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 确保 Burp Suite 开启拦截。在浏览器中再次选中 <code>shell.php</code>，点击上传。</p>
+            <p><strong>篡改请求：</strong> 在 Burp 拦截到的 POST 请求中，修改以下两处内容：</p>
+            <ol>
+                <li>
+                    确保文件声明部分为：
+                    <code>Content-Disposition: form-data; name="uploadfile"; filename="shell.php"</code>
+                </li>
+                <li>
+                    将该文件分块头下方的类型标识修改为：
+                    <code>Content-Type: image/jpeg</code>
+                    <span class="info-label">（必须将原来的 <code>application/octet-stream</code> 改掉）</span>
+                </li>
+                <li>
+                    将请求体中的二进制数据（如果有）替换为 PHP 代码：
+                    <code>&lt;?php echo "pikachu_upload_success"; ?&gt;</code>
+                </li>
+            </ol>
+        </div>
+        
+        <p class="info-line"><span class="info-label">代码组成详细解释：</span></p>
+        <ul>
+            <li><code>Content-Disposition: form-data; name="uploadfile"; filename="shell.php"</code>：描述这是一个表单字段，字段名为 <code>uploadfile</code>，文件名被强制指定为 <code>shell.php</code>。</li>
+            <li><code>Content-Type: image/jpeg</code>：这是 HTTP 协议中用于描述文件类型的头部字段。后端代码如果不检查文件实际内容，只检查这个字段，就会被欺骗。</li>
+            <li><code>&lt;?php echo "pikachu_upload_success"; ?&gt;</code>：PHP 代码实体，被包含在请求体中，服务器解析并执行后，页面输出对应字符串。</li>
+        </ul>
+        
+        <p class="info-line"><span class="info-label">回显特征：</span> 点击 <code>Forward</code> 放行后，页面提示“上传成功”，文件保存路径为：<code>uploads/shell.php</code>。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：访问 Shell 验证代码执行</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 在浏览器地址栏输入 <code>http://127.0.0.1/pikachu/vul/unsafeupload/uploads/shell.php</code>。</p>
+            <p><strong>回显：</strong> 页面输出 <code>pikachu_upload_success</code>。证明文件不仅被成功保存，且其中的 PHP 代码被服务器解析执行。</p>
+        </div>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：直接上传 PHP 文件被后端拦截。</strong>尝试直接在浏览器中选择 <code>shell.php</code> 上传，被后端 MIME 类型校验拦截。说明后台使用了 <code>$_FILES['file']['type']</code> 进行白名单校验，只允许 <code>image/jpeg</code>、<code>image/png</code> 等类型。<br>
+        <strong>解决办法：</strong> 改用 Burp Suite 抓包，找到文件分块头的 <code>Content-Type</code> 字段，直接修改为 <code>image/jpeg</code>，伪造文件 MIME 类型以欺骗后端。</li>
+        <li><strong>坑2：误将顶层请求头修改为图片类型。</strong>初次修改时，由于没有注意 HTTP 请求结构，不小心将顶层的 <code>Content-Type: multipart/form-data; boundary=...</code> 改成了 <code>Content-Type: image/jpeg</code>，导致请求解析失败。<br>
+        <strong>原因排查：</strong> 顶层请求头是用于告诉服务器“请求体是分块的，分块符是什么”，必须保持 <code>multipart/form-data</code> 不变。真正需要欺骗后端的是位于 <code>Content-Disposition</code> 下方、描述具体文件类型的 <code>Content-Type</code>。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>漏洞本质：</strong>MIME 类型绕过是“信任边界失效”的典型表现。任何来自客户端的 HTTP 头信息（包括 Content-Type）都是可以被篡改的，不能作为安全校验的依据。</li>
+        <li><strong>防御措施：</strong>在服务端，不能信任 HTTP 请求头中的 MIME 类型。应该使用 PHP 的 <code>finfo_file()</code> 函数读取文件的真实 MIME 类型，或者使用 <code>getimagesize()</code> 检查文件的实际内容。此外，上传目录必须设置禁止执行 PHP 脚本（如通过 Nginx 配置 <code>location ~ \.php$ { return 403; }</code>）。</li>
+        <li><strong>实战启发：</strong>在文件上传点测试中，首先应检查后端是否依赖 HTTP 头（MIME Type）来判断类型。若可以绕过，再进一步测试文件内容是否会被检查（对应下一关 <code>getimagesize</code>）。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
