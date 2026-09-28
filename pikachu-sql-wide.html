@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-SQL-Inject 宽字节注入 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-SQL-Inject 宽字节注入 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.28 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, SQL注入, 宽字节注入, 源码审计, PHP8, Burp Suite</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - SQL-Inject</li>
+        <li><strong>题目名称：</strong>宽字节注入</li>
+        <li><strong>目标：</strong>理解宽字节注入原理，尝试利用 <code>%df</code> 吃掉转义符 <code>\</code>，绕过单引号过滤。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>宽字节注入利用了数据库字符集编码的特性。当后端使用 GBK 等宽字节字符集时，若输入 <code>%df</code>（字节 0xdf）和转义符 <code>\</code>（字节 0x5c）相邻，MySQL 会将它们解析为一个合法的 GBK 汉字（如 <code>%df%5c</code> 对应“運”），从而“吃掉”反斜杠，使得原本被转义的单引号 <code>'</code> 逃逸，成功闭合 SQL 语句。</p>
+    
+    <div class="diff-box">
+        <strong>工具选型与心路历程：</strong>
+        <ul>
+            <li><strong>Python 脚本发送原始字节：</strong>由于浏览器地址栏会自动对 <code>%df</code> 进行二次编码，使用 Python 的 <code>requests</code> 库发送 <code>bytes</code> 对象是绕过 URL 编码陷阱的关键。</li>
+            <li><strong>源码审计发现致命逻辑：</strong>经过源码分析，发现 <code>escape()</code> 转义函数在 <code>set character_set_client=gbk</code> 之前执行，导致转义时使用的是默认的 UTF-8 字符集。</li>
+            <li><strong>环境差异与 PHP 8 机制：</strong>在 PHP 8 环境下，<code>mysqli_real_escape_string</code> 在 UTF-8 字符集下遇到 <code>0xdf</code> 这个非法字节会直接丢弃，导致 <code>%df</code> 无法“吃掉”反斜杠。这是本地环境与网络教程环境的根本差异。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：源码审计与关键逻辑分析</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 使用 VS Code 打开 <code>sqli_widebyte.php</code> 源码。</p>
+        <div class="payload-box">
+            <p><strong>核心代码片段：</strong></p>
+        </div>
+<pre><code>$name = escape($link,$_POST['name']);  // 1. 先执行转义（使用默认 utf8 字符集）
+$query="select id,email from member where username='$name'";
+$set = "set character_set_client=gbk";  // 2. 后设置 gbk 字符集（为时已晚）
+execute($link,$set);
+$result=mysqli_query($link, $query);</code></pre>
+        <p class="info-line"><span class="info-label">代码解析：</span> <code>escape()</code> 函数在 <code>set character_set_client=gbk</code> 之前执行。这意味着在转义时，数据库使用的是默认的 UTF-8 字符集。在 UTF-8 下，<code>%df</code> 是一个无效字节，会被丢弃，而单引号 <code>'</code> 会被成功转义成 <code>\'</code>。因此，<code>%df</code> 根本无法“吃掉”反斜杠，宽字节注入失败。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：Python 脚本编写与测试</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 编写 Python 脚本，使用 <code>bytes</code> 对象发送原始 <code>%df</code> 字节，绕过 <code>requests</code> 的 URL 编码。</p>
+        <div class="payload-box">
+            <p><strong>代码：</strong></p>
+        </div>
+<pre class="code-block"><code><span class="code-keyword">import</span> requests
+
+url = <span class="code-string">"http://127.0.0.1/pikachu/vul/sqli/sqli_widebyte.php"</span>
+
+<span class="code-keyword">def</span> check_condition(condition):
+    <span class="code-comment"># 使用 bytes 对象发送原始 0xdf 字节和单引号</span>
+    payload_bytes = b<span class="code-string">"kobe\xdf' and "</span> + condition.encode() + b<span class="code-string">" -- "</span>
+    data = {<span class="code-string">"name"</span>: payload_bytes, <span class="code-string">"submit"</span>: <span class="code-string">"查询"</span>}
+    r = requests.post(url, data=data)
+    <span class="code-keyword">return</span> <span class="code-string">"your uid:"</span> <span class="code-keyword">in</span> r.text
+
+print(<span class="code-string">"[*] 测试 1=1 ..."</span>)
+<span class="code-keyword">if</span> check_condition(<span class="code-string">"1=1"</span>):
+    print(<span class="code-string">"[+] 1=1 页面正常，宽字节注入存在！"</span>)
+<span class="code-keyword">else</span>:
+    print(<span class="code-string">"[-] 1=1 失败。"</span>)
+
+print(<span class="code-string">"[*] 测试 1=2 ..."</span>)
+<span class="code-keyword">if</span> <span class="code-keyword">not</span> check_condition(<span class="code-string">"1=2"</span>):
+    print(<span class="code-string">"[+] 1=2 页面异常，漏洞确认！"</span>)
+<span class="code-keyword">else</span>:
+    print(<span class="code-string">"[-] 1=2 也正常，可能注入失败。"</span>)</code></pre>
+        <p class="info-line"><span class="info-label">回显结果：</span> <code>1=1</code> 失败，<code>1=2</code> 页面异常（显示不存在）。两者行为一致，证明注入失败。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：Burp Suite 抓包尝试</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 很多师傅的 Writeup 提到，利用 Burp Suite 抓包并直接修改原始请求包，可以成功发送 <code>%df</code> 字节，从而绕过浏览器的 URL 编码。</p>
+        <div class="payload-box">
+            <p><strong>Burp 中的原始 Payload：</strong></p>
+            <p><code>name=kobe%df' and 1=1-- &submit=查询</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">回显结果：</span> 依然失败，页面返回“您输入的username不存在，请重新输入！”。</p>
+        <p class="info-line"><span class="info-label">原因分析：</span> 即使通过 Burp 发送了原始的 <code>%df</code> 字节，但在 PHP 8 环境下，<code>mysqli_real_escape_string</code> 在处理转义时使用了 UTF-8 字符集。UTF-8 将 <code>0xdf</code> 视为非法字节并丢弃，导致后续的单引号被成功转义，宽字节注入无法利用。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：阅读他人 Writeup 与最终结论</h3>
+        <p class="info-line"><span class="info-label">他人做法：</span> 大多数成功的 Writeup 基于较早的 PHP 版本（如 PHP 5.6 或 7.0）。当时 <code>mysqli_real_escape_string</code> 对宽字节的处理逻辑与现在不同，使得 <code>%df</code> 能成功吃掉反斜杠。</p>
+        <p class="info-line"><span class="info-label">结论：</span> 由于靶场源码存在执行顺序错误（先转义后设字符集），加上 PHP 8 对非法字节的处理更加严格，导致这个关卡在本地 PHP 8 环境下无法利用。这并非攻击者技术问题，而是环境兼容性差异。</p>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：URL 编码陷阱。</strong> 浏览器地址栏和 Python <code>requests</code> 库都会对 <code>%df</code> 进行二次编码，导致其失去原始字节含义。解决方案是使用 <code>bytes</code> 对象发送原始数据，或用 Burp Suite 拦截原始请求。</li>
+        <li><strong>坑2：靶场源码顺序错误。</strong> <code>escape()</code> 在设置 GBK 字符集之前执行，导致转义时使用的是 UTF-8，<code>%df</code> 被丢弃，单引号被成功转义。这是靶场代码的逻辑 Bug。</li>
+        <li><strong>坑3：PHP 8 环境限制。</strong> PHP 8 在 UTF-8 字符集下丢弃非法字节 <code>0xdf</code>，使得宽字节注入的核心物理条件无法成立。这是旧靶场在新环境下的兼容性问题。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>宽字节注入核心：</strong> 依赖 GBK 等宽字节字符集，利用 <code>%df</code> 和 <code>\</code> 组合被解析为汉字，从而吃掉转义符。其成功前提是：数据库连接必须使用宽字节字符集。</li>
+        <li><strong>环境差异是渗透测试的常态：</strong> 面对旧靶场在新环境下的兼容性问题，应灵活分析源码，定位问题根因，而不是盲目怀疑自己的技术。</li>
+        <li><strong>防御建议：</strong> 统一使用 UTF-8 字符集，避免使用宽字节字符集；在转义前确保字符集设置正确；使用预编译语句（Prepared Statements）从根本上防御 SQL 注入。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
