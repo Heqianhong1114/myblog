@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-不安全的文件上传-getimagesize Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-不安全的文件上传-getimagesize Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.28 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, 文件上传, getimagesize绕过, 图片马, 文件包含, 环境排查</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - Unsafe Fileupload (服务端内容检查)</li>
+        <li><strong>题目名称：</strong>getimagesize</li>
+        <li><strong>目标：</strong>利用后端调用 <code>getimagesize()</code> 检查文件内容的缺陷，通过构造“图片马”（在真实图片数据尾部追加 PHP 代码），绕过内容检测并上传。最终结合文件包含漏洞（LFI）执行代码。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>这一关的后端代码使用了 PHP 内置的 <code>getimagesize()</code> 函数来检测上传文件是否为合法的图片。如果直接上传纯 PHP 文件或仅伪造 MIME 类型，该函数会读取不到图片头，返回 <code>false</code> 从而拦截。<br>
+    解决方案是构造“图片马”：将 PHP 代码追加到真实图片的二进制数据尾部。这样文件保留了完整的图片文件头，能通过 <code>getimagesize()</code> 的检测。由于最终保存为 <code>.jpg</code> 无法直接执行，需要配合本地文件包含漏洞（LFI）来触发 PHP 解析。</p>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：准备文件与编写 Python 脚本合成图片马</h3>
+        <div class="payload-box">
+            <p><strong>文件准备：</strong> 在本地桌面新建文件夹 <code>muma</code>，将准备好的真实图片 <code>1.jpg</code> 和 PHP 代码文件 <code>shell.php</code> 放入该文件夹中。</p>
+            <p><strong>操作：</strong> 在 VS Code 中打开 <code>muma</code> 文件夹，新建脚本 <code>make_image_mar.py</code>，写入以下代码：</p>
+        </div>
+        <pre class="code-block"><code><span class="code-keyword">with</span> open(<span class="code-string">'1.jpg'</span>, <span class="code-string">'rb'</span>) <span class="code-keyword">as</span> img_file:
+    img_data = img_file.read()
+
+<span class="code-keyword">with</span> open(<span class="code-string">'shell.php'</span>, <span class="code-string">'r'</span>) <span class="code-keyword">as</span> php_file:
+    php_data = php_file.read()
+
+<span class="code-keyword">with</span> open(<span class="code-string">'shell_mar.php'</span>, <span class="code-string">'wb'</span>) <span class="code-keyword">as</span> out_file:
+    out_file.write(img_data)
+    out_file.write(php_data.encode())
+
+print(<span class="code-string">"图片马生成成功！"</span>)</code></pre>
+        <p class="info-line"><span class="info-label">代码组成详细解释：</span></p>
+        <ul>
+            <li><code>open('1.jpg', 'rb')</code>：以二进制模式读取原始图片，获取其完整字节流。</li>
+            <li><code>open('shell.php', 'r')</code>：以文本模式读取 PHP 代码文件。</li>
+            <li><code>open('shell_mar.php', 'wb')</code>：创建新文件，以二进制写入模式打开。</li>
+            <li><code>out_file.write(img_data)</code>：先写入图片数据，保留合法的文件头。</li>
+            <li><code>out_file.write(php_data.encode())</code>：接着写入 PHP 代码的字节流。</li>
+        </ul>
+        
+        <p class="info-line"><span class="info-label">终端操作与运行：</span></p>
+        <p class="info-line">在 VS Code 终端中，由于默认工作目录不在桌面，直接运行脚本会导致找不到文件的报错。需要先切换工作目录：</p>
+        <pre class="code-block"><code>cd C:\Users\heqianhong\Desktop\muma
+python make_image_mar.py</code></pre>
+        <p class="info-line"><span class="info-label">执行结果：</span> 终端输出“图片马 shell_mar.php 生成成功！”。在 <code>muma</code> 文件夹内出现新生成的 <code>shell_mar.php</code> 文件。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：使用 Burp 篡改上传请求</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 开启 Burp 拦截，在浏览器上传 <code>muma</code> 文件夹中的图片马，并在请求中修改以下内容：</p>
+            <ol>
+                <li>文件名修改为：<code>filename="shell_mar.jpg"</code>（后端严格校验扩展名，不能用 .php）。</li>
+                <li>MIME 类型修改为：<code>Content-Type: image/jpeg</code>。</li>
+                <li>保留底部的图片二进制数据（不能删，否则无法通过 getimagesize 检测）。</li>
+                <li>确保请求体尾部包含 <code>submit</code> 字段及结束分隔符。</li>
+            </ol>
+        </div>
+        <p class="info-line"><span class="info-label">回显特征：</span> 页面提示“上传成功”，并返回重命名后的路径：<code>uploads/2026/09/28/1891656aba6fabf068908688958.jpg</code>。证明绕过内容检测成功。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：利用文件包含（LFI）验证漏洞链</h3>
+        <p class="info-line"><span class="info-label">操作 1（盲目猜测路径）：</span> 尝试在 LFI 关卡包含该图片马，URL 传参 <code>filename=../../unsafeupload/...</code>。</p>
+        <p class="info-line"><span class="info-label">报错信息：</span> <code>Warning: include(include/../../unsafeupload/...): failed to open stream: No such file or directory...</code>。</p>
+        <p class="info-line"><span class="info-label">原因分析：</span> 后端源码拼接了硬编码前缀 <code>include/</code>，路径计算出现偏差。</p>
+        
+        <p class="info-line"><span class="info-label">操作 2（使用 Python 确认文件物理位置）：</span></p>
+        <p class="info-line">为了排查文件是否真实存在于服务器磁盘上，在桌面新建 <code>search_file.py</code> 并运行：</p>
+        <pre class="code-block"><code><span class="code-keyword">import</span> os
+search_root = <span class="code-string">r"D:\phpstudy_pro\WWW"</span>
+target_filename = <span class="code-string">"1891656aba6fabf068908688958.jpg"</span>
+<span class="code-keyword">for</span> root, dirs, files <span class="code-keyword">in</span> os.walk(search_root):
+    <span class="code-keyword">if</span> target_filename <span class="code-keyword">in</span> files:
+        print(f<span class="code-string">"找到文件: {os.path.join(root, target_filename)}"</span>)
+        <span class="code-keyword">break</span></code></pre>
+        <p class="info-line"><span class="info-label">执行结果：</span> 脚本遍历全盘后未找到该文件。结合 PHP 报错，确认了一个重要事实：<strong>文件上传虽然回显成功，但实际物理文件并未落盘</strong>（可能是目录无写权限或被安全软件拦截）。这是靶场环境配置问题，并非攻击链路的技术错误。</p>
+        
+        <p class="info-line"><span class="info-label">操作 3（验证 LFI 逻辑本身）：</span> 为了证明路径计算无误，包含一个已知存在的文件。</p>
+        <p class="info-line"><span class="info-label">Payload：</span> <code>http://127.0.0.1/pikachu/vul/fileinclude/fi_local.php?filename=../../unsafedownload/down_nba.php&submit=提交</code></p>
+        <p class="info-line"><span class="info-label">回显特征：</span> 页面成功解析并输出了 NBA 球员的下载界面。这证明 <code>include/../../</code> 的前缀抵消逻辑和相对路径计算是完全正确的。</p>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：Python 脚本执行目录错误导致 FileNotFoundError。</strong>在 VS Code 中直接运行脚本时，终端工作目录默认在 VS Code 安装目录下，导致脚本找不到放在桌面 <code>muma</code> 文件夹中的 <code>1.jpg</code> 和 <code>shell.php</code>，报错 <code>FileNotFoundError: [Errno 2] No such file or directory: '1.jpg'</code>。<br>
+        <strong>解决办法：</strong> 在终端先使用 <code>cd C:\Users\heqianhong\Desktop\muma</code> 切换到脚本所在目录，再执行 <code>python make_image_mar.py</code>，成功生成图片马。</li>
+        <li><strong>坑2：后端扩展名与 MIME 双重校验。</strong>初次上传尝试直接传 <code>shell_mar.php</code> 被拦截，提示后缀名不符合。解决办法是将文件名修改为 <code>shell_mar.jpg</code>，保留 MIME 为 <code>image/jpeg</code>，成功绕过。</li>
+        <li><strong>坑3：文件包含路径硬编码干扰。</strong>后端 <code>include()</code> 函数拼接了 <code>include/</code> 目录前缀。在构造 Payload 时，如果盲目猜测路径层级会导致报错。解决思路是根据 PHP 的报错信息反推源码结构，并利用 Python 脚本的 <code>os.walk</code> 确认文件的实际物理位置，从而计算出正确的相对路径。</li>
+        <li><strong>坑4：环境权限导致的“幽灵文件”。</strong>上传操作返回了成功并告知了路径，但使用 Python 遍历整个 Web 根目录均找不到该文件，导致最终文件包含失败（No such file or directory）。这在真实渗透测试中很常见，说明服务器返回的“上传成功”不代表文件真正落盘。面对这种情况，应使用已知存在的文件验证漏洞链的底层逻辑是否畅通，而非死磕某个不存在的文件。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>漏洞本质：</strong>不安全的文件上传通常是一系列校验绕过的组合。构造“图片马”绕过内容检测，并利用 LFI 执行图片中的代码，是经典的漏洞链利用方式。</li>
+        <li><strong>防御措施：</strong>服务端应校验文件真实内容（结合白名单），限制上传目录的脚本执行权限（如 Nginx 配置 <code>location ~ \.php$ { return 403; }</code>）。同时，应对上传失败的情况进行严格判断，不能轻易向客户端返回“成功”。</li>
+        <li><strong>实战启发：</strong>渗透测试中，环境复杂多变。不仅要懂得攻击技术，还要懂得利用 Python 等工具进行自动化环境探测（如文件搜索）、日志分析（如 PHP Warning 信息），从而精准定位问题所在。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
