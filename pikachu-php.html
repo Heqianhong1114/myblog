@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-PHP反序列化漏洞 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-PHP反序列化漏洞 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.29 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, PHP反序列化, XSS</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - PHP反序列化 (PHP Unserialization)</li>
+        <li><strong>题目名称：</strong>PHP反序列化漏洞</li>
+        <li><strong>目标：</strong>利用后端未过滤的 <code>unserialize()</code> 函数，构造恶意的序列化字符串，还原对象并触发魔术方法，实现 XSS 攻击或代码执行。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>PHP 序列化（<code>serialize()</code>）用于将对象转换为便于存储或传输的字符串；反序列化（<code>unserialize()</code>）则将该字符串还原为对象。如果后端代码直接接收并反序列化用户可控的输入字符串，攻击者就可以伪造恶意的对象数据。在对象还原过程中，PHP 会自动触发魔术方法（如 <code>__construct</code>、<code>__destruct</code>、<code>__wakeup</code>），从而可能导致敏感信息泄露、代码执行或 XSS 漏洞。</p>
+
+    <div class="diff-box">
+        <strong>序列化字符串的语法结构：</strong>
+        <ul>
+            <li><code>O:长度:"类名":属性数量:{...}</code>：代表一个 Object（对象）。</li>
+            <li><code>s:长度:"属性名";</code>：代表 String（字符串）类型的属性名。</li>
+            <li><code>s:长度:"属性值";</code>：代表 String 类型的属性值。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：查看后端源码，审计漏洞点</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 使用 VS Code 打开靶场源码文件 <code>vul/unserilization/unser.php</code>，进行白盒审计。</p>
+        <p class="info-line"><span class="info-label">源码分析：</span> 源码定义了一个类 <code>S</code>，包含属性 <code>$test</code> 和一个魔术方法 <code>__construct()</code>。</p>
+        <pre class="code-block"><code><span class="code-keyword">class</span> S {
+    <span class="code-keyword">var</span> $test = <span class="code-string">"pikachu"</span>;
+    <span class="code-keyword">function</span> __construct(){
+        <span class="code-keyword">echo</span> $this->test;
+    }
+}</code></pre>
+        <p class="info-line"><span class="info-label">注入点：</span> 后端通过 <code>$_POST['o']</code> 接收用户输入，并直接传入 <code>unserialize($s)</code> 函数。反序列化成功后会通过 <code>{$unser->test}</code> 输出属性值。源码还留有注释提示：<code>//O:1:"S":1:{s:4:"test";s:29:"&lt;script&gt;alert('xss')&lt;/script&gt;";}</code>。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：构造并提交 Payload，触发漏洞</h3>
+        <div class="payload-box">
+            <p><strong>攻击 Payload：</strong></p>
+            <p><code>O:1:"S":1:{s:4:"test";s:29:"&lt;script&gt;alert('xss')&lt;/script&gt;";}</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">操作：</span> 将 Payload 粘贴到输入框并点击“提交”。</p>
+        <p class="info-line"><span class="info-label">回显特征：</span> 页面成功弹出内容为 <code>xss</code> 的 JavaScript 警告框。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：Payload 代码组成详细拆解</h3>
+        <p>为了方便理解，我们将上述 Payload 的每一个字符成分进行逐一拆解：</p>
+        <ul>
+            <li><code>O:1:"S"</code>：
+                <ul>
+                    <li><code>O</code>：表示这是一个 Object（对象）。</li>
+                    <li><code>1</code>：表示类名的长度为 1 个字符。</li>
+                    <li><code>"S"</code>：表示类名为 S（对应源码中的 <code>class S</code>）。</li>
+                </ul>
+            </li>
+            <li><code>1</code>：表示该对象内部含有 1 个属性。</li>
+            <li><code>{</code> 和 <code>}</code>：大括号用于包裹对象的所有属性键值对。</li>
+            <li><code>s:4:"test"</code>：
+                <ul>
+                    <li><code>s</code>：表示属性名是 String（字符串）类型。</li>
+                    <li><code>4</code>：表示属性名的长度为 4 个字符。</li>
+                    <li><code>"test"</code>：具体的属性名为 test（对应源码中的 <code>var $test</code>）。</li>
+                </ul>
+            </li>
+            <li><code>;</code>：代表属性键值对之间的分隔符。</li>
+            <li><code>s:29:"&lt;script&gt;alert('xss')&lt;/script&gt;"</code>：
+                <ul>
+                    <li><code>s</code>：表示属性值是 String（字符串）类型。</li>
+                    <li><code>29</code>：表示属性值字符串的实际长度。计算方式：<code>&lt;script&gt;</code>(8个字符) + <code>alert('xss')</code>(12个字符) + <code>&lt;/script&gt;</code>(9个字符) = 29 个字符。</li>
+                    <li><code>"&lt;script&gt;alert('xss')&lt;/script&gt;"</code>：属性的具体值，即恶意的 XSS 攻击代码。</li>
+                </ul>
+            </li>
+        </ul>
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：漏洞触发链条分析</h3>
+        <p class="info-line"><span class="info-label">后端执行逻辑：</span></p>
+        <ol>
+            <li>接收用户 POST 提交的 <code>o</code> 参数。</li>
+            <li>调用 <code>unserialize()</code> 函数，将序列化字符串还原为类 <code>S</code> 的对象。</li>
+            <li>对象属性 <code>test</code> 被赋值为 <code>&lt;script&gt;alert('xss')&lt;/script&gt;</code>。</li>
+            <li>代码通过 <code>{$unser->test}</code> 将该属性值输出到页面 HTML 中。</li>
+            <li>浏览器将输出的内容解析为 JavaScript 脚本并执行，弹窗出现。</li>
+        </ol>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：F12 无法查看后端代码。</strong>初次测试时，尝试在浏览器按 F12 搜索 <code>class</code> 关键字，结果匹配到的全是 CSS 和 JS 前端库文件。<br>
+        <strong>原因排查：</strong> F12 只能查看 HTML、CSS 和 JS 代码，无法查看运行在服务器端的 PHP 代码。必须使用 VS Code 打开源码文件进行白盒审计。</li>
+        <li><strong>坑2：序列化字符串长度计算错误导致解析失败。</strong>初次构造 Payload 时，将属性值的长度误算为 <code>33</code>（<code>s:33:"...";</code>），提交后页面提示“大兄弟,来点劲爆点儿的!”，反序列化失败。<br>
+        <strong>原因排查：</strong> <code>unserialize()</code> 函数严格按照字符串中声明的长度来解析数据。长度不匹配会导致解析过程直接中断。<br>
+        <strong>解决办法：</strong> 精确计算攻击代码的字节数，修改为正确的长度 <code>29</code>，成功触发 XSS 弹窗。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>漏洞本质：</strong>PHP 反序列化漏洞的本质是“信任边界失效”。后端信任了用户提交的序列化字符串，在还原对象时触发了不可控的魔术方法，导致恶意代码被执行。</li>
+        <li><strong>防御措施：</strong>禁止将用户输入直接传递给 <code>unserialize()</code> 函数。如果必须使用，应对序列化字符串进行严格的签名验证（如 Hash 校验），确保数据未被篡改。建议使用 JSON 等更安全的数据格式代替 PHP 序列化。</li>
+        <li><strong>实战启发：</strong>遇到接收序列化数据的接口，应立即查看后端源码，找出定义的类、属性及魔术方法，根据源码逻辑构造对应的序列化 Payload。在构造过程中，必须极其严谨地计算字符串的字节长度，包括转义符号。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
