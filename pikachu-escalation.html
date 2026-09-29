@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-越权-水平越权(Horizontal Privilege Escalation) Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }  
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-越权-水平越权(Horizontal Privilege Escalation) Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.29 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, 越权, 水平越权, 参数篡改</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - Over Permission (水平越权)</li>
+        <li><strong>题目名称：</strong>水平越权</li>
+        <li><strong>目标：</strong>利用后端未校验用户身份与请求参数匹配关系的缺陷，通过篡改 HTTP 请求中的用户标识参数，查看其他同等权限用户的敏感信息。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>水平越权（Horizontal Privilege Escalation）是指攻击者尝试访问与自身权限相同的其他用户资源。产生的原因通常是后端代码在查询或修改数据时，**仅根据客户端提交的参数（如用户名、用户ID）来定位数据，而没有校验当前登录 Session 中记录的用户是否与该参数一致**。</p>
+
+    <div class="diff-box">
+        <strong>水平越权与垂直越权的区别：</strong>
+        <ul>
+            <li><code>水平越权</code>：同级用户之间的越权访问（如用户 A 查看用户 B 的订单）。</li>
+            <li><code>垂直越权</code>：低权限用户越权访问高权限功能（如普通用户执行管理员操作）。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：获取测试账号并登录</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 点击页面右上角的“点一下提示”按钮，获取靶场预置的测试账号：<code>lucy/123456</code>、<code>lili/123456</code>、<code>kobe/123456</code>。</p>
+            <p><strong>登录：</strong> 使用 <code>lucy</code> / <code>123456</code> 登录系统。登录成功后，页面跳转至会员中心 <code>op1_mem.php</code>。</p>
+        </div>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：触发请求并分析参数</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 点击页面上的“点击查看个人信息”按钮。</p>
+            <p><strong>回显特征：</strong> 页面成功显示 <code>lucy</code> 的个人信息。此时观察浏览器地址栏，URL 变为：</p>
+            <p><code>http://127.0.0.1/pikachu/vul/overpermission/op1/op1_mem.php?username=lucy&submit=点击查看个人信息</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">参数分析：</span> 后端通过 GET 请求接收 <code>username</code> 参数，并根据该参数的值去数据库查询用户信息。这意味着该参数完全由客户端可控。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：篡改参数实施水平越权</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 在地址栏中，将 <code>username=lucy</code> 修改为 <code>username=lili</code>。</p>
+            <p><strong>构造 URL：</strong> <code>http://127.0.0.1/pikachu/vul/overpermission/op1/op1_mem.php?username=lili&submit=点击查看个人信息</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">回显特征：</span> 页面不需要重新登录，直接显示了用户 <code>lili</code> 的姓名、性别、手机号、住址和邮箱信息。水平越权漏洞利用成功。</p>
+        
+        <p class="info-line"><span class="info-label">代码组成详细解释：</span></p>
+        <ul>
+            <li><code>username</code>：后端用于接收目标用户名的参数名。</li>
+            <li><code>lili</code>：攻击者传入的恶意参数值，后端会将其作为查询条件去数据库中检索，忽略了当前 Session 属于 <code>lucy</code> 这一事实。</li>
+            <li><code>submit=点击查看个人信息</code>：表单提交按钮的标识，用于触发后端的信息查询逻辑。</li>
+        </ul>
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：源码推测</h3>
+        <p class="info-line"><span class="info-label">后端逻辑：</span> 后端代码大概率如下：</p>
+        <pre class="code-block"><code>$username = $_GET['username'];
+$sql = "SELECT * FROM users WHERE username = '$username'";
+$result = mysqli_query($conn, $sql);
+// 直接输出查询结果，未验证当前登录用户是否为 $username</code></pre>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：手工修改 URL 导致参数名重复。 </strong>初次尝试水平越权时，将 URL 错误地修改为 <code>?username=username=lili&submit=...</code>。由于参数值被拼接成了字面量 <code>username=lili</code>，后端查询了一个不存在的用户，导致页面回显空白。<br>
+        <strong>解决办法：</strong> 仔细检查 URL 结构，删除多余的参数名，确保格式为 <code>?username=lili&submit=...</code>，重新发送请求后成功显示目标用户信息。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>漏洞本质：</strong>水平越权的本质是“身份验证失效”。后端过度信任客户端提交的数据（如用户 ID、用户名），将其作为查询依据，而没有强制绑定服务端 Session 中的身份信息。</li>
+        <li><strong>防御措施：</strong>在服务端执行数据查询或修改操作时，不应信任客户端提交的用户标识参数。应该从当前登录的 Session 中获取用户身份（如 <code>$_SESSION['user_id']</code>），并以此为依据进行数据库查询。如果需要查询其他用户的信息，必须进行严格的权限判定。</li>
+        <li><strong>实战启发：</strong>遇到包含用户标识（如 <code>username</code>、<code>user_id</code>、<code>order_id</code>）的 URL 参数或 POST 数据时，应优先测试越权漏洞。建议结合 Burp Suite 进行抓包，通过修改参数值观察响应内容是否发生变化。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
