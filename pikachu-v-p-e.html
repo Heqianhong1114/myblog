@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-越权-垂直越权(Vertical Privilege Escalation) Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-越权-垂直越权(Vertical Privilege Escalation) Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.29 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, 越权, 垂直越权, 接口越权</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - Over Permission (垂直越权)</li>
+        <li><strong>题目名称：</strong>垂直越权</li>
+        <li><strong>目标：</strong>利用低权限用户（pikachu）的登录状态，寻找并调用高权限用户（admin）专属的后台接口，实现添加用户等敏感操作，验证垂直越权漏洞。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>垂直越权（Vertical Privilege Escalation）是指低权限用户尝试执行高权限用户的操作。前端页面通常通过隐藏“添加用户”、“删除”等按钮来限制普通用户的视线，但真正的后端接口（如 <code>op2_admin.php</code>、<code>op2_admin_edit.php</code>）如果没有对当前 Session 的角色进行二次校验（如判定 <code>$_SESSION['role'] == 'admin'</code>），普通用户就能通过直接访问接口来越权操作。</p>
+
+    <div class="diff-box">
+        <strong>本关实战结论：</strong>
+        <ul>
+            <li>直接访问 <code>op2_admin.php</code> 和 <code>op2_admin_add.php</code> 会被后端重定向回登录页（严格校验了 Session 角色）。</li>
+            <li>访问 <code>op2_admin_edit.php</code> 时成功渲染了表单，且提交数据在数据库层面写入成功，证明该接口存在越权漏洞。</li>
+            <li>后端逻辑为“先执行数据库写入，后校验 Session 权限”，导致前端虽然重定向，但数据已越权写入。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：获取测试账号并登录</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 点击“点一下提示”按钮，获取测试账号：管理员 <code>admin/123456</code>，普通用户 <code>pikachu/000000</code>。</p>
+            <p><strong>登录：</strong> 使用普通用户 <code>pikachu</code> 登录系统。</p>
+        </div>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：尝试直接访问管理页面（失败记录）</h3>
+        <div class="payload-box">
+            <p><strong>操作 1：</strong> 在浏览器地址栏输入 <code>http://127.0.0.1/pikachu/vul/overpermission/op2/op2_admin.php</code>。</p>
+            <p><strong>回显：</strong> 页面被重定向回登录页 <code>op2_login.php</code>。</p>
+            <p><strong>操作 2：</strong> 尝试访问 <code>op2_admin_add.php</code>。</p>
+            <p><strong>回显：</strong> 同样被重定向回登录页。</p>
+        </div>
+        <p class="info-line"><span class="info-label">原因分析：</span> 这两个页面在代码入口处加入了 Session 权限校验，检测到当前用户不是管理员，直接执行 <code>header('Location: op2_login.php'); exit();</code>。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：寻找未授权接口并成功执行越权</h3>
+        <p class="info-line"><span class="info-label">思路调整：</span> 查找处理添加用户表单的后端文件 <code>op2_admin_edit.php</code>，该文件可能仅校验了登录状态，未校验角色。</p>
+        
+        <p class="info-line"><span class="info-label">操作：</span> 在普通用户 <code>pikachu</code> 登录状态下，直接在浏览器地址栏输入：</p>
+        <div class="payload-box">
+            <p><code>http://127.0.0.1/pikachu/vul/overpermission/op2/op2_admin_edit.php</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">回显特征：</span> 页面正常加载，顶部显示“hi,pikachu,欢迎来到后台管理中心”，并成功渲染出添加用户的表单（用户、密码、性别、电话、邮箱、地址）。这证明该接口存在垂直越权漏洞。</p>
+        
+        <p class="info-line"><span class="info-label">代码组成详细解释（表单提交逻辑）：</span></p>
+        <ul>
+            <li><code>form action="op2_admin_edit.php" method="POST"</code>：表单会将数据通过 POST 请求提交给 <code>op2_admin_edit.php</code>。</li>
+            <li><code>input type="text" name="username"</code>：接收用户名的输入字段。</li>
+            <li><code>input type="password" name="password"</code>：接收密码的输入字段。</li>
+            <li>提交后，后端代码执行类似 <code>INSERT INTO users (username, password, ...) VALUES ('$username', '$password', ...)</code> 的 SQL 语句。</li>
+        </ul>
+
+        <p class="info-line"><span class="info-label">越权提交：</span> 在表单中填入新用户信息（用户：<code>hacker01</code>，密码：<code>123456</code>，性别：<code>boy</code>，电话：<code>13800000000</code>，邮箱：<code>hacker01@test.com</code>，地址：<code>china</code>），点击“创建”。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：验证隐蔽成功与复盘</h3>
+        <p class="info-line"><span class="info-label">初步回显：</span> 点击“创建”后，页面被重定向回登录页 <code>op2_login.php</code>，看起来像是提交失败。</p>
+        <p class="info-line"><span class="info-label">漏洞最终验证：</span> 退出普通用户，重新以管理员 <code>admin</code> / <code>123456</code> 登录。观察用户列表，发现**刚才创建的 <code>hacker01</code> 已经出现在列表中**。</p>
+        <p class="info-line"><span class="info-label">原因分析：</span> 后端代码在执行时，**数据库插入操作在前，权限校验逻辑（重定向）在后**。虽然前端页面被强制重定向了，但数据实际上已经成功写入数据库。这正是垂直越权漏洞最隐蔽、也最危险的体现。</p>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：死磕错误的管理接口路径。</strong>初次尝试时，直接访问 <code>op2_admin.php</code> 和 <code>op2_admin_add.php</code>，均被后端通过 Session 角色校验重定向回登录页。后调整思路，分析出处理“添加用户”的表单提交接口为 <code>op2_admin_edit.php</code>，并成功利用该接口的权限缺失完成了越权。这说明在垂直越权测试中，应重点关注**表单处理接口**，而不仅仅是页面展示接口。</li>
+        <li><strong>坑2：后端先执行操作、后校验权限导致的“隐蔽成功”。</strong>普通用户提交添加用户表单后，页面被重定向回登录页，初步判断为攻击失败。然而在用管理员账号复查时，发现该用户已被成功添加。<br>
+        <strong>原因排查：</strong> 后端代码逻辑存在严重缺陷，先执行了 SQL 插入语句，再执行了 <code>header("Location: ...")</code> 进行权限拦截。这导致前端展示失败，但后端数据库已被恶意篡改。<br>
+        <strong>解决办法（反思）：</strong> 在渗透测试中，不能仅凭前端回显（如重定向、报错）来判断攻击是否成功。应结合数据库变化（如管理后台的对比查看）或使用 Burp Suite 查看响应状态码来综合判断。</li>
+        <li><strong>坑3：越权创建的新账号无法正常登录（靶场代码缺陷）。</strong>利用垂直越权漏洞，普通用户成功在数据库中创建了新用户 <code>hacker01</code>（管理员后台可见）。但尝试用该账号登录时提示失败。<br>
+        <strong>原因分析：</strong> 靶场源码在插入数据时可能缺少了必要的角色字段，或者密码加密逻辑与登录模块不匹配。这属于靶场功能实现上的局限性，不影响垂直越权漏洞本身的认定。渗透测试只需证明“非授权用户执行了管理员操作”即可，无需追求完整的新账号登录流程。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>漏洞本质：</strong>垂直越权源于后端接口只校验“是否登录”，不校验“角色权限”。任何已登录用户，只要能找到管理接口，就能执行管理操作。</li>
+        <li><strong>防御措施：</strong>所有敏感接口必须同时调用登录校验和角色校验函数；使用 RBAC 模型精细划分权限；服务端应从 Session 获取身份，绝不信任客户端参数。此外，应将权限校验代码放置在业务逻辑执行之前。</li>
+        <li><strong>实战启发：</strong>遇到垂直越权测试失败时，不要轻易放弃。应结合 Burp Suite 抓包分析和 Python 自动化脚本，尝试寻找其他未受保护的接口或参数。同时，即使攻击被拦截，也要记录下防御机制的具体表现（如重定向、响应长度变化），并注意验证数据是否已经在数据库层面被篡改。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
