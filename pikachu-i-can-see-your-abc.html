@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-敏感信息泄露-I can see your ABC Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-敏感信息泄露-I can see your ABC Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.9.29 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, 敏感信息泄露, 源码注释, 未授权访问</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - 敏感信息泄露 (I can see your ABC)</li>
+        <li><strong>题目名称：</strong>I can see your ABC</li>
+        <li><strong>目标：</strong>挖掘前端源码中遗留的敏感信息，并利用后端逻辑缺陷绕过登录认证，直接访问内部页面。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>本关卡包含两个层面的安全缺陷。第一，前端代码安全规范缺失，开发者将测试账号信息通过 HTML 注释直接留在了源码中，导致信息泄露。第二，后端接口缺少必要的身份认证与权限校验（未授权访问），攻击者无需提供任何凭证，只要知道内部页面的 URL，就能直接查看敏感内容。</p>
+
+    <div class="diff-box">
+        <strong>敏感信息泄露与未授权访问的区别：</strong>
+        <ul>
+            <li><code>敏感信息泄露</code>：涉及数据的意外暴露，如源码注释、Git 仓库泄露、接口报错回显等，通常用于信息搜集阶段。</li>
+            <li><code>未授权访问</code>：涉及权限校验机制的缺失。即使攻击者拥有合法账号，如果后端不校验权限，也会导致越权。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：右键查看源码，发现测试账号泄露</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 访问 <code>findabc.php</code> 登录页面。在页面空白处右键，选择“查看页面源代码”。</p>
+            <p><strong>回显特征：</strong> 在源码中搜索 <code>&lt;!--</code> 注释符号，发现开发者遗留的测试账号信息。</p>
+        </div>
+        <pre class="code-block"><code><span class="code-comment">&lt;!-- 测试账号:lili/123456--&gt;</span></code></pre>
+        <p class="info-line"><span class="info-label">代码组成详细解释：</span> <code>&lt;!-- ... --&gt;</code> 是 HTML 的注释语法。注释内容不会被浏览器渲染，但会被所有访问该页面的客户端下载并保存在源码中。开发者原意可能只是为了方便调试，但上线后未清理，导致敏感信息泄露。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：尝试用泄露账号登录（失败记录）</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 利用泄露的账号 <code>lili</code> / <code>123456</code> 尝试登录。</p>
+            <p><strong>回显：</strong> 页面提示“您输入的账号错误”。</p>
+        </div>
+        <p class="info-line"><span class="info-label">原因分析：</span> 虽然源码中泄露了账号密码，但后端数据库可能未真正配置该用户，或者该测试账号已在数据库中被移除。这说明前端源码泄露的凭证不一定总是有效，渗透测试中不能只依赖单一的信息泄露点。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：分析源码逻辑，寻找目标接口</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 在查看页面源码时，观察表单提交逻辑。</p>
+        <p class="info-line"><span class="info-label">发现：</span> 表单使用了 <code>method="get"</code>，提交参数为 <code>username</code>、<code>password</code>，登录后的目标页面为 <code>abc.php</code>（当前 URL 为 <code>findabc.php</code>，通常登录成功后会跳转到 <code>abc.php</code>）。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：实施未授权访问攻击</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 在未登录状态下，直接在浏览器地址栏输入目标页面路径：</p>
+            <p><code>http://127.0.0.1/pikachu/vul/infoleak/abc.php</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">回显特征：</span> 页面没有重定向回登录页，而是直接输出了一段王小波《黄金时代》的文字节选。</p>
+        <p class="info-line"><span class="info-label">漏洞确认：</span> 后端代码 <code>abc.php</code> 缺少 Session 身份校验逻辑。这意味着任何攻击者只要知道这个 URL，就能绕过登录认证直接查看内部敏感内容。</p>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：URL 明文传参的误导。</strong>尝试登录失败后，浏览器 URL 变成了 <code>?username=lili&password=123456&submit=Login</code>。最初误以为这是本关的核心漏洞（GET 请求密码明文传输），但实际上这只是表单使用 GET 方式提交的结果，本关核心在于源码泄露和未授权访问。</li>
+        <li><strong>坑2：F12 搜索被无关文件干扰。</strong>使用 F12 搜索 <code>password</code> 时，匹配到了 <code>ace.min.css</code>、<code>jquery-2.1.4.min.js</code> 等无关的前端库文件，导致排查困难。解决办法是直接在浏览器右键“查看页面源代码”，搜索 <code>&lt;!--</code> 注释符号，快速定位敏感的 HTML 注释。</li>
+        <li><strong>坑3：泄露的测试账号无法登录（靶场缺陷）。</strong>利用源码中的 <code>lili/123456</code> 登录时，系统提示“账号错误”。这说明靶场后台并未真正配置该用户。此时不能死磕登录，应结合源码中暴露的其他路径（如 <code>abc.php</code>）进行未授权访问测试。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>漏洞本质：</strong>前端的任何内容都可以被用户查看和篡改，因此绝不能将账号密码、内网 IP、API 密钥等敏感信息存放在 HTML、CSS、JS 中。同时，所有的后端页面和接口必须在服务端进行严格的 Session 权限校验。</li>
+        <li><strong>防御措施：</strong>在代码发布前，使用自动化工具清理前端注释和调试代码。服务端所有需要鉴权的页面，必须在代码开头加上 <code>session_start()</code> 及权限判断逻辑，如果不满足条件则执行 <code>header("Location: login.php")</code>。</li>
+        <li><strong>实战启发：</strong>遇到登录框，首先右键查看源码搜索注释。登录后，观察 URL 变化，尝试直接请求内部页面。如果登录失败，应分析源代码逻辑，寻找可能存在的未授权访问路径，组合利用多个漏洞完成攻击。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
