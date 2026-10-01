@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-SSRF(服务端请求伪造) Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-SSRF(服务端请求伪造) Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.1 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, SSRF, curl, file协议</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - SSRF (服务端请求伪造)</li>
+        <li><strong>题目名称：</strong>SSRF(curl)</li>
+        <li><strong>目标：</strong>利用后端使用 <code>curl</code> 发起网络请求且未对用户输入 URL 进行严格过滤的缺陷，构造恶意的 <code>url</code> 参数，读取服务器本地文件，验证 SSRF 漏洞。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>SSRF（Server-Side Request Forgery，服务端请求伪造）是一种由攻击者构造请求，由服务端发起请求的安全漏洞。本关卡中，后端代码通过 <code>$_GET['url']</code> 接收用户输入的 URL，并使用 <code>curl_exec()</code> 函数发起请求，最后将请求结果回显。由于没有对 URL 的协议和地址进行白名单过滤，攻击者可以利用 <code>curl</code> 支持的多种协议（如 <code>file://</code>、<code>dict://</code>、<code>gopher://</code> 等）来读取本地文件或探测内网。</p>
+
+    <div class="diff-box">
+        <strong>SSRF 与 CSRF 的区别：</strong>
+        <ul>
+            <li><code>CSRF</code>：跨站请求伪造，攻击者诱导已登录用户去执行非预期的操作。</li>
+            <li><code>SSRF</code>：服务端请求伪造，攻击者利用服务器作为跳板，去访问服务器本身能访问到的内部资源。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：触发正常请求并识别参数</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 点击页面上的“累了吧,来读一首诗吧”链接。</p>
+            <p><strong>回显特征：</strong> 页面显示了一首诗（普希金《假如生活欺骗了你》）。观察浏览器地址栏，URL 变为：</p>
+            <p><code>http://127.0.0.1/pikachu/vul/ssrf/ssrf_curl.php?url=http://127.0.0.1/pikachu/vul/ssrf/ssrf_info/info1.php</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">参数分析：</span> 后端通过 GET 请求接收名为 <code>url</code> 的参数，并使用 curl 请求了该地址，最后将返回结果输出到页面。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：源码审计确认漏洞</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 使用 VS Code 打开源码文件 <code>vul/ssrf/ssrf_curl.php</code>。</p>
+        <p class="info-line"><span class="info-label">源码分析：</span> 代码逻辑如下：</p>
+        <pre class="code-block"><code>$URL = $_GET[<span class="code-string">'url'</span>];
+$CH = curl_init($URL);
+curl_setopt($CH, CURLOPT_HEADER, FALSE);
+curl_setopt($CH, CURLOPT_SSL_VERIFYPEER, FALSE);
+$RES = curl_exec($CH);
+curl_close($CH);
+<span class="code-keyword">echo</span> $RES;</code></pre>
+        <p class="info-line"><span class="info-label">结论：</span> 后端未对 <code>$URL</code> 做任何协议或地址过滤，直接使用 <code>curl</code> 发起请求。且开发者还在代码注释中提示了 <code>file:///etc/passwd</code> 这种读取文件的测试载荷。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：构造 SSRF 攻击 Payload 读取本地文件</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 根据源码审计结果，利用 <code>curl</code> 支持的 <code>file://</code> 协议，直接读取 Web 根目录下的 <code>index.php</code> 源码。</p>
+        <div class="payload-box">
+            <p><strong>攻击 Payload：</strong></p>
+            <p><code>http://127.0.0.1/pikachu/vul/ssrf/ssrf_curl.php?url=file:///D:/phpstudy_pro/WWW/pikachu/index.php</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">回显特征：</span> 页面成功输出了 <code>index.php</code> 的源码片段（包括 <code>"); } ?&gt;</code> 等代码）以及“提示:欢迎使用,pikachu还没有初始化，点击进行初始化安装!”字样。SSRF 漏洞利用成功。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第四步：Payload 代码组成</h3>
+        <ul>
+            <li><code>http://127.0.0.1/pikachu/vul/ssrf/ssrf_curl.php</code>：目标靶场接口地址。</li>
+            <li><code>?</code>：URL 参数起始符。</li>
+            <li><code>url=</code>：后端接收的参数名，用于传递给 <code>curl_init()</code> 函数。</li>
+            <li><code>file:///D:/phpstudy_pro/WWW/pikachu/index.php</code>：
+                <ul>
+                    <li><code>file://</code>：利用 cURL 支持的 file 伪协议，指示服务器读取本地文件。</li>
+                    <li><code>/D:/...</code>：指定目标文件的绝对路径。此处指向了 Web 根目录下的 <code>index.php</code>，用于验证漏洞存在。</li>
+                </ul>
+            </li>
+        </ul>
+        <p class="info-line"><span class="info-label">后端执行逻辑：</span> 后端调用 <code>curl_init("file:///D:/...")</code> 并执行 <code>curl_exec()</code>，cURL 解析到 <code>file://</code> 协议后，读取了本地文件的字节流，并通过 <code>echo $RES</code> 输出到页面，攻击者从而获取源码内容。</p>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>本关未遇到阻碍。</strong> 正常触发页面链接后，通过查看源码明确了参数名与过滤逻辑（无过滤），随即利用 <code>file://</code> 协议构造 Payload，成功读取 Web 目录下的源码文件，漏洞利用过程顺畅，未遇到明显报错或拦截。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>漏洞本质：</strong>SSRF 的本质是“服务端信任边界失效”。服务器作为网络边界的一个节点，具备访问内网、本地文件的能力。一旦攻击者可以控制服务端发起请求的 URL，就相当于获得了从服务器内部发起攻击的权限。</li>
+        <li><strong>支持的协议与利用方式：</strong> cURL 支持多种协议，不同的协议对应不同的攻击手法：
+            <ul>
+                <li><code>http://</code>：访问外部网络或内网服务，可用于端口扫描和信息探测。</li>
+                <li><code>file://</code>：读取服务器本地文件，这是本次实战中成功利用的协议。</li>
+                <li><code>dict://</code>：探测内网端口开放情况。</li>
+                <li><code>gopher://</code>：可用于构造更复杂的请求，攻击内网服务。</li>
+            </ul>
+        </li>
+        <li><strong>防御措施：</strong>禁用不必要的 URL 协议（如 <code>file://</code>、<code>dict://</code>、<code>gopher://</code>）；对用户输入的 URL 进行严格的白名单校验，只允许请求指定的外部域名或 IP；限制 <code>open_basedir</code> 配置，防止跨目录读取。</li>
+        <li><strong>实战启发：</strong>遇到包含 URL 参数的接口，应优先测试 SSRF 漏洞。尝试使用 <code>file://</code> 读取本地文件，或使用 <code>http://127.0.0.1:端口</code> 探测内网服务。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
