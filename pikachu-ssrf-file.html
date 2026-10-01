@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-SSRF(file_get_contents) Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }  
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-SSRF(file_get_contents) Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.1 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, SSRF, file_get_contents, php://filter</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Pikachu 漏洞练习平台</li>
+        <li><strong>分类：</strong>Web - SSRF (服务端请求伪造)</li>
+        <li><strong>题目名称：</strong>SSRF(file_get_content)</li>
+        <li><strong>目标：</strong>利用后端使用 <code>file_get_contents()</code> 读取用户输入文件的缺陷，结合 <code>php://filter</code> 伪协议读取服务器本地源码文件，验证 SSRF 漏洞。</li>
+    </ul>
+
+    <h2>2. 解题思路与知识点</h2>
+    <p><strong>漏洞原理：</strong></p>
+    <p>本关卡与 <code>SSRF(curl)</code> 漏洞原理类似，但后端使用的是 PHP 的 <code>file_get_contents()</code> 函数来读取用户指定的文件。若未对该函数的输入路径进行严格过滤，攻击者即可利用 <code>file://</code>、<code>php://filter</code> 等伪协议读取服务器本地文件。</p>
+    <p>直接使用 <code>file://</code> 读取 PHP 源码会导致源码中的 <code>&lt;?php ... ?&gt;</code> 标签被浏览器解析为 HTML 注释或乱码，导致回显不完整。因此，本次实战采用 <code>php://filter</code> 伪协议，将源码进行 Base64 编码后输出，再手动解码，确保获取完整的源码内容。</p>
+
+    <div class="diff-box">
+        <strong>file_get_contents() 与 curl 的区别：</strong>
+        <ul>
+            <li><code>curl</code>：功能强大的 HTTP 客户端，支持自定义请求方法、头信息等，常用于发起复杂的网络请求。</li>
+            <li><code>file_get_contents</code>：简单的文件读取函数，主要用于读取本地文件或远程 URL 内容，也支持 <code>php://filter</code> 等流过滤器。</li>
+        </ul>
+    </div>
+
+    <h2>3. 操作步骤</h2>
+    
+    <div class="step-box">
+        <h3>第一步：触发正常请求并识别参数</h3>
+        <div class="payload-box">
+            <p><strong>操作：</strong> 点击页面上的“反正都读了,那就在来一首吧”链接。</p>
+            <p><strong>回显特征：</strong> 页面显示了艾青的诗《我爱这土地》。观察浏览器地址栏，URL 变为：</p>
+            <p><code>http://127.0.0.1/pikachu/vul/ssrf/ssrf_fgc.php?file=http://127.0.0.1/pikachu/vul/ssrf/ssrf_info/info2.php</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">参数分析：</span> 后端通过 GET 请求接收名为 <code>file</code> 的参数（注意与上一关的 <code>url</code> 区分），并使用 <code>file_get_contents()</code> 读取了该地址的内容。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第二步：构造 SSRF 攻击 Payload（php://filter）</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 利用 <code>php://filter</code> 伪协议读取 <code>index.php</code> 源码，并进行 Base64 编码。</p>
+        <div class="payload-box">
+            <p><strong>攻击 Payload：</strong></p>
+            <p><code>http://127.0.0.1/pikachu/vul/ssrf/ssrf_fgc.php?file=php://filter/read=convert.base64-encode/resource=D:/phpstudy_pro/WWW/pikachu/index.php</code></p>
+        </div>
+        <p class="info-line"><span class="info-label">回显特征：</span> 页面输出了一长串 Base64 编码字符。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>第三步：解码验证漏洞利用结果</h3>
+        <p class="info-line"><span class="info-label">操作：</span> 将回显的 Base64 字符串复制，使用 Burp Suite Decoder、Python 脚本或在线工具进行解码。</p>
+        <p class="info-line"><span class="info-label">解码结果：</span> 成功获取 <code>index.php</code> 的部分源码：</p>
+        <pre class="code-block"><code>{
+    $html.=
+        "&lt;p &gt;
+        &lt;a href='install.php' style='color:red;'&gt;
+        提示:欢迎使用,pikachu还没有初始化，点击进行初始化安装!
+        &lt;/a&gt;
+        &lt;/p&gt;";
+}</code></pre>
+        <p class="info-line"><span class="info-label">结论：</span> 成功读取服务器本地源码文件，SSRF 漏洞利用成功。</p>
+    </div>
+
+    <div class="step-box">
+        <h3>Payload 代码组成详细拆解</h3>
+        <ul>
+            <li><code>http://127.0.0.1/pikachu/vul/ssrf/ssrf_fgc.php</code>：目标接口地址。</li>
+            <li><code>?file=</code>：后端接收的参数名，传递给 <code>file_get_contents()</code> 函数。</li>
+            <li><code>php://filter</code>：PHP 内置的流过滤器伪协议，允许在读取/写入文件时对数据流进行过滤。</li>
+            <li><code>/read=convert.base64-encode/</code>：过滤器参数。<code>read</code> 表示读取操作，<code>convert.base64-encode</code> 表示将读取的内容进行 Base64 编码，从而避免 PHP 源码被浏览器渲染为 HTML，确保回显数据的完整性。</li>
+            <li><code>/resource=D:/phpstudy_pro/WWW/pikachu/index.php</code>：指定目标文件的绝对路径。</li>
+        </ul>
+        <p class="info-line"><span class="info-label">后端执行逻辑：</span> 后端执行 <code>file_get_contents("php://filter/read=convert.base64-encode/resource=...")</code>，伪协议读取目标文件内容后，先进行 Base64 编码，再返回给 PHP 脚本。PHP 将其作为普通字符串输出，最终在页面上显示。</p>
+    </div>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>坑1：Base64 编码字符串过长导致处理困难。</strong> 使用 <code>php://filter</code> 读取完整源码后，回显的 Base64 字符串极其庞大（数万字符），浏览器中无法手动完整复制。<br>
+        <strong>解决办法：</strong> 放弃在浏览器里手动操作，改为使用 Burp Suite 拦截请求，将响应包发送到 Decoder 工具中直接解码；或使用 Python 的 <code>base64.b64decode()</code> 函数处理。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>漏洞本质：</strong> 与 curl 关卡的 SSRF 本质一致，均是服务端信任了用户输入的 URL/文件路径，导致攻击者可以利用服务端去访问内部资源。</li>
+        <li><strong>php://filter 的优势：</strong> 在读取 PHP 源码时，直接使用 <code>file://</code> 会导致源码中的 <code>&lt;?php</code> 标签被当作文本解析，或者被浏览器当作 HTML 注释，输出内容可能缺失。使用 <code>php://filter</code> 进行 Base64 编码，能完整保留源码的所有字节流，是读取源码的标准姿势。</li>
+        <li><strong>防御措施：</strong> 禁止 <code>file_get_contents()</code> 等函数接收用户可控的路径参数；如果必须使用，应设置白名单，只允许读取特定目录下的特定文件；在 php.ini 中禁用危险的伪协议。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
