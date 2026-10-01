@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Pikachu】Web-XXE漏洞Payload构造与深度解析 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+        .diff-box { background-color: #f1f8ff; border-left: 4px solid #0366d6; padding: 10px 15px; margin: 15px 0; border-radius: 4px; }
+        .payload-box { background-color: #fafbfc; border: 1px solid #e1e4e8; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .payload-box p { margin: 5px 0; }
+        .step-box { margin-bottom: 20px; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fff; }
+        .step-box h3 { margin-top: 0; color: #24292e; font-size: 1.1em; border-bottom: 1px solid #eaecef; padding-bottom: 5px; }
+        .info-line { margin: 5px 0; }
+        .info-label { font-weight: bold; color: #586069; }
+        .code-block { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+        .code-comment { color: #6a737d; }
+        .code-keyword { color: #d73a49; }
+        .code-string { color: #032f62; }
+        .code-function { color: #6f42c1; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Pikachu】Web-XXE漏洞Payload构造与深度解析 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.1 | <strong>分类：</strong>Pikachu | <strong>标签：</strong>Pikachu, Web, XXE, Payload解析</p>
+    </div>
+    
+    <h2>1. 背景信息</h2>
+    <p>在 Pikachu 靶场 XXE 关卡中，我们通过提交特制的 XML 数据，成功读取了服务器本地系统文件 <code>win.ini</code>。本文档专门针对我们构造的 Payload 进行逐一拆解与深度解析，以彻底理解 XML 外部实体注入漏洞的运作机制。</p>
+
+    <h2>2. 构造的 Payload 原文</h2>
+    <div class="payload-box">
+        <p><code>&lt;?xml version="1.0" encoding="UTF-8"?&gt;<br>
+        &lt;!DOCTYPE root [<br>
+            &lt;!ENTITY xxe SYSTEM "file:///C:/Windows/win.ini"&gt;<br>
+        ]&gt;<br>
+        &lt;root&gt;&amp;xxe;&lt;/root&gt;</code></p>
+    </div>
+
+    <h2>3. Payload 代码组成详细拆解</h2>
+    <div class="step-box">
+        <h3>3.1 XML 声明部分</h3>
+        <p><code>&lt;?xml version="1.0" encoding="UTF-8"?&gt;</code></p>
+        <ul>
+            <li><code>&lt;?xml</code>：XML 处理指令的开始标志，告知解析器即将处理 XML 数据。</li>
+            <li><code>version="1.0"</code>：指定解析器使用的 XML 版本。</li>
+            <li><code>encoding="UTF-8"</code>：指定文档的字符编码格式。</li>
+            <li><code>?&gt;</code>：XML 处理指令的结束标志。</li>
+        </ul>
+    </div>
+
+    <div class="step-box">
+        <h3>3.2 文档类型定义（DTD）部分</h3>
+        <p><code>&lt;!DOCTYPE root [ ... ]&gt;</code></p>
+        <ul>
+            <li><code>&lt;!DOCTYPE root</code>：声明文档的根元素为 <code>root</code>。</li>
+            <li><code>[ ... ]</code>：方括号内部是 DTD 的实体定义区域，用于声明自定义实体。</li>
+        </ul>
+    </div>
+
+    <div class="step-box">
+        <h3>3.3 外部实体声明部分</h3>
+        <p><code>&lt;!ENTITY xxe SYSTEM "file:///C:/Windows/win.ini"&gt;</code></p>
+        <ul>
+            <li><code>&lt;!ENTITY</code>：声明一个 XML 实体。</li>
+            <li><code>xxe</code>：实体的名称。后续在 XML 中可以通过 <code>&amp;xxe;</code> 来引用它。</li>
+            <li><code>SYSTEM</code>：关键字，表明该实体的内容来源于外部资源，而非直接写在 XML 内的普通字符串。</li>
+            <li><code>"file:///C:/Windows/win.ini"</code>：**恶意攻击载荷**。使用 <code>file://</code> 协议指定了本地文件系统的路径。这里的 URI 指向了 Windows 系统下的 <code>win.ini</code> 配置文件。解析器在遇到该实体时，会去读取该文件的内容并加载。</li>
+        </ul>
+    </div>
+
+    <div class="step-box">
+        <h3>3.4 实体引用与触发部分</h3>
+        <p><code>&lt;root&gt;&amp;xxe;&lt;/root&gt;</code></p>
+        <ul>
+            <li><code>&lt;root&gt;</code>：文档的根元素。</li>
+            <li><code>&amp;xxe;</code>：引用我们刚才声明的实体 <code>xxe</code>。此时，解析器会将 <code>win.ini</code> 文件的实际内容替换到该位置。</li>
+            <li><code>&lt;/root&gt;</code>：根元素闭合。</li>
+        </ul>
+    </div>
+
+    <h2>4. 后端解析逻辑与数据流向</h2>
+    <div class="step-box">
+        <h3>4.1 后端代码逻辑</h3>
+        <p>靶场源码（<code>xxe_1.php</code>）中的核心逻辑为：</p>
+        <pre class="code-block"><code>$xml = $_POST[<span class="code-string">'xml'</span>];
+$data = @simplexml_load_string($xml, <span class="code-string">'SimpleXMLElement'</span>, LIBXML_NOENT);
+<span class="code-keyword">if</span>($data){
+    $html.=<span class="code-string">"&lt;pre&gt;{$data}&lt;/pre&gt;"</span>;
+}</code></pre>
+    </div>
+    
+    <div class="step-box">
+        <h3>4.2 数据流向分析</h3>
+        <ol>
+            <li>程序接收前端 POST 提交的 <code>xml</code> 参数，将其赋值给变量 <code>$xml</code>。</li>
+            <li>调用 <code>simplexml_load_string()</code> 函数解析该 XML。由于显式传入了 <code>LIBXML_NOENT</code> 参数，解析器允许加载并替换外部实体。</li>
+            <li>解析器遇到 <code>&lt;!ENTITY xxe SYSTEM "file:///C:/Windows/win.ini"&gt;</code>，根据 <code>SYSTEM</code> 关键字指定的 URI，读取服务器上的 <code>C:/Windows/win.ini</code> 文件内容。</li>
+            <li>解析器遇到 <code>&amp;xxe;</code>，将其替换为刚才读取到的文件内容。</li>
+            <li>解析完成，生成一个包含文件内容的 SimpleXMLElement 对象。代码将其赋值给 <code>$data</code>。</li>
+            <li>通过 <code>{$data}</code> 将内容输出到页面的 <code>&lt;pre&gt;</code> 标签中，攻击者成功获取文件内容。</li>
+        </ol>
+    </div>
+
+    <h2>5. 拓展与防御</h2>
+    <ul>
+        <li><strong>读取 PHP 源码：</strong>Payload 中的路径可以替换为 Web 目录下的 PHP 文件，如 <code>file:///D:/phpstudy_pro/WWW/pikachu/index.php</code>，利用 <code>php://filter/read=convert.base64-encode/resource=...</code> 可以防止乱码。</li>
+        <li><strong>内网探测（SSRF）：</strong>将 <code>SYSTEM</code> 后的协议替换为 <code>http://</code>，可以探测内网服务器是否开放端口（例如：<code>&lt;!ENTITY xxe SYSTEM "http://192.168.1.1:80"&gt;</code>）。</li>
+        <li><strong>防御策略：</strong>应禁止使用 <code>LIBXML_NOENT</code> 参数，或使用 <code>libxml_disable_entity_loader(true)</code> 禁用外部实体加载。同时，严格过滤用户输入的 XML 数据。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
