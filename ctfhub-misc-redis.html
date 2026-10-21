@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】Redis流量 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【CTFHub】Redis流量 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.21 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, 流量分析, Wireshark, Redis, RESP</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>流量分析 - 数据库类流量</li>
+        <li><strong>题目名称：</strong>Redis流量</li>
+        <li><strong>附件：</strong>包含一个约 22KB 的 redis.pcap 文件</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>Redis 是一款基于内存的键值对数据库，默认端口为 6379。其最大的特点是通信协议（RESP）极其简单，且默认情况下数据完全以明文传输，不进行加密。本题的解题核心在于：使用 Wireshark 过滤并追踪 Redis 的底层通信数据流，还原攻击者（或运维人员）执行的命令，从中提取隐藏在 Set/Get 操作中的 Flag。</p>
+
+    <h2>3. 操作步骤</h2>
+    
+    <p><strong>第一步：协议识别与过滤</strong></p>
+    <p>使用 Wireshark 打开附件。在顶部显示过滤器输入 <code>redis</code> 时未能过滤出有效数据。观察数据包的 Protocol 列，发现 Wireshark 将其底层协议识别为 <strong>RESP</strong> (REdis Serialization Protocol)。重新输入过滤器 <code>resp</code> 并回车，成功过滤出所有 Redis 交互数据包。</p>
+
+    <p><strong>第二步：分析交互过程与定位目标</strong></p>
+    <p>观察过滤后的数据包列表。在第 6 号包中，客户端发送了 <code>COMMAND</code> 指令，随后服务器返回了大量 <code>Array</code> 数据，这是 Redis 客户端连接后的常规握手。后续包中，客户端依次发送了 <code>KEYS *</code>（查询所有键）和 <code>GET aaaa</code>（查询特定键）。</p>
+    <p>在第 66 号包中，发现 <code>Request: SET Fl4g1 ctfhub{6051d6123de43df...</code> 的请求。但受限于 Wireshark 列表视图的长度限制，Flag 显示不完整。</p>
+
+    <p><strong>第三步：追踪 TCP 流与完整数据提取</strong></p>
+    <p>选中第 66 号包，右键选择“追踪” -> “TCP 流”（Follow -> TCP Stream）。在弹出的窗口中，查看完整的明文交互记录。发现攻击者并未一次性写入完整的 Flag，而是分两次进行 <code>SET</code> 操作：</p>
+    <ol>
+        <li><code>SET Fl4g1 ctfhub{6051d6123de43df</code></li>
+        <li><code>set f1ag2 ad7609804925c0121}</code></li>
+    </ol>
+    <p>将两部分字符串拼接，得到完整的 Flag：<code>ctfhub{6051d6123de43dfad7609804925c0121}</code>。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>Wireshark 的信息截断：</strong>Wireshark 主界面的 Info 列和数据包详情面板为了保持界面整洁，会对过长的字符串进行自动截断（显示为 <code>...</code>）。在挖掘明文数据时，必须使用“追踪 TCP 流”功能或查看十六进制面板，才能获取 100% 完整的数据。</li>
+        <li><strong>Flag 拆分套路：</strong>出题人为了防止选手直接通过全局搜索（Ctrl+F）轻易找到完整的 Flag 字符串，会将 Flag 拆分为多个部分，通过多次独立的命令发送。这要求在分析流量时，必须通读完整的上下文对话，而不是找到一半就停止。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>RESP 协议格式解析：</strong>Redis 使用的 RESP 协议是基于文本的。截图中频繁出现的 <code>*3</code> 表示接下来的指令是一个包含 3 个元素的数组；<code>$4</code> 表示接下来的字符串长度为 4 个字节（例如 <code>KEYS</code> 的长度为 4）。这种长度前缀的设计避免了特殊字符带来的解析歧义，同时也让 Wireshark 解析器能清晰地还原出明文。</li>
+        <li><strong>Redis 安全风险（未授权访问与明文监听）：</strong>本题直观展示了 Redis 的安全缺陷。如果未配置密码或配置了弱口令，且通信未经过 SSL/TLS 加密，攻击者在内网中通过抓包即可轻易获取所有存入和读取的敏感数据。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
