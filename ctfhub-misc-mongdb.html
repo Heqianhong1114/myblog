@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】MongoDB流量 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【CTFHub】MongoDB流量 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.21 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, 流量分析, Wireshark, MongoDB, BSON</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>流量分析 - 数据库类流量</li>
+        <li><strong>题目名称：</strong>MongoDB流量</li>
+        <li><strong>附件：</strong>包含一个约 174KB 的 mongodb.pcap 文件</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>MongoDB 默认端口为 27017，其底层通信使用 BSON（Binary JSON）格式，这是一种类似 JSON 的二进制序列化格式。与 Redis 的纯文本协议不同，BSON 包含大量嵌套结构和数据类型标识。在流量分析中，Flag 通常会作为某个文档（Document）中的字段值被查询或返回。解题核心在于利用 Wireshark 的底层字节流搜索功能定位关键字，并解析其对应的 BSON 数据结构以提取完整数据。</p>
+
+    <h2>3. 操作步骤</h2>
+    
+    <p><strong>第一步：协议过滤与初步观察</strong></p>
+    <p>使用 Wireshark 打开附件。过滤出 SSH 和 TCP 握手包后，观察到大量基于 <code>MONGO</code> 协议的数据包。应用显示过滤器 <code>mongo</code>，发现前期的交互包（如第 14、17、22 号包）主要包含 <code>ismaster</code>、<code>connectionStatus</code> 等客户端与服务器的握手及状态探测指令，未发现有效业务数据。</p>
+
+    <p><strong>第二步：调整搜索策略与定位</strong></p>
+    <p>为快速定位 Flag，按下 <code>Ctrl + F</code> 调出搜索框。首次尝试在“分组列表”模式下搜索 <code>ctfhub</code>，虽然定位到了相关数据包，但解析出的内容为 <code>ctfhub.$cmd</code>，表明该字符串仅代表数据库名称，而非 Flag 本体。</p>
+    <p>随后调整搜索策略：<br>
+    1. 将搜索模式由“分组列表”切换为 <strong>“分组字节流” (Packet bytes)</strong>，使 Wireshark 深入到底层十六进制及 ASCII 数据中进行匹配。<br>
+    2. 将搜索关键字由 <code>ctfhub</code> 修改为 <strong><code>ctfhub{</code></strong>，利用 Flag 固定格式（包含左大括号）过滤掉数据库名的干扰。</p>
+
+    <p><strong>第三步：解析 BSON 结构与提取结果</strong></p>
+    <p>执行搜索后，成功跳转至第 620 号包（<code>Response : Reply</code>）。观察中间下方的详情面板，依次展开：<br>
+    <code>Mongo Wire Protocol</code> -> <code>documents</code> -> <code>Document</code> -> <code>Elements</code> -> <code>Element: flag</code>。<br>
+    在 <code>Element: flag</code> 节点下，发现 <code>Value</code> 字段包含完整的明文字符串：<code>ctfhub{5f284ecc279d2cbd1af258bb53c7a5f6}</code>。同时，右侧的十六进制/ASCII 面板也直观地展示了该明文。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>Wireshark 搜索模式的差异：</strong>“分组列表”仅搜索界面上展示的 Info 摘要信息，无法命中隐藏在深层数据体中的内容；“分组字节流”则直接对数据的原始字节进行检索。在遇到二进制协议或深层嵌套结构时，必须使用“分组字节流”模式。</li>
+        <li><strong>关键字前缀的干扰：</strong>直接搜索 <code>ctfhub</code> 容易受到环境变量、数据库名（<code>ctfhub.$cmd</code>）等干扰项的误导。结合格式特征（如 <code>ctfhub{</code>、<code>flag{</code>）进行检索，能够极大提高定位的准确率。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>MongoDB BSON 协议：</strong>BSON 是一种类 JSON 的二进制存储格式。在 Wireshark 的解析树中，数据通常表现为 <code>Document</code>（文档）包含多个 <code>Elements</code>（元素），每个元素都有特定的类型标识（如 <code>Type: String (0x02)</code> 表示该字段为字符串），这种结构化的存储方式使得数据在未加密时极易被还原。</li>
+        <li><strong>流量分析中的降维打击（全局搜索）：</strong>在遇到解析树过于复杂、或者数据包数量庞大的情况下，放弃手动逐层展开，直接使用底层字节流搜索关键字（如 flag 格式前缀），是 CTF 流量分析中最快、最有效的实战技巧之一。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
