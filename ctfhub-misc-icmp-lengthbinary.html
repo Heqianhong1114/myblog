@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】ICMP LengthBinary 流量分析 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【CTFHub】ICMP LengthBinary 流量分析 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.21 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, 流量分析, Wireshark, ICMP, tshark, Python, 隐写术</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>流量分析 - 协议流量分析 - ICMP</li>
+        <li><strong>题目名称：</strong>LengthBinary</li>
+        <li><strong>题目提示：</strong>ping 包的大小有些奇怪</li>
+        <li><strong>附件：</strong>包含一个约 30KB 的 icmp_len_binary.pcap 文件</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>题目名称带有 <code>Binary</code>（二进制），且提示包的大小奇怪。结合前序 ICMP 流量分析的经验，判断这是一种基于数据包长度的时间/空间隐写术（Covert Channel）。出题人利用 ICMP 请求包（Request）的两种不同长度（如 74 字节和 106 字节）来分别代表二进制的 <code>0</code> 和 <code>1</code>。解题核心在于提取所有请求包的长度，将其映射为二进制字符串，并按 8 位为一组（1 Byte）转换回 ASCII 明文。</p>
+
+    <h2>3. 工具与环境准备</h2>
+    <ul>
+        <li><strong>tshark：</strong>用于快速从 pcap 文件中提取指定字段（如 frame.len）并导出为文本文件，避免人工复制。</li>
+        <li><strong>Python 环境：</strong>配合 VS Code 编写脚本，完成从二进制到 ASCII 码的自动化转换。</li>
+    </ul>
+
+    <h2>4. 操作步骤</h2>
+    
+    <p><strong>第一步：抓包分析与特征定位</strong></p>
+    <p>使用 Wireshark 打开附件，应用过滤器 <code>icmp</code>。观察到数据包分为请求（Request）和回复（Reply）。重点关注 <code>Info</code> 列并观察 <code>Length</code> 列，发现请求包的长度只有两种固定数值：<strong>74</strong> 和 <strong>106</strong>。这证实了利用长度差异隐写二进制数据的猜想。</p>
+
+    <p><strong>第二步：使用 tshark 提取长度数据</strong></p>
+    <p>为了批量处理，打开 CMD 终端，切换至附件所在目录，使用 tshark 过滤请求包（type 8）并提取整帧长度，保存至本地：</p>
+    <pre><code>tshark -r "icmp_len_binary.pcap" -Y "icmp.type == 8" -T fields -e frame.len > length.txt</code></pre>
+    <p>该命令将生成本地的 <code>length.txt</code>，每行包含一个数值（74 或 106）。</p>
+
+    <p><strong>第三步：编写 Python 脚本解码</strong></p>
+    <p>在 VS Code 中打开该文件夹，新建 <code>solve_len.py</code>，编写自动化处理脚本：</p>
+    <pre><code>import os
+
+# 获取当前脚本所在绝对路径，防止终端路径不一致导致找不到文件
+current_dir = os.path.dirname(os.path.abspath(__file__))
+file_path = os.path.join(current_dir, 'length.txt')
+
+# 读取纯长度数据
+with open(file_path, 'r') as f:
+    lengths = [line.strip() for line in f if line.strip()]
+
+binary_str = ""
+
+# 核心映射逻辑：74 对应 0，106 对应 1
+for length in lengths:
+    if length == '74':
+        binary_str += '0'
+    elif length == '106':
+        binary_str += '1'
+
+flag = ""
+
+# 将二进制每 8 位（1字节）截取一次，还原为 ASCII 字符
+for i in range(0, len(binary_str), 8):
+    byte = binary_str[i:i+8]
+    if len(byte) == 8:
+        # int(byte, 2) 将二进制串转为十进制，chr() 转为对应字符
+        flag += chr(int(byte, 2))
+
+print("[*] 解码结果：")
+print(flag)</code></pre>
+
+    <p><strong>第四步：执行脚本获取 Flag</strong></p>
+    <p>在 VS Code 终端运行脚本，成功还原出完整的 Flag：<code>ctfhub{d4efed1e05}</code>。</p>
+
+    <h2>5. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>基于长度的隐写术：</strong>在安全渗透与防护中，不仅数据包的内容会被利用，数据包的元数据（如包长度、发送时间间隔等）同样可以作为隐蔽信道传递信息。这类题目需要跳出看 Payload 数据的惯性思维，关注报文头部特征。</li>
+        <li><strong>过滤器的精准使用：</strong>在提取字段时，必须使用 <code>-Y "icmp.type == 8"</code> 过滤请求包。如果不加过滤，将回复包（type 0）也提取出来，会导致长度数据夹杂（如 74, 74, 106, 106 交替），从而破坏最终的二进制组合结构。</li>
+    </ul>
+
+    <h2>6. 知识总结</h2>
+    <ul>
+        <li><strong>命令行工具的高效性：</strong>对于包含规律性数据的超大 pcap 文件，利用 tshark 的 <code>-T fields -e frame.len</code> 能够极快地导出关键数据列，并用终端重定向 <code>></code> 写入文件。</li>
+        <li><strong>Python 进制转换：</strong>
+            <ul>
+                <li><code>int(string, base)</code> 函数不仅用于十进制转换，指定 <code>base=2</code> 即可解析二进制字符串。</li>
+                <li><code>chr()</code> 函数将 0-255 的整数（对应 1 字节）映射为对应的 ASCII 字符，是处理各种流量编码、加解密数据的基础操作。</li>
+            </ul>
+        </li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
