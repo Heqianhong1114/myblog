@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】ICMP Length 流量分析 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【CTFHub】ICMP Length 流量分析 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.21 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, 流量分析, Wireshark, ICMP, tshark, Python, 隐写术</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>流量分析 - 协议流量分析 - ICMP</li>
+        <li><strong>题目名称：</strong>Length</li>
+        <li><strong>题目提示：</strong>ping 包的大小有些奇怪</li>
+        <li><strong>附件：</strong>包含一个约 6KB 的 icmp_len.pcap 文件</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>本题与 LengthBinary 属于同类型考点，均利用了 ICMP 包长度（Length）作为隐蔽信道（Covert Channel）进行数据隐写。区别在于，LengthBinary 仅使用了两种长度代表 0 和 1；而本题中包长度呈现多种数值变化。推测长度数值直接对应字符的十进制 ASCII 码，但为了增加难度，出题人加入了一个固定的偏移量。解题核心在于通过已知的 Flag 头部格式（如 <code>ctfhub{</code>）反推偏移量，随后批量提取长度并进行运算还原明文。</p>
+
+    <h2>3. 工具与环境准备</h2>
+    <ul>
+        <li><strong>tshark：</strong>Wireshark 命令行工具。通过终端执行指定命令，过滤特定类型的数据包并提取目标字段（如 <code>frame.len</code>），将结果重定向保存至本地文本文件，为后续脚本处理提供数据源。</li>
+        <li><strong>VS Code 与 Python：</strong>用于编写与运行自动化处理脚本，处理文件读取、数学运算及进制/字符转换。</li>
+    </ul>
+
+    <h2>4. 操作步骤</h2>
+    
+    <p><strong>第一步：Wireshark 抓包与特征分析</strong></p>
+    <p>使用 Wireshark 打开附件，应用显示过滤器 <code>icmp</code>。观察数据包的 <code>Length</code> 列，发现数值呈现无规律跳跃（如 141, 158, 144, 146, 159, 140...）。且依然遵循只有请求包（Request）包含有效数据，回复包（Reply）为无意义回显的规律。</p>
+
+    <p><strong>第二步：反向推导偏移量</strong></p>
+    <p>提取前几个请求包的长度：141, 158, 144。假设 Flag 头部为 <code>ctfhub{</code>，其对应的 ASCII 码分别为：99(c), 116(t), 102(f)。计算长度与 ASCII 码的差值：<br>
+    <code>141 - 99 = 42</code><br>
+    <code>158 - 116 = 42</code><br>
+    <code>144 - 102 = 42</code><br>
+    由此确定，字符真实 ASCII 码 = <code>包长度 - 42</code>。</p>
+
+    <p><strong>第三步：使用 tshark 提取长度数据</strong></p>
+    <p>在 CMD 终端中切换至附件所在目录，执行以下命令提取所有请求包的长度字段并存入 <code>len.txt</code>：</p>
+    <pre><code>tshark -r "icmp_len.pcap" -Y "icmp.type == 8" -T fields -e frame.len > len.txt</code></pre>
+
+    <p><strong>第四步：编写 Python 脚本处理</strong></p>
+    <p>在 VS Code 中新建 <code>solve_len_offset.py</code>。脚本读取文本，遍历长度值，执行减 42 操作后转为字符：</p>
+    <pre><code>import os
+
+# 动态获取脚本所在目录，避免相对路径错误
+current_dir = os.path.dirname(os.path.abspath(__file__))
+file_path = os.path.join(current_dir, 'len.txt')
+
+# 读取长度数据并清洗空行
+with open(file_path, 'r') as f:
+    lengths = [line.strip() for line in f if line.strip()]
+
+flag = ""
+
+for length_str in lengths:
+    # 将长度字符串转为整数，并减去推导出的偏移量 42
+    char_code = int(length_str) - 42 
+    # 将十进制 ASCII 码转换为字符并拼接
+    flag += chr(char_code)
+
+print("[*] 解码结果：")
+print(flag)</code></pre>
+
+    <p><strong>第五步：运行并验证</strong></p>
+    <p>执行脚本，终端成功输出完整 Flag：<code>ctfhub{acb659f023}</code>。</p>
+
+    <h2>5. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>盲猜偏移量与已知明文攻击：</strong>在未知加密或隐写规则时，利用协议特征或题目常考的固定前缀（如 <code>flag{</code>、<code>ctfhub{</code>）进行反向推算，是逆向工程和流量分析中的标准破局思路。</li>
+        <li><strong>过滤器的精准使用：</strong>提取数据必须严格限制 <code>icmp.type == 8</code>。若不加过滤，回复包（Reply）的长度会混入提取结果中，导致 ASCII 码错位，最终脚本输出乱码。</li>
+    </ul>
+
+    <h2>6. 知识总结</h2>
+    <ul>
+        <li><strong>元数据隐写（Metadata Steganography）：</strong>网络流量中的隐蔽信道不仅存在于 Payload 数据体中。数据包的头部字段（如包长度、TTL、时间戳）均可被篡改并用于携带信息，以规避基于内容的安全检测。</li>
+        <li><strong>tshark 字段提取指令：</strong>
+            <ul>
+                <li><code>-Y "icmp.type == 8"</code>：使用 Wireshark 显示过滤器语法，仅保留 ICMP 请求包。</li>
+                <li><code>-T fields -e frame.len</code>：指定输出格式为纯字段，并提取整个数据帧的长度（Length）。</li>
+                <li><code>></code>：将终端标准输出重定向至文本文件，便于数据持久化与后续脚本自动化处理。</li>
+            </ul>
+        </li>
+        <li><strong>Python ASCII 转换：</strong><code>chr(int_val)</code> 将整数转换为对应的字符。在此类隐写题中，往往需要结合偏移量计算（<code>int_val - offset</code>）才能得到真实的字符编码。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
