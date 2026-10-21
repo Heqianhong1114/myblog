@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】MySQL流量 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【CTFHub】MySQL流量 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.21 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, 流量分析, Wireshark, MySQL</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>流量分析 - 数据库类流量</li>
+        <li><strong>题目名称：</strong>MySQL流量</li>
+        <li><strong>附件：</strong>包含一个约 12KB 的 mysql.pcap 文件</li>
+    </ul>
+
+    <h2>2. 环境配置与工具准备</h2>
+    <p>在开始分析流量之前，需要对本地环境进行配置。</p>
+    <ul>
+        <li><strong>Python 环境：</strong>在 CMD 中使用 <code>python -V</code> 检查版本，显示为 Python 3.12.6。由于系统 Device Guard 策略拦截了 <code>pip.exe</code>，后续如果需要安装 Python 库，需使用 <code>py -m pip install &lt;库名&gt;</code> 的方式绕过限制。</li>
+        <li><strong>VS Code 插件 (PCAP Lens)：</strong>在 VS Code 扩展商店安装 PCAP Lens 插件。该插件依赖于 Python 和 TShark（Wireshark 的命令行工具）作为后端引擎来解析数据包。在 VS Code 设置中，搜索 <code>pcapViewer.pythonPath</code> 填入 Python 解释器绝对路径（D:\zhengjiu\python.exe），搜索 <code>pcapViewer.tsharkPath</code> 填入 TShark 绝对路径（D:\wireshark\tshark.exe）。配置成功后右下角会提示 Ready。</li>
+        <li><strong>Wireshark：</strong>本题目主要使用 Wireshark 进行可视化分析。</li>
+    </ul>
+
+    <h2>3. 解题思路</h2>
+    <p>题目提供的是 MySQL 协议的底层抓包文件。解题的核心在于从流量中提取明文数据。在 MySQL 通信中，通常包含握手、认证（Login Request）、查询（Request Query）和响应（Response）。Flag 通常隐藏在成功执行查询后的数据响应包中。</p>
+
+    <h2>4. 操作步骤</h2>
+    
+    <p><strong>第一步：全局观察与协议过滤</strong></p>
+    <p>用 Wireshark 打开 <code>mysql.pcap</code>。初始流量包含 SSH、ARP 和 TCP 重传包。在顶部的显示过滤器（Display Filter）中输入 <code>mysql</code> 并回车，过滤出所有 MySQL 协议相关的数据包。</p>
+
+    <p><strong>第二步：分析认证过程与排除干扰</strong></p>
+    <p>观察过滤后的数据包列表。发现第 16 号和第 29 号包出现了 <code>Login Request user=root</code>，紧接着是 <code>Response Error 1045</code>。展开第 16 号包的详情，在 <code>MySQL Protocol -> Login Request</code> 中看到 <code>Password: 2d7d38115411a180647f1176eec5b69655e16551</code>。这是 <code>mysql_native_password</code> 认证机制加密后的哈希值，由于包含随机挑战码，常规在线 MD5/SHA1 解密网站无法反查。此处为出题人设置的干扰项。</p>
+
+    <p><strong>第三步：定位成功交互与追踪数据流</strong></p>
+    <p>继续向下查看数据包列表，发现第 42 号包再次尝试登录，第 44 号包返回了 <code>Response OK</code>，表明登录成功。随后第 46 号包出现 <code>Request Query</code>，第 47 号包出现 <code>Response TABULAR Response</code>（表格形式的数据响应）。</p>
+    <p>选中第 46 号包，右键选择“追踪” -> “TCP 流”（Follow -> TCP Stream）。在弹出的窗口中，可以直观看到客户端与服务端交互的明文数据。</p>
+
+    <p><strong>第四步：提取 Flag</strong></p>
+    <p>在 TCP 流窗口中，观察到黑客依次执行了 <code>select @@version_comment limit 1</code>、<code>show databases</code>、<code>show tables</code>、<code>desc users</code>，最后执行了 <code>select * from users</code>。在查询结果中，直接发现了明文字符串：<code>ctfhub{mysql_is_S0_E4sy}</code>。</p>
+
+    <h2>5. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>认证密码的解密陷阱：</strong>MySQL 认证过程中传输的密码并非简单的明文哈希，而是基于挑战-响应（Challenge-Response）机制生成的。在没有抓取到完整交互过程时，直接去解密网站查询该哈希值是无效的，应立刻转换思路去查找后续的成功交互流量。</li>
+        <li><strong>过滤器语法差异：</strong>使用 <code>mysql</code> 会显示所有相关的握手、登录、查询包；而使用 <code>mysql.query</code> 则可以精确过滤，仅显示客户端发送 SQL 命令的请求包。在包数量较多时，善用精确过滤器能提高效率。</li>
+    </ul>
+
+    <h2>6. 知识总结</h2>
+    <ul>
+        <li><strong>Wireshark 与 Burp Suite 的区别：</strong>Wireshark 抓取的是网卡层面的全协议底层流量（包含 TCP/UDP/各种应用层协议）；Burp Suite 则是作为 Web 代理，专门拦截和修改 HTTP/HTTPS 请求。Wireshark 侧重于“看”，Burp Suite 侧重于“改”。</li>
+        <li><strong>追踪 TCP 流（Follow TCP Stream）原理：</strong>Wireshark 将属于同一个 TCP 连接（基于源 IP、源端口、目的 IP、目的端口四元组）的多个数据包按序重组，还原出应用层的完整通信内容，是流量分析中寻找明文线索的最直接手段。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
