@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【CTFHub】ICMP Data 流量分析 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【CTFHub】ICMP Data 流量分析 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.21 | <strong>分类：</strong>CTF | <strong>标签：</strong>CTFHub, 流量分析, Wireshark, ICMP, Python, tshark</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>CTFHub</li>
+        <li><strong>分类：</strong>流量分析 - 协议流量分析 - ICMP</li>
+        <li><strong>题目名称：</strong>Data</li>
+        <li><strong>题目提示：</strong>ping 也可以携带数据？</li>
+        <li><strong>附件：</strong>包含一个约 8KB 的 icmp_data.pcap 文件</li>
+    </ul>
+
+    <h2>2. 工具准备与环境配置</h2>
+    <ul>
+        <li><strong>tshark：</strong>Wireshark 的命令行版本。在安装了 Wireshark 的 Windows 环境下，其可执行文件通常位于 <code>C:\Program Files\Wireshark\tshark.exe</code> 或自定义安装目录（如 <code>D:\wireshark\tshark.exe</code>）。该工具主要用于处理大规模流量包或需要提取特定字段到本地文件时，通过终端命令快速过滤并输出纯文本数据，避免图形界面的卡顿。</li>
+        <li><strong>Python 环境：</strong>用于编写自动化解析脚本。由于设备安全策略限制，执行 pip 命令时需采用 <code>py -m pip install &lt;库名&gt;</code> 以绕过策略拦截。</li>
+        <li><strong>VS Code：</strong>作为代码编辑器，需配置 Python 插件以支持调试与运行。</li>
+    </ul>
+
+    <h2>3. 解题思路</h2>
+    <p>题目提示 ICMP（ping 命令底层协议）可以携带数据，这指向了 <strong>ICMP 隐蔽隧道（ICMP Tunnel）</strong>技术。标准的 ping 包通常只包含固定长度的填充字节（通常用于对齐），但在隐蔽隧道中，攻击者会将敏感数据切割并隐藏在 ICMP 包的 <code>Data</code> 字段中，甚至为了掩盖痕迹，会填充大量无意义的垃圾字符。解题核心在于从大量的干扰数据中，利用脚本精准截取有效载荷并重组。</p>
+
+    <h2>4. 操作步骤</h2>
+    
+    <p><strong>第一步：分析流量特征</strong></p>
+    <p>使用 Wireshark 打开附件，应用显示过滤器 <code>icmp</code>。观察数据包列表，发现所有数据包长度均为 106 字节，且 <code>Info</code> 列中的 <code>seq</code>（序列号）呈异常递增规律（如 seq=256/1, seq=512/2），这是使用脚本发包的特征。</p>
+    <p>点击任意包，展开 <code>Internet Control Message Protocol -> Data</code>，发现大部分数据为 <code>4d</code>，对应的 ASCII 字符为 <code>M</code>，属于无意义的填充数据。通过查看底部的十六进制面板，发现每一行真实的数据变化只出现在特定字节位置。</p>
+
+    <p><strong>第二步：使用 tshark 提取原始数据</strong></p>
+    <p>由于人工提取数百个包中的特定字节极其繁琐，打开 CMD 终端，调用 tshark 提取所有 ICMP 请求包（type == 8）的底层十六进制数据：</p>
+    <pre><code>"D:\wireshark\tshark.exe" -r "C:\Users\heqianhong\Desktop\...\icmp_data.pcap" -Y "icmp.type == 8" -T fields -e data.data > data.txt</code></pre>
+    <p>该命令将提取结果以十六进制字符串的形式保存到本地的 <code>data.txt</code> 文件中。</p>
+
+    <p><strong>第三步：编写 Python 脚本进行清洗与重组</strong></p>
+    <p>通过分析 <code>data.txt</code> 中的数据特征，发现每行字符串中，前 16 个字符为头部信息（时间戳/序列号等），第 17-18 个字符（索引 <code>[16:18]</code>）为真实载荷（Flag 的字符），其后全部为 <code>4d</code>（填充字符）。编写 Python 脚本提取有效字节：</p>
+    <pre><code>import os
+
+# 获取脚本当前所在绝对路径，避免相对路径导致的找不到文件报错
+current_dir = os.path.dirname(os.path.abspath(__file__))
+file_path = os.path.join(current_dir, 'data.txt')
+
+flag = ""
+
+# 读取文件中的十六进制数据
+with open(file_path, 'r') as f:
+    lines = f.readlines()
+
+# 遍历每一行数据进行处理
+for line in lines:
+    line = line.strip()
+    # 确保当前行长度足够，防止越界报错
+    if len(line) >= 18:
+        # 截取第 17-18 个字符（真实载荷）
+        payload_hex = line[16:18]
+        try:
+            # 将十六进制转为字节，再解码为字符
+            char = bytes.fromhex(payload_hex).decode('utf-8', errors='ignore')
+            flag += char
+        except:
+            pass
+
+print("[*] 提取到的完整内容：")
+print(flag)</code></pre>
+
+    <p><strong>第四步：执行脚本获取 Flag</strong></p>
+    <p>在 VS Code 的终端中运行脚本 <code>py solve_icmp.py</code>，成功打印出完整的 Flag：<code>ctfhub{xxxxxxxxxxxxx}</code>。</p>
+
+    <h2>5. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>Wireshark 过滤与搜索局限：</strong>Wireshark 的 <code>Ctrl + F</code> 在“分组列表”模式下只能搜索摘要信息，无法深入到底层数据。对于二进制或特定偏移量的载荷提取，必须结合命令行工具（tshark）导出数据。</li>
+        <li><strong>Python 相对路径陷阱：</strong>在执行 <code>open('data.txt', 'r')</code> 时，程序默认在终端当前所在的目录（如 <code>D:\Open Browser...</code>）寻找文件，而非脚本所在的目录，从而触发 <code>FileNotFoundError</code>。标准做法是使用 <code>os.path.dirname(os.path.abspath(__file__))</code> 获取脚本绝对路径，再通过 <code>os.path.join()</code> 拼接文件路径，确保脚本在任何工作目录下均能正确运行。</li>
+        <li><strong>字符串未闭合异常：</strong>直接将几万行的超长十六进制数据复制粘贴到 Python 变量中，极易引发 <code>SyntaxError: unterminated string literal</code>。处理海量数据时，应采用文件读写的方式（I/O），避免直接硬编码在代码中。</li>
+    </ul>
+
+    <h2>6. 知识总结</h2>
+    <ul>
+        <li><strong>ICMP 隐蔽信道：</strong>ICMP 协议虽然是用于网络诊断，但其 Data 字段对内容没有严格校验，攻击者常利用其封装 TCP/UDP 甚至 HTTP 流量，以绕过防火墙的端口限制。在流量分析中，若发现 ICMP 包大小异常、携带大量重复字符，应立刻怀疑为隐蔽隧道并提取载荷。</li>
+        <li><strong>十六进制解码与字符偏移：</strong>在网络流量中，数据常以十六进制传输。使用 Python 的 <code>bytes.fromhex()</code> 可将十六进制字符串转换回字节流。在提取特定的载荷时，必须根据协议头部长度或发包脚本的特征，精准计算偏移量（如本题的 <code>[16:18]</code>）。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
