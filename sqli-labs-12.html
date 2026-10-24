@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-12 POST型双引号报错注入与绕过 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-12 POST型双引号报错注入与绕过 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.24 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, POST注入, 双引号闭合, Burp Suite</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-12 (POST - Error Based - Double quotes - String - with twist)</li>
+        <li><strong>提示：</strong>POST请求，基于报错的字符型注入，双引号+括号闭合</li>
+    </ul>
+
+    <h2>2. 解题思路与前置原理</h2>
+    <p>本关卡为 POST 类型的登录框，需使用 Burp Suite 抓包修改请求体（Body）中的参数。根据标题中的 "Double quotes" 与 "twist" 推断，后端 SQL 语句的闭合方式发生了变化，非单纯的单引号。需通过输入双引号及括号测试报错，还原闭合结构，进而利用注释符实现登录绕过。</p>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：抓包与测试闭合方式</strong></p>
+    <p>在登录框输入任意账号密码（如 admin/123），使用 Burp Suite 拦截请求并发送至 Repeater。修改请求体中的 <code>uname</code> 参数：</p>
+    <pre><code>uname=admin"&passwd=123456&submit=Submit</code></pre>
+    <p><strong>回显现象：</strong>页面抛出 SQL 语法错误，报错信息为 <code>near '123456") LIMIT 0,1' at line 1</code>。</p>
+    <p><strong>解释与原理：</strong>输入的双引号成功打破了原有语法结构，且报错信息暴露了 <code>passwd</code> 参数外部包裹着双引号和括号。推断后台 SQL 语句为 <code>SELECT * FROM users WHERE username=("$uname") AND password=("$passwd") LIMIT 0,1</code>。确认闭合符为 <code>")</code>。</p>
+
+    <p><strong>第二步：利用注释符进行登录绕过</strong></p>
+    <p>在 Repeater 中，将 <code>uname</code> 参数的值修改为利用闭合符和注释符构造的 Payload：</p>
+    <pre><code>uname=admin") #&passwd=123456&submit=Submit</code></pre>
+    <p><strong>回显现象：</strong>点击发送后，页面右侧成功渲染出 <code>SUCCESSFUL</code>，并显示 <code>Your Login name:admin</code> 和 <code>Your Password:admin</code>。</p>
+    <p><strong>解释与原理：</strong>Payload 拼接后变为 <code>WHERE username=("admin") #") AND password=("123456") LIMIT 0,1</code>。<code>#</code> 注释符将后续的密码验证逻辑完全截断，导致后端仅验证了用户名存在即返回成功，实现越权登录。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>POST 注入的调试：</strong>必须在 Burp Suite 的 Repeater（重放器）中修改请求体，不可在浏览器地址栏直接输入。</li>
+        <li><strong>闭合符的精准匹配：</strong>遇到 POST 型注入，测试单引号无效时，应立刻尝试双引号 <code>"</code> 或双引号加括号 <code>")</code>。以报错信息中的提示为准。</li>
+        <li><strong>登录框利用思路：</strong>在登录逻辑中，如果存在 SQL 注入，首选利用 <code>#</code> 或 <code>-- </code> 注释掉密码校验部分，快速实现后台绕过。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>POST 请求注入：</strong>参数隐藏在 HTTP Body 中，需借助抓包工具。</li>
+        <li><strong>双引号与括号闭合：</strong>在特定上下文中，需精准匹配双引号和括号的组合，才能成功逃逸原有字符串。</li>
+        <li><strong>登录绕过（万能密码）：</strong>利用 SQL 注释符截断逻辑判断，使查询条件恒成立或跳过密码比对。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
