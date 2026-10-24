@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-11 POST型报错注入与登录绕过 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-11 POST型报错注入与登录绕过 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.24 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, POST注入, Burp Suite</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-11 (POST - Error Based - String)</li>
+        <li><strong>提示：</strong>POST请求，基于报错的字符型注入，单引号闭合</li>
+    </ul>
+
+    <h2>2. 工具准备与环境配置</h2>
+    <p>由于本关为 POST 请求，参数未在 URL 中暴露，需使用抓包工具进行拦截与修改。本次使用环境为汉化版 Burp Suite。</p>
+    
+    <h3>工具配置与避坑：</h3>
+    <ul>
+        <li><strong>浏览器代理配置：</strong>需将浏览器代理设置为 <code>127.0.0.1:8080</code>。</li>
+        <li><strong>界面显示问题解决：</strong>因高分屏或汉化包导致选中文字时蓝标错位、字符重叠。解决方式：在 Burp 的 <code>设置 -> 用户界面 -> 显示</code> 中，勾选“配置缩放设置”并设为 1.0；在 <code>消息编辑器</code> 中将字体修改为“宋体”或“微软雅黑”，大小设为 16pt 并重启生效。</li>
+    </ul>
+
+    <h2>3. 解题思路与解析</h2>
+    <p>进入关卡后，页面为一个登录框（包含 Username 和 Password）。推断后台 SQL 语句为 <code>SELECT * FROM users WHERE username='$uname' AND password='$passwd' LIMIT 0,1</code>。</p>
+    <p>通过在用户名后添加单引号破坏原有语法，使页面报错，从而确认注入点及闭合方式。随后利用 SQL 注释符 <code>#</code> 或 <code>-- </code> 截断原语句中的密码验证逻辑，实现无需密码直接登录后台（万能密码）。</p>
+
+    <h2>4. 操作步骤</h2>
+    
+    <p><strong>第一步：抓取 POST 请求</strong></p>
+    <p>在浏览器登录框随意输入用户名 <code>admin</code> 和密码 <code>123456</code>，开启 Burp 拦截，点击 Submit。将拦截到的请求发送至 <strong>Repeater（重放器）</strong>。</p>
+    <p>抓取到的请求体（Body）为：<br>
+    <code>uname=admin&passwd=123456&submit=Submit</code></p>
+
+    <p><strong>第二步：测试注入点与报错分析</strong></p>
+    <p>在 Repeater 的 Request 框中，将 <code>uname</code> 的值修改为 <code>admin'</code>：</p>
+    <pre><code>uname=admin'&passwd=123456&submit=Submit</code></pre>
+    <p>点击发送后，观察响应包。页面返回 SQL 语法错误：<br>
+    <code>You have an error in your SQL syntax... near '123456' LIMIT 0,1' at line 1</code></p>
+    <p><strong>解释与原理：</strong>输入的 <code>admin'</code> 闭合了后台的 <code>username='$uname'</code>，导致后续的 <code>AND password='123456'</code> 语法混乱并报错。确认存在单引号字符型注入。</p>
+
+    <p><strong>第三步：利用注释符进行登录绕过</strong></p>
+    <p>使用 MySQL 注释符 <code>#</code> 来注释掉后续的密码验证代码。在 Request 框中将 Body 修改为：</p>
+    <pre><code>uname=admin' #&passwd=123456&submit=Submit</code></pre>
+    <p>点击发送。</p>
+    <p><strong>执行结果：</strong>页面渲染区域成功回显 <code>SUCCESSFUL</code>，并打印出 <code>Your Login name:admin</code> 和 <code>Your Password:admin</code>。</p>
+    <p><strong>解释与原理：</strong><code>#</code> 符号将后面的 <code> AND password='123456' LIMIT 0,1</code> 全部注释。实际执行的 SQL 变成了 <code>WHERE username='admin'</code>，直接跳过了密码校验，成功以 admin 身份登录。</p>
+
+    <h2>5. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>POST 注入的特殊性：</strong>不能再直接在地址栏修改，必须使用 Burp Suite 等抓包工具拦截请求，在请求体中修改 Payload。</li>
+        <li><strong>注释符的使用：</strong>在 POST 请求体中，<code>#</code> 符号可以直接生效（无需像 URL 那样编码为 <code>%23</code>）。注意 <code>#</code> 后面需跟一个空格或直接换行。</li>
+        <li><strong>万能密码的本质：</strong>不仅限于 <code>' OR 1=1 #</code>，只要能用注释符截断密码验证部分，就能实现任意已知用户的免密登录。</li>
+    </ul>
+
+    <h2>6. 知识点总结</h2>
+    <ul>
+        <li><strong>POST 注入：</strong>参数在 HTTP 请求体（Body）中传输，常用于表单提交。需要通过抓包工具进行调试。</li>
+        <li><strong>登录绕过：</strong>利用 SQL 注入漏洞，通过闭合单引号并注入注释符，消除后端原有的密码比对逻辑，实现越权登录。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
