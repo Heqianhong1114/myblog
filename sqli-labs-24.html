@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>【SQLi-Labs】Less-24 二次注入 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-24 二次注入 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.25 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, 二次注入</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>题目名称：</strong>Less-24 (POST - Second Degree Injections)</li>
+    </ul>
+
+    <h2>2. 核心原理：二次注入</h2>
+    <p><strong>入库转义，出库不转义。</strong> 注册用户时，代码使用了 <code>mysql_escape_string</code> 进行转义，恶意 Payload 作为普通文本存入数据库。在 <code>pass_change.php</code> 中，后端从 Session 取出用户名，未做二次过滤直接拼接入 UPDATE 语句，导致注释符生效，越权修改密码。</p>
+
+    <h2>3. 操作步骤</h2>
+    <p><strong>第一步：注册毒账号</strong><br>
+    点击 New User，注册用户名 <code>admin'#</code>（密码 <code>123456</code>）。</p>
+    
+    <p><strong>第二步：登录并触发</strong><br>
+    用 <code>admin'# / 123456</code> 登录，进入修改密码页面。</p>
+
+    <p><strong>第三步：改密引爆</strong><br>
+    Current Password 随便填（被注释了），New Password 填 <code>p@ssw0rd</code>，点击 Reset。</p>
+
+    <p><strong>第四步：验证成功</strong><br>
+    退出登录，用超级管理员 <code>admin / p@ssw0rd</code> 登录，页面显示 <code>YOU ARE LOGGED IN AS admin</code>。</p>
+
+    <h2>4. 踩坑记录</h2>
+    <ul>
+        <li><strong>F5 刷新陷阱：</strong>提交修改后如果按 F5，会重复提交 POST 请求，导致 MySQL 返回受影响行数为 0，触发靶场的 <code>failed.php</code> 假报错页面。实战中应直接退出并用新密码验证。</li>
+        <li><strong>URL 编码坑：</strong>在表单里输入 <code>%23</code> 会导致二次编码，必须直接输入 <code>#</code>。</li>
+    </ul>
+</body>
+</html>
