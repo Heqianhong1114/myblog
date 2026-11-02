@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Upload-Labs】Pass-04 .htaccess 文件上传绕过 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Upload-Labs】Pass-04 .htaccess 文件上传绕过 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.11.02 | <strong>分类：</strong>CTF | <strong>标签：</strong>Upload-Labs, Web, 文件上传, .htaccess, WebShell</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Upload-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - 文件上传</li>
+        <li><strong>题目名称：</strong>Pass-04 (服务端黑名单校验 - 漏网之鱼)</li>
+        <li><strong>提示：</strong>任务为上传一个 webshell 到服务器。黑名单包含了大量的脚本后缀，但未拦截特定配置文件。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p>本关卡的核心漏洞在于<strong>黑名单机制遗漏了服务器配置文件</strong>。</p>
+    <p>分析源码可知，<code>$deny_ext</code> 数组中包含了 <code>.php</code>、<code>.php5</code>、<code>.phtml</code> 等几乎所有常见的脚本后缀，常规的后缀绕过在此失效。然而，黑名单中并没有包含 <code>.htaccess</code>。</p>
+    <p><code>.htaccess</code> 是 Apache Web 服务器的分布式配置文件。如果允许上传该文件，攻击者就可以在文件中自定义目录级别的解析规则，例如强制将所有 <code>.jpg</code> 文件交由 PHP 引擎解析。</p>
+    <p><strong>环境差异注意：</strong>本机环境为 <code>mod_fcgid</code> 模式，并非传统的 <code>mod_php</code>。因此，网上的老教程 <code>AddType application/x-httpd-php .jpg</code> 在此不生效。必须使用 <code>AddHandler</code> 配合 <code>FcgidWrapper</code> 指定 <code>php-cgi.exe</code> 的绝对路径才能成功触发解析。</p>
+
+    <h2>3. 工具配置与操作步骤</h2>
+    
+    <h3>工具配置：中国蚁剑</h3>
+    <ul>
+        <li><strong>中国蚁剑：</strong>URL 地址：<code>http://127.0.0.1:8081/upload/shell.jpg</code>；连接密码：<code>cmd</code>；编码：UTF-8。</li>
+    </ul>
+
+    <h3>操作步骤与解析：</h3>
+    
+    <p><strong>第一步：制作 .htaccess 规则文件</strong></p>
+    <p>新建一个文本文件，命名为 <code>.htaccess</code>（无后缀名），写入以下指令（根据本地实际路径配置）：</p>
+    <pre>AddHandler fcgid-script .jpg
+FcgidWrapper "D:/phpstudy_pro/Extensions/php/php5.4.45nts/php-cgi.exe" .jpg</pre>
+    <p>该配置的作用是：将 <code>.jpg</code> 后缀的文件映射给 FastCGI 进程，并使用指定的 PHP CGI 程序进行解析。</p>
+
+    <p><strong>第二步：上传规则与 Payload</strong></p>
+    <p>1. 在 Pass-04 页面直接上传 <code>.htaccess</code> 文件（因其不在黑名单内，直接通过）。</p>
+    <p>2. 准备一个 <code>shell.jpg</code> 文件，内容为 <code>&lt;?php @eval($_POST['cmd']); ?&gt;</code>，并将其上传。</p>
+
+    <p><strong>第三步：验证与连接</strong></p>
+    <p>在浏览器中访问 <code>http://127.0.0.1:8081/upload/shell.jpg</code>。页面返回纯白空白，证明 <code>.htaccess</code> 已生效，图片后缀被成功当作 PHP 脚本解析。</p>
+    <p>使用蚁剑连接该 <code>.jpg</code> 路径，成功获取服务器权限。</p>
+
+    <p><strong>第四步：清理现场（关键）</strong></p>
+    <p>利用蚁剑连接到 <code>upload</code> 目录，右键删除刚才上传的 <code>.htaccess</code> 文件。因为该文件会“污染”整个目录的解析规则，如果不删除，后续关卡上传的任何 <code>.jpg</code> 都会被当成 PHP 执行，导致后续关卡结果失真。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>解析指令的差异：</strong>在 FastCGI 环境下，Apache 不再内置 PHP 解析器，必须通过 <code>FcgidWrapper</code> 显式指定外部 <code>php-cgi.exe</code> 的路径。如果盲目照搬老旧的 <code>AddType</code> 指令，会导致文件上传成功但无法解析，变成普通图片。</li>
+        <li><strong>黑盒思维盲区：</strong>在实战中，往往容易只盯着脚本后缀（如 <code>.php</code>、<code>.jsp</code>）找绕过，而忽略了服务器本身支持的其他特殊配置文件（如 Apache 的 <code>.htaccess</code>，或 Nginx 的配置）。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>.htaccess 劫持</strong>：利用 Apache 的目录级配置文件特性，通过上传恶意规则，改变目标目录内文件解析的映射关系（例如将图片后缀解析为脚本）。</li>
+        <li><strong>FcgidWrapper 指令</strong>：用于在 FastCGI 模式下，将特定后缀的文件绑定到外部的解释器程序（如 php-cgi.exe）。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
