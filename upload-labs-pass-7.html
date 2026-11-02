@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Upload-Labs】Pass-07 尾随空格绕过 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Upload-Labs】Pass-07 尾随空格绕过 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.11.02 | <strong>分类：</strong>CTF | <strong>标签：</strong>Upload-Labs, Web, 文件上传, 尾随空格, WebShell</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Upload-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - 文件上传</li>
+        <li><strong>题目名称：</strong>Pass-07 (服务端黑名单校验 - 尾随空格绕过)</li>
+        <li><strong>提示：</strong>黑名单完善，且服务端存在重命名逻辑。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p>本关卡的核心漏洞在于<strong>代码未对上传的文件名进行去空格处理（未使用 <code>trim()</code> 函数）</strong>。</p>
+    <p>在 Windows 环境下，文件系统通常会自动去除文件名末尾的空格。攻击者通过 Burp Suite 抓包，在 <code>filename</code> 字段的末尾添加一个空格（如 <code>shell.php </code>）。服务端在校验黑名单时，提取到的后缀为 <code>.php </code>（带空格），不在拦截范围内，从而通过校验。当文件落地到系统时，系统自动去除尾随空格，最终生成合法的 <code>.php</code> 文件。</p>
+    <p><strong>环境实测：</strong>本机环境的重命名逻辑为 <code>date("YmdHis").rand(1000,9999).$file_ext</code>，需在上传后通过 F12 或响应包获取真实的随机文件名。</p>
+
+    <h2>3. 工具配置与操作步骤</h2>
+    
+    <h3>工具配置：Burp Suite 与 中国蚁剑</h3>
+    <ul>
+        <li><strong>中国蚁剑：</strong>URL 地址需指向随机命名的真实路径；连接密码：<code>cmd</code>；编码：UTF-8。</li>
+    </ul>
+
+    <h3>操作步骤与解析：</h3>
+    
+    <p><strong>第一步：抓包并添加尾随空格</strong></p>
+    <p>开启 Burp Suite 拦截，上传本地 <code>shell.php</code>。在请求包的 <code>Content-Disposition</code> 字段中，将文件名修改为：</p>
+    <pre>filename="shell.php "</pre>
+    <p>（注意：在 <code>php</code> 与 <code>"</code> 之间必须有一个空格）。</p>
+
+    <p><strong>第二步：放行并获取真实路径</strong></p>
+    <p>点击 Forward 放行。服务器由于未过滤空格，接受文件并重命名保存。查看 HTTP 响应包或在前端使用 F12 审查元素，找到上传后的真实路径（如：<code>../upload/202611022044237560.php</code>）。</p>
+
+    <p><strong>第三步：连接与清理</strong></p>
+    <p>访问该真实路径，页面返回纯白，代码执行成功。使用蚁剑连接该路径，密码 <code>cmd</code>，成功获取权限。连接后删除生成的 <code>.php</code> 文件。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>实战获取真实路径的技巧：</strong>由于没有物理目录的查看权限，实战中必须依赖 HTTP 响应回显。通过 F12 查看源代码或直接检查 Burp 的 Response 标签，搜索关键词 <code>upload/</code>，利用前端回显的 <code>&lt;img src="..."&gt;</code> 标签来提取带时间戳和随机数的真实文件名。</li>
+        <li><strong>环境差异：</strong>部分 Windows 环境在接收带空格的路径时，如果不配合解码，可能会导致 Apache 寻找文件时产生 404 错误。在实际测试中，需根据目标特性灵活结合“尾随点（<code>shell.php.</code>）”等变体进行绕过。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>尾随字符绕过</strong>：利用系统特性（如 Windows 自动去空格/点）与代码校验逻辑之间的差异，通过添加特殊字符（空格、点）欺骗黑名单检测。</li>
+        <li><strong>重命名环境下的路径提取</strong>：在文件被随机重命名的场景下，信息收集能力（查看源码、抓包分析）决定了能否成功连接到木马。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
