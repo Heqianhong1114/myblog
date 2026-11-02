@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Upload-Labs】Pass-06 大小写绕过与环境坑突破 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Upload-Labs】Pass-06 大小写绕过与环境坑突破 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.11.02 | <strong>分类：</strong>CTF | <strong>标签：</strong>Upload-Labs, Web, 文件上传, 大小写绕过, 环境配置, WebShell</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Upload-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - 文件上传</li>
+        <li><strong>题目名称：</strong>Pass-06 (服务端黑名单校验 - 大小写绕过)</li>
+        <li><strong>提示：</strong>黑名单中封堵了各类常见脚本后缀（包括混合大小写），且服务端存在文件重命名逻辑。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p>本关卡的核心漏洞在于<strong>黑名单匹配缺乏统一的格式化处理</strong>。</p>
+    <p>分析源码可知，黑名单数组 <code>$deny_ext</code> 中包含了 <code>.php</code>、<code>.php5</code> 甚至 <code>.pHp</code> 等各种组合，但代码并未使用 <code>strtolower()</code> 将所有输入统一转换为小写，且遗漏了全大写形式 <code>.PHP</code>。由于 Windows 操作系统及 Apache 在匹配文件后缀时对大小写不敏感（能识别 <code>.PHP</code> 为 PHP 脚本），因此可以通过全大写后缀绕过黑名单限制。</p>
+    <p><strong>环境坑注意：</strong>本机为 <code>mod_fcgid</code> 环境，Apache 的 <code>AddHandler</code> 是不区分大小写的，因此能识别 <code>.PHP</code> 为脚本。但 <code>FcgidWrapper</code> 在注册 PHP 解释器路径时，仅针对全小写 <code>.php</code> 注册了解析器。这会导致访问大写 <code>.PHP</code> 时，Apache 找不到对应的解析器，从而返回 <code>500 Internal Server Error</code>。</p>
+
+    <h2>3. 工具配置与操作步骤</h2>
+    
+    <h3>工具配置：中国蚁剑</h3>
+    <ul>
+        <li><strong>中国蚁剑：</strong>URL 地址指向带随机数的真实文件名；连接密码：<code>cmd</code>；编码：UTF-8。</li>
+    </ul>
+
+    <h3>操作步骤与解析：</h3>
+    
+    <p><strong>第一步：准备 Payload 并上传</strong></p>
+    <p>将包含 <code>&lt;?php @eval($_POST['cmd']); ?&gt;</code> 的文件重命名为 <code>test.PHP</code>，在网页直接上传。</p>
+    <p>由于服务端存在 <code>date("YmdHis").rand(1000,9999)</code> 的重命名机制，需在本地物理目录 <code>D:\phpstudy_pro\WWW\upload-labs\upload</code> 中查找到上传后的真实文件名（例如 <code>202611022034121897.PHP</code>）。</p>
+
+    <p><strong>第二步：处理环境坑（500 错误修复）</strong></p>
+    <p>浏览器访问该文件时，返回 <code>500 Internal Server Error</code>。此时需在物理目录下手动创建 <code>.htaccess</code> 文件，强制为 <code>.PHP</code> 后缀补上解释器映射。写入内容如下：</p>
+    <pre>AddHandler fcgid-script .PHP
+FcgidWrapper "D:/phpstudy_pro/Extensions/php/php5.4.45nts/php-cgi.exe" .PHP</pre>
+    <p>保存后，再次访问该 <code>.PHP</code> 文件，页面返回纯白，PHP 代码被成功解析。</p>
+
+    <p><strong>第三步：连接与清理</strong></p>
+    <p>使用蚁剑连接该带随机数的真实路径，密码填 <code>cmd</code>，成功获取权限。连接后立即删除目录下的 <code>.htaccess</code> 及上传的 <code>.PHP</code> 文件，避免配置残留。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>网页上传 .htaccess 被拦截：</strong>尝试通过网页表单直接上传 <code>.htaccess</code> 被服务端拒绝，说明本关黑名单已补充了该配置文件的拦截。解决方法为直接进入物理目录手动创建该文件。</li>
+        <li><strong>遗漏了文件重命名逻辑：</strong>上传后直接访问原名 <code>test.PHP</code> 导致 404，因为在 Pass-03 之后，服务端普遍开启了随机文件名重命名。需建立先查看物理目录或源码找到真实文件名的习惯。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>大小写绕过</strong>：利用代码中未对后缀进行统一小写化处理的缺陷，使用全大写后缀（如 <code>.PHP</code>）绕过黑名单检测。</li>
+        <li><strong>FcgidWrapper 机制</strong>：明确了在 FastCGI 环境下，<code>AddHandler</code> 负责识别后缀，而 <code>FcgidWrapper</code> 负责绑定解释器。当两者在大小写处理上存在差异时，需通过配置覆盖来修复环境。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
