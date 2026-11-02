@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Upload-Labs】Pass-08 尾随点绕过 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Upload-Labs】Pass-08 尾随点绕过 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.11.02 | <strong>分类：</strong>CTF | <strong>标签：</strong>Upload-Labs, Web, 文件上传, 尾随点绕过, WebShell</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Upload-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - 文件上传</li>
+        <li><strong>题目名称：</strong>Pass-08 (服务端黑名单校验 - 尾随点绕过)</li>
+        <li><strong>提示：</strong>任务为上传一个 webshell 到服务器。黑名单过滤了常见的脚本后缀，且尝试了 Pass-07 的尾随空格策略。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p>本关卡的核心漏洞在于<strong>Windows 操作系统底层特性与后端代码校验逻辑之间的差异</strong>。</p>
+    <p>在 Windows 环境中，文件名是不允许以点（<code>.</code>）结尾的（这是为了兼容早期的 DOS 系统）。当文件保存时，Windows API 会在底层自动剥离末尾的点。后端代码虽然使用了 <code>trim()</code> 函数去除了首尾空格（防御了 Pass-07），但未使用 <code>deldot()</code> 函数去除末尾的点。</p>
+    <p>当我们上传文件名为 <code>shell.php.</code> 的文件时，提取到的后缀带有尾随点，不在黑名单内，从而绕过校验。文件落地到 Windows 系统后，尾随点被自动去除，恢复成合法的 <code>shell.php</code>。此外，本关依然存在服务端重命名逻辑，需要通过前端信息收集获取真实路径。</p>
+
+    <h2>3. 工具配置与操作步骤</h2>
+    
+    <h3>工具配置：Burp Suite、浏览器开发者工具 与 中国蚁剑</h3>
+    <ul>
+        <li><strong>中国蚁剑：</strong>URL 地址指向真实触发路径；连接密码：<code>cmd</code>；编码：UTF-8。</li>
+    </ul>
+
+    <h3>操作步骤与解析：</h3>
+    
+    <p><strong>第一步：抓包并在文件名追加尾随点</strong></p>
+    <p>开启 Burp Suite 拦截模式。在网页上传本地的 <code>shell.php</code>。在拦截到的 HTTP 请求包中，找到 <code>Content-Disposition</code> 字段，将文件名修改为：</p>
+    <pre>filename="shell.php."</pre>
+    <p>（注意：在 <code>php</code> 与 <code>"</code> 之间增加一个英文句号）。点击 Forward 放行。</p>
+
+    <p><strong>第二步：前端信息收集查找真实路径</strong></p>
+    <p>由于服务端存在 <code>date("YmdHis").rand(1000,9999)</code> 的重命名逻辑，直接访问 <code>shell.php</code> 可能会报错。在浏览器当前页面按下 <code>F12</code> 打开开发者工具，使用 <code>Ctrl+F</code> 搜索关键词 <code>/upload</code>。</p>
+    <p>在 Elements 面板中，可以精准定位到类似 <code>&lt;img src="../upload/shell.php."&gt;</code> 的代码（由于某种原因，本次环境并未加上随机数，而是保留了原名和尾随点）。</p>
+
+    <p><strong>第三步：访问与连接</strong></p>
+    <p>在浏览器中访问 <code>http://127.0.0.1:8081/upload/shell.php</code>（注意：此时 URL 里不需要带那个点，因为 Windows 底层已自动剥离）。页面呈现纯白状态，说明解析成功。</p>
+    <p>打开蚁剑，URL 填入该路径，密码填入 <code>cmd</code>，测试连接成功，获取服务器权限。</p>
+
+    <p><strong>第四步：清理现场</strong></p>
+    <p>在蚁剑中删除生成的 <code>shell.php</code> 文件，保持 <code>upload</code> 目录干净，避免影响后续关卡。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>F12 搜索定位法的关键作用：</strong>在无法预知服务端是否开启随机重命名时，F12 搜索 <code>/upload</code> 是最快捷的信息收集手段。本次通过 F12 确认了路径为 <code>shell.php.</code>，从而明确了访问时应去掉尾随点。</li>
+        <li><strong>环境特性认知：</strong>Pass-07 的“尾随空格”在本机环境可能无法通过 URL 直接访问，但 Pass-08 的“尾随点”在文件落地时被 Windows 完美剔除。这提示我们在实战中需要根据目标服务器的操作系统类型（Windows/Linux）灵活选择尾随字符。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>尾随点绕过（Windows 特性）</strong>：利用 Windows 系统在保存文件时自动去除末尾点号的特性，配合后端代码未做严格清理的缺陷，实现黑名单绕过。</li>
+        <li><strong>重命名环境下的信息收集</strong>：在文件被重命名的场景下，熟练使用浏览器 F12 和 Burp Response 定位真实回显路径，是实战中建立 WebShell 连接的关键环节。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
