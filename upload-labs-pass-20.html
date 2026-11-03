@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Upload-Labs】Pass-20 save_name 参数与 pathinfo 绕过 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Upload-Labs】Pass-20 save_name 参数与 pathinfo 绕过 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.11.03 | <strong>分类：</strong>CTF | <strong>标签：</strong>Upload-Labs, Web, 文件上传, 逻辑漏洞, WebShell</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Upload-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - 文件上传</li>
+        <li><strong>题目名称：</strong>Pass-20 (save_name 与 pathinfo 绕过)</li>
+        <li><strong>提示：</strong>页面表单提供了一个隐藏参数 <code>save_name</code>，用于控制最终保存的文件名。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p>本关卡源码在保存文件时，使用的是 POST 请求中的 <code>save_name</code> 参数（<code>$file_name = $_POST['save_name'];</code>），而不是上传的原始文件名。</p>
+    <p>随后，代码通过 <code>pathinfo($file_name, PATHINFO_EXTENSION)</code> 来提取后缀进行黑名单比对。若设置 <code>save_name</code> 为 <code>shell.php.</code>（末尾带点），<code>pathinfo</code> 提取出的后缀为空字符串，不在黑名单内，从而绕过检测。</p>
+    <p>最终在 Windows 环境下保存该文件时，系统会自动剥离末尾的点，实际落地的文件名为 <code>shell.php</code>。由于访问时携带尾随点（<code>shell.php.</code>）也能被解析，成功触发代码执行。</p>
+
+    <h2>3. 工具配置与操作步骤</h2>
+    
+    <h3>工具配置：Burp Suite 与 中国蚁剑</h3>
+    <ul>
+        <li><strong>中国蚁剑：</strong>URL 地址：<code>http://127.0.0.1:8081/upload/shell.php.</code>；连接密码：<code>cmd</code>；编码：UTF-8。</li>
+    </ul>
+
+    <h3>操作步骤与解析：</h3>
+    
+    <p><strong>第一步：抓包并篡改 save_name 参数</strong></p>
+    <p>开启 Burp Suite 拦截上传请求。在请求包的底部找到 <code>name="save_name"</code> 字段：</p>
+    <pre>Content-Disposition: form-data; name="save_name"
+
+upload-19.jpg</pre>
+    <p>将其值修改为带尾随点的 <code>shell.php.</code>：</p>
+    <pre>Content-Disposition: form-data; name="save_name"
+
+shell.php.</pre>
+    <p>点击 Forward 放行。</p>
+
+    <p><strong>第二步：验证与连接</strong></p>
+    <p>在浏览器中访问 <code>http://127.0.0.1:8081/upload/shell.php.</code>，页面呈现纯白，说明代码被成功解析执行。</p>
+    <p>打开蚁剑，填入该带点的 URL 及密码 <code>cmd</code>，成功连接并获取服务器权限。随后清理大量由上一关产生的占位文件夹及测试文件。</p>
+
+    <h2>4. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>参数名与参数值的混淆：</strong>在 Burp 中修改时，误将表单的 <code>name</code> 属性（<code>name="save_name"</code>）改成了 Payload，而保留了原本的默认值。导致服务端无法提取正确的 POST 参数，提示上传出错。</li>
+        <li><strong>尾随点的处理差异：</strong>在 Windows 系统中，保存时会剥离末尾的点，但访问时保留 <code>shell.php.</code> 依然能被 FastCGI 正常解析。</li>
+    </ul>
+
+    <h2>5. 知识点总结</h2>
+    <ul>
+        <li><strong>pathinfo 逻辑漏洞</strong>：利用 <code>pathinfo</code> 对非法后缀（如尾随点、空字符）的解析特性，构造出不在黑名单内的空后缀文件名。</li>
+        <li><strong>参数劫持</strong>：当服务端依赖客户端提交的特定参数（如 <code>save_name</code>）来决定保存路径时，篡改该参数即可完全控制文件的落地名称。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
