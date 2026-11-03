@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>【Upload-Labs】Pass-21 save_name 数组与下标空洞绕过 Writeup</title>
+    <title>【Upload-Labs】Pass-21 数组下标空洞与 Boundary 解析实战 Writeup</title>
     <style>
         body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
         h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
@@ -17,10 +17,10 @@
 </head>
 <body>
     <p><a href="index.html">← 返回首页</a></p>
-    <h1>【Upload-Labs】Pass-21 save_name 数组与下标空洞绕过 Writeup</h1>
+    <h1>【Upload-Labs】Pass-21 数组下标空洞与 Boundary 解析实战 Writeup</h1>
     
     <div class="meta">
-        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.11.03 | <strong>分类：</strong>CTF | <strong>标签：</strong>Upload-Labs, Web, 文件上传, 数组绕过, WebShell</p>
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.11.03 | <strong>分类：</strong>CTF | <strong>标签：</strong>Upload-Labs, Web, 文件上传, 数组绕过, HTTP协议, WebShell</p>
     </div>
     
     <h2>1. 题目信息</h2>
@@ -28,53 +28,68 @@
         <li><strong>平台：</strong>Upload-Labs (本地 phpStudy 环境)</li>
         <li><strong>分类：</strong>Web - 文件上传</li>
         <li><strong>题目名称：</strong>Pass-21 (save_name 数组绕过)</li>
-        <li><strong>提示：</strong>代码支持 <code>save_name</code> 以数组形式传入，并对其进行拼接处理。</li>
+        <li><strong>提示：</strong>源码支持 <code>save_name</code> 以数组形式传入，并对其进行拼接与后缀校验。</li>
     </ul>
 
     <h2>2. 核心原理与前置分析</h2>
-    <p>本关卡的漏洞在于对数组元素拼接时的逻辑缺陷。代码使用 <code>end($file)</code> 获取数组最后一个元素用于白名单校验，利用 <code>count()</code> 计算长度用于后续文件名拼接：</p>
-    <pre>$file_name = reset($file) . '.' . $file[count($file) - 1];</pre>
-    <p>当传入一个带有**下标空洞**的数组时（如仅传入 <code>[0]</code> 和 <code>[2]</code>），<code>end($file)</code> 会拿到下标为 2 的合法后缀（<code>jpg</code>）通过校验；但在拼接时，<code>count($file)</code> 算出的长度是 2，尝试去拿 <code>$file[1]</code> 时发现该下标不存在，最终拼接出带有尾随点的 <code>shell.php.</code>。Windows 落地时自动去点，变为 <code>shell.php</code>。</p>
+    <p>本关卡的核心漏洞在于 <strong>PHP 数组下标空洞导致的计算逻辑错位</strong>。</p>
+    <p>源码获取文件后缀与拼接文件名的逻辑如下：</p>
+    <pre>$file = $_POST['save_name'];
+$ext = end($file); // 取数组最后一个元素作为后缀进行白名单校验
+...
+$file_name = reset($file) . '.' . $file[count($file) - 1]; // 拼接最终文件名</pre>
+    <p>当我们在 HTTP 请求中构造一个带有“下标空洞”的数组（如只传 <code>[0]</code> 和 <code>[2]</code>，跳过 <code>[1]</code>）：</p>
+    <ol>
+        <li><code>end($file)</code> 会获取到下标为 2 的值（如 <code>jpg</code>），成功通过白名单校验。</li>
+        <li>代码计算数组长度 <code>count($file)</code> 为 2。因此尝试获取 <code>$file[2-1]</code> 即 <code>$file[1]</code> 的值。</li>
+        <li>由于我们故意没有传 <code>[1]</code>，PHP 会触发 Warning 并返回空值。最终拼接出的文件名为 <code>shell.php.</code>（末尾带点）。</li>
+        <li>Windows 系统保存文件时会自动剔除末尾的点，最终在服务器上落地为合法的 <code>shell.php</code>。</li>
+    </ol>
 
     <h2>3. 工具配置与操作步骤</h2>
     
     <h3>工具配置：Burp Suite 与 中国蚁剑</h3>
     <ul>
-        <li><strong>中国蚁剑：</strong>URL 地址：<code>http://127.0.0.1:8081/upload/shell.php</code>；连接密码：<code>pass</code>（本次 Payload 为 pass）。</li>
+        <li><strong>中国蚁剑：</strong>URL 地址：<code>http://127.0.0.1:8081/upload/shell.php</code>；连接密码：<code>pass</code>；编码：UTF-8。</li>
     </ul>
 
     <h3>操作步骤与解析：</h3>
     
-    <p><strong>第一步：构造多部分表单数据（Multipart）</strong></p>
-    <p>在 Burp 中，将原本的 <code>save_name</code> 字段替换为两个字段，故意跳过 <code>[1]</code>：</p>
-    <pre>------WebKitFormBoundary...
-Content-Disposition: form-data; name="save_name[0]"
+    <p><strong>第一步：拦截请求与修改报文</strong></p>
+    <p>在网页选择包含 Payload 的图片马（如 <code>shell.php.jpg</code>）上传，开启 Burp 拦截。</p>
+    <p>在请求体中，确保文件部分的 MIME 类型为 <code>image/jpeg</code>，并找到 <code>save_name</code> 字段。将其替换为两个带有下标空洞的字段：</p>
+    <pre>Content-Disposition: form-data; name="save_name[0]"
 
 shell.php
 ------WebKitFormBoundary...
 Content-Disposition: form-data; name="save_name[2]"
 
 jpg</pre>
-    <p>同时确保 <code>upload_file</code> 的 <code>Content-Type</code> 为 <code>image/jpeg</code>。</p>
-    <p><strong>⚠️ 极度重要：</strong>所有 boundary 字符串必须与请求头 <code>Content-Type: multipart/form-data; boundary=...</code> 中声明的字符串**完全一致**，即使少写一个字母也会导致服务端解析失败。</p>
+    <p>确保原请求包末尾的 <code>submit=upload</code> 字段依然存在，随后放行。</p>
 
     <p><strong>第二步：验证与连接</strong></p>
-    <p>服务端页面提示“文件上传成功！”，F12 中显示路径为 <code>shell.php.</code>。浏览器访问 <code>http://127.0.0.1:8081/upload/shell.php</code>（白屏，因 <code>@eval</code> 无回显）。使用蚁剑以密码 <code>pass</code> 连接，成功获取服务器权限。</p>
+    <p>页面提示“文件上传成功！”。由于 Payload 为 <code>&lt;?php @eval($_POST['pass']); ?&gt;</code>，直接访问不会回显。使用蚁剑填入该 URL 及密码 <code>pass</code>，成功获取服务器权限。</p>
 
-    <h2>4. 踩坑记录与复盘</h2>
+    <h2>4. 踩坑记录与深度复盘（极其重要）</h2>
     <ul>
-        <li><strong>Boundary 拼写错误：</strong>在 Burp 手动修改报文时，将 boundary 结尾的 `AA1`（数字1）错写成了 `AAl`（小写字母L），导致 PHP 完全无法解析后面的 <code>save_name</code> 字段，回退使用原文件名 <code>shell.php.jpg</code>，导致保存成 <code>shell.jpg</code> 无法执行。</li>
-        <li><strong>缺少 submit 字段：</strong>构造报文时遗漏了 <code>submit=upload</code>，导致代码未进入上传逻辑块，页面表现为无响应。</li>
+        <li><strong>致命坑1：Boundary 边界符拼写错误</strong><br>
+            请求头中声明的是 <code>boundary=----WebKitFormBoundary...AA1</code>（结尾是数字 1），但在手动修改请求体时，后续字段的分隔符被误写成了 <code>...AAl</code>（结尾是小写字母 L）。由于 HTTP 协议要求分隔符必须与头部声明**严格保持字节级一致**，导致 PHP 无法解析分隔符之后的表单数据，<code>save_name</code> 数组直接丢失，退回使用原文件名，最终落地为无法执行的图片文件。</li>
+        <li><strong>致命坑2：遗漏 submit 字段</strong><br>
+            在手动编写/替换请求体时，删掉了 <code>submit=upload</code> 字段。由于外层逻辑是 <code>if(isset($_POST['submit']))</code>，服务端直接跳过了整个上传逻辑，导致页面无任何响应。</li>
+        <li><strong>格式坑：缺少头部与内容的空行</strong><br>
+            在 <code>Content-Type: image/jpeg</code> 头部与具体文件内容 <code>&lt;?php ... ?&gt;</code> 之间，必须有一个完整的空行（CRLF）。如果缺失空行，服务端会将 PHP 代码视为 Content-Type 的续行，导致文件内容为空（0字节）。</li>
+        <li><strong>认知坑：浏览器白屏 vs 蚁剑连通</strong><br>
+            <code>@eval</code> 是一个无回显的执行函数。浏览器发送的是 GET 请求，没有携带 <code>pass</code> 参数，代码空跑一遍，所以页面纯白（这是解析成功的表现）。而蚁剑发送的是携带了参数的 POST 请求，所以能正常通信。</li>
     </ul>
 
     <h2>5. 知识点总结</h2>
     <ul>
-        <li><strong>数组下标漏洞</strong>：利用 PHP 弱类型特性及数组索引计算缺陷（<code>count()</code> 与下标不匹配），绕过白名单并构造特殊文件名。</li>
-        <li><strong>HTTP 报文解析机制</strong>：深刻理解 <code>multipart/form-data</code> 的结构，确保 boundary 边界符前后一致，否则服务端无法正确解析数据块。</li>
+        <li><strong>数组下标空洞绕过</strong>：利用 <code>count()</code> 计算的索引与数组实际键名不匹配的逻辑漏洞，制造出特殊后缀（如尾随点）。</li>
+        <li><strong>HTTP Multipart 协议严谨性</strong>：深入理解了 HTTP 请求头的 <code>boundary</code> 与 Body 中的分隔符必须完全一致，以及报文中空行的严格规范。</li>
     </ul>
 
     <div class="footer">
         <p>Hosted on GitHub Pages</p>
     </div>
 </body>
-</html>
+</html> 
